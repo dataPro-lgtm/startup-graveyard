@@ -1,0 +1,18 @@
+[
+  {
+    "id": "collect-1768978409237-WebCollector",
+    "date": "2026-01-21",
+    "source": "WebCollector",
+    "count": 0,
+    "status": "success",
+    "createdAt": "2026-01-21T06:53:29.238Z"
+  },
+  {
+    "id": "collect-1768978409238-ManualCollector",
+    "date": "2026-01-21",
+    "source": "ManualCollector",
+    "count": 0,
+    "status": "success",
+    "createdAt": "2026-01-21T06:53:29.238Z"
+  }
+]

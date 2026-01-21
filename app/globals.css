@@ -1,0 +1,125 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-graveyard-dark text-gray-100;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+@layer components {
+  /* 墓碑卡片样式 */
+  .tombstone-card {
+    position: relative;
+    background: linear-gradient(135deg, #1a1a1a 0%, #0f0f0f 100%);
+    border: 2px solid #2a2a2a;
+    border-radius: 8px;
+    padding: 1.5rem;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow: hidden;
+  }
+
+  .tombstone-card::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(circle, rgba(239, 68, 68, 0.1) 0%, transparent 70%);
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+
+  .tombstone-card:hover::before {
+    opacity: 1;
+  }
+
+  .tombstone-card:hover {
+    transform: translateY(-4px) scale(1.02);
+    border-color: #ef4444;
+    box-shadow: 0 20px 40px rgba(239, 68, 68, 0.2), 0 0 20px rgba(239, 68, 68, 0.1);
+  }
+
+  /* 墓碑顶部装饰 */
+  .tombstone-top {
+    position: relative;
+    margin-bottom: 1rem;
+  }
+
+  .tombstone-top::after {
+    content: '⚰️';
+    position: absolute;
+    top: -10px;
+    right: 0;
+    font-size: 1.5rem;
+    opacity: 0.3;
+    transition: all 0.3s;
+  }
+
+  .tombstone-card:hover .tombstone-top::after {
+    opacity: 0.8;
+    transform: rotate(15deg) scale(1.2);
+  }
+
+  /* 闪烁动画 */
+  @keyframes flicker {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
+  .flicker {
+    animation: flicker 2s infinite;
+  }
+
+  /* 脉冲动画 */
+  @keyframes pulse-glow {
+    0%, 100% {
+      box-shadow: 0 0 5px rgba(239, 68, 68, 0.5);
+    }
+    50% {
+      box-shadow: 0 0 20px rgba(239, 68, 68, 0.8), 0 0 30px rgba(239, 68, 68, 0.4);
+    }
+  }
+
+  .pulse-glow {
+    animation: pulse-glow 2s ease-in-out infinite;
+  }
+
+  /* 淡入动画 */
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .animate-fade-in {
+    animation: fade-in 0.6s ease-out forwards;
+    opacity: 0;
+  }
+
+  /* 渐变文字 */
+  .gradient-text {
+    background: linear-gradient(135deg, #ef4444 0%, #f97316 50%, #eab308 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* 墓碑形状 */
+  .tombstone-shape {
+    clip-path: polygon(20% 0%, 80% 0%, 100% 20%, 100% 100%, 0% 100%, 0% 20%);
+  }
+}

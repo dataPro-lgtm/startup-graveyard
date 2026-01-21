@@ -1,0 +1,39 @@
+{
+  "name": "startup-graveyard",
+  "version": "1.0.0",
+  "description": "创业坟场 - 记录和分析创业失败案例",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "collect": "node -r ts-node/register scripts/collect.ts",
+    "init-data": "node scripts/init-default-data.js",
+    "test:collection": "tsx scripts/test-collection.ts",
+    "test:api": "node scripts/test-api.mjs",
+    "test:cron": "node scripts/test-cron.mjs"
+  },
+  "dependencies": {
+    "next": "^14.0.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "recharts": "^2.10.0",
+    "lucide-react": "^0.294.0",
+    "node-cron": "^3.0.3",
+    "axios": "^1.6.0",
+    "cheerio": "^1.0.0-rc.12",
+    "date-fns": "^2.30.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "typescript": "^5.0.0",
+    "tailwindcss": "^3.3.0",
+    "postcss": "^8.4.0",
+    "autoprefixer": "^10.4.0",
+    "eslint": "^8.0.0",
+    "eslint-config-next": "^14.0.0"
+  }
+}
