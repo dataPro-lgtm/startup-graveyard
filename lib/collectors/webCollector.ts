@@ -67,7 +67,8 @@ export class WebCollector extends BaseCollector {
             : '';
 
           if (title) {
-            const startup = this.parseArticle(title, description, link, source.name);
+            const sourceName: string = source.name ?? 'Unknown Source';
+            const startup = this.parseArticle(title, description, link, sourceName);
             if (startup) {
               startups.push(startup);
             }
