@@ -10,8 +10,6 @@
     "lint": "next lint",
     "collect": "node -r ts-node/register scripts/collect.ts",
     "init-data": "node scripts/init-data.mjs",
-    "deploy": "bash scripts/deploy.sh",
-    "update": "bash scripts/update.sh",
     "docker:build": "docker-compose build",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down",

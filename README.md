@@ -49,9 +49,7 @@ npm run dev
 #### 🐳 Docker 部署（简化版）
 查看 [DOCKER_QUICK_START.md](./DOCKER_QUICK_START.md)
 
-#### 原生部署
-- Ubuntu/Debian: [ALIYUN_DEPLOY.md](./ALIYUN_DEPLOY.md)
-- CentOS 7: [CENTOS7_DEPLOY.md](./CENTOS7_DEPLOY.md)
+> 推荐：生产环境优先使用 Vercel（GitHub 一键部署）或 Docker 自托管。
 
 ### 构建生产版本
 
