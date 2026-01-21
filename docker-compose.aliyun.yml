@@ -1,0 +1,16 @@
+# 使用国内镜像源的docker-compose配置
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.aliyun
+    container_name: startup-graveyard
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production

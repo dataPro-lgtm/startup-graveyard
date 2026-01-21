@@ -12,12 +12,6 @@ interface StatsPanelProps {
 export default function StatsPanel({ startups }: StatsPanelProps) {
   const [hoveredBar, setHoveredBar] = useState<string | null>(null);
   const [hoveredPie, setHoveredPie] = useState<number | null>(null);
-
-  // 确保startups是数组且不为空
-  if (!startups || startups.length === 0) {
-    return null;
-  }
-
   // 使用useMemo确保数据计算基于传入的startups
   const statsData = useMemo(() => {
     if (!startups || startups.length === 0) {
@@ -66,6 +60,11 @@ export default function StatsPanel({ startups }: StatsPanelProps) {
       countryStats,
     };
   }, [startups]);
+
+  // 如果没有数据，直接不渲染面板（在 hooks 调用之后判断就不会触发 hooks 规则）
+  if (!startups || startups.length === 0) {
+    return null;
+  }
 
   // 处理图表数据
   const industryData = Object.entries(statsData.industryStats)

@@ -183,7 +183,7 @@ export default function StartupDetailPage({ params }: PageProps) {
           <div className="bg-gradient-to-br from-graveyard-gray to-graveyard-dark border-2 border-blue-500/20 rounded-xl p-6 relative overflow-hidden">
             <div className="absolute top-0 right-0 text-6xl opacity-5">📚</div>
             <p className="text-gray-300 leading-relaxed relative z-10 italic text-lg">
-              "{startup.description}"
+              {startup.description}
             </p>
           </div>
         </section>

@@ -66,7 +66,7 @@ export default function StartupCard({ startup }: StartupCardProps) {
 
         {/* 墓志铭（描述） */}
         <p className="text-gray-300 text-sm mb-4 line-clamp-2 italic">
-          "{startup.description}"
+          {startup.description}
         </p>
 
         {/* Info Grid */}
