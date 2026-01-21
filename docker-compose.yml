@@ -1,21 +1,14 @@
-# 注意：如果使用新版本Docker，可以使用 docker compose（插件）
-# 如果使用旧版本，需要安装 docker-compose
-# version: '3.8'  # 新版本Docker Compose不需要这行
-
 services:
   app:
     build:
       context: .
-      dockerfile: Dockerfile.simple
-      # 如果Docker Hub无法访问，使用以下配置：
-      # dockerfile: Dockerfile.aliyun
+      dockerfile: Dockerfile
     container_name: startup-graveyard
     restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
       - NODE_ENV=production
-      - PORT=3000
     volumes:
       # 数据持久化
       - ./data:/app/data

@@ -46,8 +46,8 @@ npm run dev
 
 ### 生产部署
 
-#### 🐳 Docker 部署（推荐，最简单）
-查看 [DOCKER_DEPLOY.md](./DOCKER_DEPLOY.md) 或 [DOCKER_QUICK_START.md](./DOCKER_QUICK_START.md)
+#### 🐳 Docker 部署（简化版）
+查看 [DOCKER_QUICK_START.md](./DOCKER_QUICK_START.md)
 
 #### 原生部署
 - Ubuntu/Debian: [ALIYUN_DEPLOY.md](./ALIYUN_DEPLOY.md)
