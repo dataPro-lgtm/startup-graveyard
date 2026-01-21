@@ -59,9 +59,10 @@ export class WebCollector extends BaseCollector {
       $(source.selectors.list).each((index, element) => {
         try {
           const title = $(element).find(source.selectors.title).text().trim();
-          const link = source.selectors.link 
-            ? $(element).find(source.selectors.link).attr('href') 
+          const rawLink = source.selectors.link
+            ? $(element).find(source.selectors.link).attr('href')
             : '';
+          const link: string = rawLink || '';
           const description = source.selectors.description
             ? $(element).find(source.selectors.description).text().trim()
             : '';
