@@ -30,12 +30,13 @@ export class CollectorManager {
     };
 
     for (const collector of this.collectors) {
-      if (!collector.config.enabled) {
+      if (!collector.isEnabled()) {
         continue;
       }
 
       try {
-        console.log(`Starting collection from ${collector.config.name}...`);
+        const cfg = collector.getConfig();
+        console.log(`Starting collection from ${cfg.name}...`);
         const startTime = Date.now();
         
         // 采集数据
@@ -61,25 +62,26 @@ export class CollectorManager {
         
         // 记录采集日志
         const record: CollectionRecord = {
-          id: `collect-${Date.now()}-${collector.config.name}`,
+          id: `collect-${Date.now()}-${cfg.name}`,
           date: format(new Date(), 'yyyy-MM-dd'),
-          source: collector.config.name,
+          source: cfg.name,
           count: processedStartups.length,
           status: 'success',
           createdAt: new Date().toISOString(),
         };
         addCollectionRecord(record);
 
-        console.log(`✓ Collected ${processedStartups.length} startups from ${collector.config.name} in ${duration}ms`);
+        console.log(`✓ Collected ${processedStartups.length} startups from ${cfg.name} in ${duration}ms`);
       } catch (error) {
-        console.error(`✗ Error collecting from ${collector.config.name}:`, error);
+        const cfg = collector.getConfig();
+        console.error(`✗ Error collecting from ${cfg.name}:`, error);
         results.failed++;
 
         // 记录失败日志
         const record: CollectionRecord = {
-          id: `collect-${Date.now()}-${collector.config.name}`,
+          id: `collect-${Date.now()}-${cfg.name}`,
           date: format(new Date(), 'yyyy-MM-dd'),
-          source: collector.config.name,
+          source: cfg.name,
           count: 0,
           status: 'failed',
           error: error instanceof Error ? error.message : String(error),
@@ -96,9 +98,12 @@ export class CollectorManager {
    * 获取采集器状态
    */
   getCollectorStatus(): Array<{ name: string; enabled: boolean }> {
-    return this.collectors.map(c => ({
-      name: c.config.name,
-      enabled: c.config.enabled,
-    }));
+    return this.collectors.map(c => {
+      const cfg = c.getConfig();
+      return {
+        name: cfg.name,
+        enabled: cfg.enabled,
+      };
+    });
   }
 }

@@ -13,6 +13,15 @@ export abstract class BaseCollector {
     this.config = config;
   }
 
+  // 提供只读访问器，供管理器读取名称/开关状态
+  getConfig(): CollectorConfig {
+    return this.config;
+  }
+
+  isEnabled(): boolean {
+    return this.config.enabled;
+  }
+
   abstract collect(): Promise<Startup[]>;
 
   // 数据标准化
