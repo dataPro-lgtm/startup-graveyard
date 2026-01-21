@@ -29,25 +29,29 @@
 
 ## 🚀 快速开始
 
-### 安装依赖
+### 本地开发
 
 ```bash
+# 安装依赖
 npm install
-```
 
-### 初始化数据
-
-```bash
+# 初始化数据
 npm run init-data
-```
 
-### 开发模式
-
-```bash
+# 启动开发服务器
 npm run dev
 ```
 
 访问 [http://localhost:3000](http://localhost:3000)
+
+### 生产部署
+
+#### 🐳 Docker 部署（推荐，最简单）
+查看 [DOCKER_DEPLOY.md](./DOCKER_DEPLOY.md) 或 [DOCKER_QUICK_START.md](./DOCKER_QUICK_START.md)
+
+#### 原生部署
+- Ubuntu/Debian: [ALIYUN_DEPLOY.md](./ALIYUN_DEPLOY.md)
+- CentOS 7: [CENTOS7_DEPLOY.md](./CENTOS7_DEPLOY.md)
 
 ### 构建生产版本
 
