@@ -36,17 +36,40 @@ else
     echo -e "${GREEN}✓ Docker 已安装: $(docker --version)${NC}"
 fi
 
-# 检查Docker Compose
-if ! command -v docker-compose &> /dev/null; then
+# 检查Docker Compose（优先使用docker compose插件，如果没有则使用docker-compose）
+if docker compose version &> /dev/null; then
+    COMPOSE_CMD="docker compose"
+    echo -e "${GREEN}✓ Docker Compose 插件已安装${NC}"
+elif command -v docker-compose &> /dev/null; then
+    COMPOSE_CMD="docker-compose"
+    echo -e "${GREEN}✓ Docker Compose 已安装: $(docker-compose --version)${NC}"
+else
     echo -e "${YELLOW}安装Docker Compose...${NC}"
     
-    # 下载Docker Compose
-    sudo curl -L "https://github.com/docker/compose/releases/download/v2.24.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-    sudo chmod +x /usr/local/bin/docker-compose
+    # 尝试安装Docker Compose插件（推荐）
+    if ! docker compose version &> /dev/null; then
+        # 下载Docker Compose独立版本
+        sudo curl -L "https://github.com/docker/compose/releases/download/v2.24.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+        sudo chmod +x /usr/local/bin/docker-compose
+        
+        # 如果还是失败，尝试使用pip安装
+        if [ ! -f "/usr/local/bin/docker-compose" ] || [ ! -x "/usr/local/bin/docker-compose" ]; then
+            echo -e "${YELLOW}尝试使用pip安装...${NC}"
+            sudo yum install -y python3-pip
+            sudo pip3 install docker-compose
+        fi
+    fi
+    
+    if docker compose version &> /dev/null; then
+        COMPOSE_CMD="docker compose"
+    elif command -v docker-compose &> /dev/null; then
+        COMPOSE_CMD="docker-compose"
+    else
+        echo -e "${RED}✗ Docker Compose 安装失败${NC}"
+        exit 1
+    fi
     
     echo -e "${GREEN}✓ Docker Compose 安装完成${NC}"
-else
-    echo -e "${GREEN}✓ Docker Compose 已安装: $(docker-compose --version)${NC}"
 fi
 
 # 确保数据目录存在
@@ -60,10 +83,10 @@ fi
 
 # 构建并启动
 echo -e "${GREEN}构建Docker镜像...${NC}"
-docker-compose build
+$COMPOSE_CMD build
 
 echo -e "${GREEN}启动容器...${NC}"
-docker-compose up -d
+$COMPOSE_CMD up -d
 
 # 等待容器启动
 echo -e "${YELLOW}等待容器启动...${NC}"
@@ -74,15 +97,15 @@ if docker ps | grep -q "startup-graveyard"; then
     echo -e "${GREEN}✅ 部署完成！${NC}"
     echo ""
     echo "📊 容器状态:"
-    docker-compose ps
+    $COMPOSE_CMD ps
     echo ""
-    echo "📝 查看日志: docker-compose logs -f"
-    echo "🔄 重启: docker-compose restart"
-    echo "⏹️  停止: docker-compose down"
+    echo "📝 查看日志: $COMPOSE_CMD logs -f"
+    echo "🔄 重启: $COMPOSE_CMD restart"
+    echo "⏹️  停止: $COMPOSE_CMD down"
     echo ""
     echo "🌐 访问地址: http://your-server-ip:3000"
 else
-    echo -e "${RED}✗ 容器启动失败，查看日志: docker-compose logs${NC}"
+    echo -e "${RED}✗ 容器启动失败，查看日志: $COMPOSE_CMD logs${NC}"
     exit 1
 fi
 
