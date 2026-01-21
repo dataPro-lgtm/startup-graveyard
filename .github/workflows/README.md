@@ -1,3 +1,17 @@
+# GitHub Actions
+
+## CI/CD 配置
+
+如果需要启用CI/CD，需要：
+
+1. 在GitHub Personal Access Token中添加 `workflow` 权限
+2. 或者使用SSH密钥进行推送
+
+## 启用CI
+
+创建 `.github/workflows/ci.yml` 文件：
+
+```yaml
 name: CI
 
 on:
@@ -27,3 +41,4 @@ jobs:
     
     - name: Build
       run: npm run build
+```
