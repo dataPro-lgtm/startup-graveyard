@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool, QueryResultRow } from 'pg';
 import { runIngestionJob } from '../ingestion/runIngestionJob.js';
+import type { AdminCaseAttachmentsRepository } from './adminCaseAttachmentsRepository.js';
 import type { AdminWriteRepository } from './adminWriteRepository.js';
 import type { EnqueueIngestionJobBody } from '../schemas/ingestionJobs.js';
+import type { SourceSnapshotsRepository } from './sourceSnapshotsRepository.js';
 import { withTransaction } from '../db/withTransaction.js';
 
 export type ListIngestionJobsParams = {
@@ -80,7 +82,11 @@ function rowToItem(row: JobRow): IngestionJobItem {
 export class MockIngestionJobsRepository implements IngestionJobsRepository {
   private readonly jobs: IngestionJobItem[] = [];
 
-  constructor(private readonly adminWrite?: AdminWriteRepository) {}
+  constructor(
+    private readonly adminWrite?: AdminWriteRepository,
+    private readonly adminAttachments?: AdminCaseAttachmentsRepository,
+    private readonly sourceSnapshots?: SourceSnapshotsRepository,
+  ) {}
 
   async listRecent(params: ListIngestionJobsParams): Promise<IngestionJobItem[]> {
     let rows = this.jobs;
@@ -134,7 +140,11 @@ export class MockIngestionJobsRepository implements IngestionJobsRepository {
         triggerType: cur.triggerType,
         payload: cur.payload,
       },
-      { adminWrite: this.adminWrite },
+      {
+        adminWrite: this.adminWrite,
+        adminAttachments: this.adminAttachments,
+        sourceSnapshots: this.sourceSnapshots,
+      },
     );
 
     const doneAt = new Date().toISOString();
@@ -201,6 +211,8 @@ export class PgIngestionJobsRepository implements IngestionJobsRepository {
   constructor(
     private readonly pool: Pool,
     private readonly adminWrite?: AdminWriteRepository,
+    private readonly adminAttachments?: AdminCaseAttachmentsRepository,
+    private readonly sourceSnapshots?: SourceSnapshotsRepository,
   ) {}
 
   async listRecent(params: ListIngestionJobsParams): Promise<IngestionJobItem[]> {
@@ -291,7 +303,12 @@ export class PgIngestionJobsRepository implements IngestionJobsRepository {
         triggerType: claimed.trigger_type,
         payload: mapPayload(claimed.payload),
       },
-      { adminWrite: this.adminWrite, pool: this.pool },
+      {
+        adminWrite: this.adminWrite,
+        adminAttachments: this.adminAttachments,
+        sourceSnapshots: this.sourceSnapshots,
+        pool: this.pool,
+      },
     );
 
     // Phase 3: persist outcome

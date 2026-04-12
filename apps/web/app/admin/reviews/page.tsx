@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { fetchAdminAudit } from '@/lib/adminAuditServer';
 import { fetchAdminIngestionJobs } from '@/lib/adminIngestionServer';
 import { fetchAdminReviews } from '@/lib/adminReviewsServer';
+import { fetchAdminSourceSnapshots } from '@/lib/adminSourceSnapshotsServer';
 import { pickSearchParam } from '@/lib/searchParams';
 import {
   approveReview,
@@ -122,10 +123,11 @@ export default async function AdminReviewsPage({
 }) {
   const raw = await searchParams;
   const qs = buildReviewsApiQuery(raw);
-  const [result, audit, ingestion] = await Promise.all([
+  const [result, audit, ingestion, snapshots] = await Promise.all([
     fetchAdminReviews(qs),
     fetchAdminAudit(25),
     fetchAdminIngestionJobs(buildIngestionListQuery(raw)),
+    fetchAdminSourceSnapshots('?limit=8'),
   ]);
   const tab = tabFromRaw(raw);
 
@@ -582,9 +584,11 @@ export default async function AdminReviewsPage({
           <br />
           <span style={{ fontSize: 12 }}>
             内置处理器：<code>echo</code> → <code>payload.message</code>； <code>fetch_title</code>{' '}
-            → <code>payload.url</code>； <code>create_draft</code> → 与「新建草稿」同字段；{' '}
+            → <code>payload.url</code>； <code>capture_source_snapshot</code> → 抓取 URL 并保存
+            source snapshot； <code>create_draft</code> → 与「新建草稿」同字段；{' '}
             <code>pipeline_url_draft</code> → <code>url</code> + <code>slug</code> +{' '}
-            <code>summary</code> + <code>industryKey</code>； <code>upsert_embedding_stub</code> →{' '}
+            <code>summary</code> + <code>industryKey</code>，并自动保存 snapshot + 附一条
+            evidence； <code>upsert_embedding_stub</code> →{' '}
             <code>payload.caseId</code>（需 PG，演示向量）；其它 为 noop。长时间{' '}
             <code>running</code> 可用下方「回收卡住」重置为 <code>queued</code>。
           </span>
@@ -696,6 +700,8 @@ export default async function AdminReviewsPage({
           >
             {`echo → {"message":"ping"}
 fetch_title → {"url":"https://example.com"}
+capture_source_snapshot → {"url":"https://example.com/post"}
+pipeline_url_draft → {"url":"https://example.com/post","slug":"my-startup","summary":"...","industryKey":"saas"}
 upsert_embedding_stub → {"caseId":"<已发布 case 的 uuid>"}`}
           </pre>
         </details>
@@ -833,6 +839,69 @@ upsert_embedding_stub → {"caseId":"<已发布 case 的 uuid>"}`}
                       重新入队
                     </button>
                   </form>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </section>
+
+      <section
+        style={{
+          marginTop: 48,
+          padding: 20,
+          borderRadius: 16,
+          border: '1px solid #1d2746',
+          background: '#10172b',
+        }}
+      >
+        <h2 style={{ fontSize: 20, margin: '0 0 8px' }}>来源快照（最近 8 条）</h2>
+        <p style={{ color: '#8a96b0', fontSize: 13, marginBottom: 16 }}>
+          记录抓取时刻的 URL、标题、摘要和内容 hash，便于追查 ingestion 来源与后续抽取质量。
+        </p>
+        {snapshots.ok === false && snapshots.reason === 'bad_response' ? (
+          <p style={{ color: '#c8d0e5', fontSize: 14 }}>暂无快照数据。</p>
+        ) : null}
+        {snapshots.ok && snapshots.data.items.length === 0 ? (
+          <p style={{ color: '#c8d0e5', fontSize: 14 }}>尚无来源快照。</p>
+        ) : null}
+        {snapshots.ok && snapshots.data.items.length > 0 ? (
+          <ul
+            style={{
+              listStyle: 'none',
+              padding: 0,
+              margin: 0,
+              display: 'grid',
+              gap: 10,
+            }}
+          >
+            {snapshots.data.items.map((snapshot) => (
+              <li
+                key={snapshot.id}
+                style={{
+                  padding: 12,
+                  borderRadius: 10,
+                  border: '1px solid #1d2746',
+                  background: '#0d1428',
+                }}
+              >
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                  <span style={{ color: '#9fb3ff', fontSize: 12 }}>{snapshot.sourceName}</span>
+                  <span style={{ fontSize: 12, color: '#8a96b0' }}>
+                    {new Date(snapshot.fetchedAt).toLocaleString('zh-CN')}
+                  </span>
+                  <span style={{ fontSize: 12, color: '#8a96b0' }}>HTTP {snapshot.httpStatus}</span>
+                </div>
+                <div style={{ marginTop: 6, fontSize: 15, color: '#f5f7fb', fontWeight: 600 }}>
+                  {snapshot.title ?? '(无标题)'}
+                </div>
+                <div style={{ marginTop: 6, fontSize: 12, color: '#8a96b0', wordBreak: 'break-all' }}>
+                  {snapshot.finalUrl}
+                </div>
+                {snapshot.excerpt ? (
+                  <p style={{ margin: '8px 0 0', fontSize: 13, color: '#c8d0e5', lineHeight: 1.5 }}>
+                    {snapshot.excerpt}
+                  </p>
                 ) : null}
               </li>
             ))}

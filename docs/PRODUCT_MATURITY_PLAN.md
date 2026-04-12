@@ -123,3 +123,9 @@
 - `approve` 新增 publish gate，至少要求 1 条证据来源和 1 个失败因子。
 - 审核列表返回 publish readiness，运营台可直接看到缺口。
 - OpenAPI 已同步到新的 review 状态机与错误语义。
+
+已完成 M1 第二段（数据来源留痕）：
+
+- 新增 `source_snapshots`，抓取 URL 时会保存标题、摘要、内容 hash 与元数据。
+- `pipeline_url_draft` 升级为 `抓取 -> snapshot -> draft -> evidence`。
+- Admin 运营台可直接查看最近抓取的 source snapshots。

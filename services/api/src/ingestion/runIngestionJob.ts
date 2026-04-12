@@ -1,7 +1,10 @@
 import type { Pool } from 'pg';
 import { z } from 'zod';
 import { embedCaseDocument, vectorToPgLiteral } from '../ai/openaiEmbed.js';
+import { captureSourceSnapshot } from './sourceSnapshot.js';
+import type { AdminCaseAttachmentsRepository } from '../repositories/adminCaseAttachmentsRepository.js';
 import type { AdminWriteRepository } from '../repositories/adminWriteRepository.js';
+import type { SourceSnapshotsRepository } from '../repositories/sourceSnapshotsRepository.js';
 import { createDraftCaseBodySchema } from '../schemas/adminCases.js';
 
 export type IngestionRunInput = {
@@ -12,6 +15,8 @@ export type IngestionRunInput = {
 
 export type IngestionRunContext = {
   adminWrite?: AdminWriteRepository;
+  adminAttachments?: AdminCaseAttachmentsRepository;
+  sourceSnapshots?: SourceSnapshotsRepository;
   pool?: Pool;
 };
 
@@ -23,42 +28,13 @@ function clip(s: string): string {
   return s.length <= ERR_MAX ? s : s.slice(0, ERR_MAX);
 }
 
-async function fetchHtmlTitle(
-  urlInput: string,
-): Promise<{ ok: true; title: string } | { ok: false; error: string }> {
-  try {
-    const u = new URL(urlInput.trim());
-    if (u.protocol !== 'http:' && u.protocol !== 'https:') {
-      return { ok: false, error: '仅支持 http/https' };
-    }
-    const res = await fetch(u, {
-      redirect: 'follow',
-      headers: {
-        'user-agent': 'StartupGraveyardIngestion/1.0',
-        accept: 'text/html,*/*;q=0.8',
-      },
-      signal: AbortSignal.timeout(12_000),
-    });
-    if (!res.ok) {
-      return { ok: false, error: `HTTP ${res.status}` };
-    }
-    const html = await res.text();
-    const m = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html);
-    const rawTitle = m?.[1]?.replace(/\s+/g, ' ').trim() ?? '';
-    const title = rawTitle.length > 0 ? rawTitle.slice(0, 800) : '(未找到 <title>)';
-    return { ok: true, title };
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return { ok: false, error: clip(msg) };
-  }
-}
-
 /**
  * 按 `sourceName` 分发；未知来源视为 noop 成功。
  * - **echo**：`payload.message` 非空字符串。
  * - **fetch_title**：`payload.url` 为 http(s)，拉取 HTML 并解析 `<title>`。
  * - **create_draft**：`payload` 符合 `CreateDraftCaseBody`（与 POST /v1/admin/cases 相同字段），需 `ctx.adminWrite`。
- * - **pipeline_url_draft**：`payload.url` + `slug` + `summary` + `industryKey`；用页面 title 作 `companyName` 再建草稿。
+ * - **capture_source_snapshot**：抓取 URL，保存 source snapshot。
+ * - **pipeline_url_draft**：抓取 URL -> 保存 snapshot -> 生成 draft -> 自动附一条 evidence。
  * - **upsert_embedding_stub**：`payload.caseId`（uuid）；需 `ctx.pool`。若设置 `OPENAI_API_KEY` 则用
  *   `company_name`+`summary` 调 OpenAI 写入真实向量；否则用确定性 sin 向量（演示）。
  */
@@ -84,9 +60,36 @@ export async function runIngestionJob(
     if (typeof urlRaw !== 'string' || !urlRaw.trim()) {
       return { ok: false, error: clip('fetch_title：需要 payload.url') };
     }
-    const t = await fetchHtmlTitle(urlRaw);
+    const t = await captureSourceSnapshot(urlRaw);
     if (!t.ok) return { ok: false, error: clip(`fetch_title：${t.error}`) };
-    return { ok: true, detail: t.title };
+    return { ok: true, detail: t.snapshot.title ?? t.snapshot.companyName };
+  }
+
+  if (sourceName === 'capture_source_snapshot') {
+    if (!ctx?.sourceSnapshots) {
+      return { ok: false, error: 'capture_source_snapshot：服务端未注入 sourceSnapshots' };
+    }
+    const urlRaw = payload.url;
+    if (typeof urlRaw !== 'string' || !urlRaw.trim()) {
+      return { ok: false, error: clip('capture_source_snapshot：需要 payload.url') };
+    }
+    const captured = await captureSourceSnapshot(urlRaw);
+    if (!captured.ok) {
+      return { ok: false, error: clip(`capture_source_snapshot：${captured.error}`) };
+    }
+    const saved = await ctx.sourceSnapshots.save({
+      sourceName,
+      sourceUrl: captured.snapshot.sourceUrl,
+      finalUrl: captured.snapshot.finalUrl,
+      httpStatus: captured.snapshot.httpStatus,
+      contentType: captured.snapshot.contentType,
+      title: captured.snapshot.title,
+      excerpt: captured.snapshot.excerpt,
+      contentSha256: captured.snapshot.contentSha256,
+      snapshotText: captured.snapshot.snapshotText,
+      metadata: captured.snapshot.metadata,
+    });
+    return { ok: true, detail: `snapshotId=${saved.id} title=${captured.snapshot.companyName}` };
   }
 
   if (sourceName === 'create_draft') {
@@ -114,10 +117,10 @@ export async function runIngestionJob(
   }
 
   if (sourceName === 'pipeline_url_draft') {
-    if (!ctx?.adminWrite) {
+    if (!ctx?.adminWrite || !ctx?.adminAttachments || !ctx?.sourceSnapshots) {
       return {
         ok: false,
-        error: 'pipeline_url_draft：服务端未注入 adminWrite（仅 API 进程内可用）',
+        error: 'pipeline_url_draft：服务端未注入完整上下文（adminWrite/adminAttachments/sourceSnapshots）',
       };
     }
     const urlRaw = payload.url;
@@ -127,13 +130,28 @@ export async function runIngestionJob(
         error: clip('pipeline_url_draft：需要 payload.url'),
       };
     }
-    const t = await fetchHtmlTitle(urlRaw);
-    if (!t.ok) {
-      return { ok: false, error: clip(`pipeline_url_draft：${t.error}`) };
+    const captured = await captureSourceSnapshot(urlRaw);
+    if (!captured.ok) {
+      return { ok: false, error: clip(`pipeline_url_draft：${captured.error}`) };
     }
+    const snapshot = await ctx.sourceSnapshots.save({
+      sourceName,
+      sourceUrl: captured.snapshot.sourceUrl,
+      finalUrl: captured.snapshot.finalUrl,
+      httpStatus: captured.snapshot.httpStatus,
+      contentType: captured.snapshot.contentType,
+      title: captured.snapshot.title,
+      excerpt: captured.snapshot.excerpt,
+      contentSha256: captured.snapshot.contentSha256,
+      snapshotText: captured.snapshot.snapshotText,
+      metadata: captured.snapshot.metadata,
+    });
     const parsed = createDraftCaseBodySchema.safeParse({
       ...payload,
-      companyName: t.title.slice(0, 500),
+      companyName:
+        typeof payload.companyName === 'string' && payload.companyName.trim()
+          ? payload.companyName.trim().slice(0, 500)
+          : captured.snapshot.companyName.slice(0, 500),
     });
     if (!parsed.success) {
       return {
@@ -145,9 +163,26 @@ export async function runIngestionJob(
     if (!out.ok) {
       return { ok: false, error: 'pipeline_url_draft：slug 已存在' };
     }
+    const evidence = await ctx.adminAttachments.addEvidence(out.caseId, {
+      sourceType: 'web_snapshot',
+      title: captured.snapshot.title ?? captured.snapshot.companyName,
+      url: captured.snapshot.finalUrl,
+      publisher: captured.snapshot.publisher ?? undefined,
+      publishedAt: undefined,
+      credibilityLevel: 'medium',
+      excerpt: captured.snapshot.excerpt
+        ? `${captured.snapshot.excerpt}\n\n[snapshot:${snapshot.id}]`
+        : `[snapshot:${snapshot.id}]`,
+    });
+    if (!evidence.ok) {
+      return {
+        ok: false,
+        error: 'pipeline_url_draft：draft 已创建，但自动 evidence 附加失败',
+      };
+    }
     return {
       ok: true,
-      detail: `url=${urlRaw.trim()} caseId=${out.caseId} reviewId=${out.reviewId}`,
+      detail: `snapshotId=${snapshot.id} caseId=${out.caseId} reviewId=${out.reviewId} evidenceId=${evidence.id}`,
     };
   }
 

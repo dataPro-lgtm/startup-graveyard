@@ -226,6 +226,44 @@ components:
         reviewId: { type: string, format: uuid }
         caseId: { type: string, format: uuid }
         status: { type: string, const: rejected }
+    SourceSnapshotItem:
+      type: object
+      required:
+        - id
+        - sourceName
+        - sourceUrl
+        - finalUrl
+        - httpStatus
+        - contentType
+        - title
+        - excerpt
+        - contentSha256
+        - metadata
+        - fetchedAt
+        - createdAt
+      properties:
+        id: { type: string, format: uuid }
+        sourceName: { type: string }
+        sourceUrl: { type: string }
+        finalUrl: { type: string }
+        httpStatus: { type: integer, minimum: 100, maximum: 599 }
+        contentType: { type: string, nullable: true }
+        title: { type: string, nullable: true }
+        excerpt: { type: string, nullable: true }
+        contentSha256: { type: string }
+        metadata:
+          type: object
+          additionalProperties: true
+        fetchedAt: { type: string }
+        createdAt: { type: string }
+    ListSourceSnapshotsResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SourceSnapshotItem'
     UserProfile:
       type: object
       required: [id, email, displayName, subscription, role, createdAt]
@@ -784,6 +822,29 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ReviewRejectResponse'
+        '401':
+          description: Unauthorized
+        '503':
+          description: Admin API disabled
+  /v1/admin/source-snapshots:
+    get:
+      summary: List recently captured source snapshots
+      security:
+        - AdminKey: []
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: sourceName
+          schema: { type: string }
+      responses:
+        '200':
+          description: Source snapshot list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListSourceSnapshotsResponse'
         '401':
           description: Unauthorized
         '503':

@@ -30,6 +30,11 @@ import {
   PgIngestionJobsRepository,
 } from './repositories/ingestionJobsRepository.js';
 import {
+  type SourceSnapshotsRepository,
+  MockSourceSnapshotsRepository,
+  PgSourceSnapshotsRepository,
+} from './repositories/sourceSnapshotsRepository.js';
+import {
   type ReviewsRepository,
   MockReviewsRepository,
   PgReviewsRepository,
@@ -58,13 +63,20 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
   let adminWriteRepo: AdminWriteRepository;
   let adminAttachmentsRepo: AdminCaseAttachmentsRepository;
   let ingestionJobsRepo: IngestionJobsRepository;
+  let sourceSnapshotsRepo: SourceSnapshotsRepository;
 
   if (pgPool) {
     casesRepo = new PgCasesRepository(pgPool);
     reviewsRepo = new PgReviewsRepository(pgPool);
     adminWriteRepo = new PgAdminWriteRepository(pgPool);
     adminAttachmentsRepo = new PgAdminCaseAttachmentsRepository(pgPool);
-    ingestionJobsRepo = new PgIngestionJobsRepository(pgPool, adminWriteRepo);
+    sourceSnapshotsRepo = new PgSourceSnapshotsRepository(pgPool);
+    ingestionJobsRepo = new PgIngestionJobsRepository(
+      pgPool,
+      adminWriteRepo,
+      adminAttachmentsRepo,
+      sourceSnapshotsRepo,
+    );
   } else {
     const mc = new MockCasesRepository();
     const mr = new MockReviewsRepository(mc);
@@ -72,7 +84,12 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
     reviewsRepo = mr;
     adminWriteRepo = new MockAdminWriteRepository(mc, mr);
     adminAttachmentsRepo = new MockAdminCaseAttachmentsRepository(casesRepo);
-    ingestionJobsRepo = new MockIngestionJobsRepository(adminWriteRepo);
+    sourceSnapshotsRepo = new MockSourceSnapshotsRepository();
+    ingestionJobsRepo = new MockIngestionJobsRepository(
+      adminWriteRepo,
+      adminAttachmentsRepo,
+      sourceSnapshotsRepo,
+    );
   }
 
   server.decorate('casesRepo', casesRepo as CasesRepository);
@@ -80,6 +97,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
   server.decorate('adminWriteRepo', adminWriteRepo as AdminWriteRepository);
   server.decorate('adminAttachmentsRepo', adminAttachmentsRepo as AdminCaseAttachmentsRepository);
   server.decorate('ingestionJobsRepo', ingestionJobsRepo as IngestionJobsRepository);
+  server.decorate('sourceSnapshotsRepo', sourceSnapshotsRepo as SourceSnapshotsRepository);
   const auditRepo = pgPool ? new PgAuditRepository(pgPool) : new MockAuditRepository();
   server.decorate('auditRepo', auditRepo as AuditRepository);
   if (!pgPool) {

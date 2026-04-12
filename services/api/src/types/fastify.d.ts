@@ -4,6 +4,7 @@ import type { AuditRepository } from '../repositories/auditRepository.js';
 import type { CasesRepository } from '../repositories/casesRepository.js';
 import type { IngestionJobsRepository } from '../repositories/ingestionJobsRepository.js';
 import type { ReviewsRepository } from '../repositories/reviewsRepository.js';
+import type { SourceSnapshotsRepository } from '../repositories/sourceSnapshotsRepository.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -13,5 +14,6 @@ declare module 'fastify' {
     adminWriteRepo: AdminWriteRepository;
     adminAttachmentsRepo: AdminCaseAttachmentsRepository;
     ingestionJobsRepo: IngestionJobsRepository;
+    sourceSnapshotsRepo: SourceSnapshotsRepository;
   }
 }

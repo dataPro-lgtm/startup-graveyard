@@ -52,7 +52,12 @@ export async function adminSchedulerRoutes(app: FastifyInstance) {
 
     const result = await runIngestionJob(
       { sourceName: resolvedSource, triggerType: 'manual', payload: resolvedPayload },
-      { pool: pool ?? undefined },
+      {
+        pool: pool ?? undefined,
+        adminWrite: app.adminWriteRepo,
+        adminAttachments: app.adminAttachmentsRepo,
+        sourceSnapshots: app.sourceSnapshotsRepo,
+      },
     );
     return reply.send(result);
   });
