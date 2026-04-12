@@ -543,8 +543,7 @@ export class PgCasesRepository implements CasesRepository {
       SELECT
         COUNT(*)::bigint AS total_cases,
         COALESCE(SUM(total_funding_usd), 0)::numeric AS total_funding_usd,
-        COUNT(DISTINCT primary_failure_reason_key)::bigint
-          FILTER (WHERE primary_failure_reason_key IS NOT NULL) AS failure_patterns
+        COUNT(DISTINCT primary_failure_reason_key)::bigint AS failure_patterns
       FROM cases
       WHERE status = 'published'
       `,
