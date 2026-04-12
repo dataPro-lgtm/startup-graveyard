@@ -225,5 +225,63 @@ export async function runIngestionJob(
     };
   }
 
+  // ── auto_embed_new ──────────────────────────────────────────────────────────
+  // Finds all published cases without embeddings and generates them.
+  // Safe to run repeatedly (idempotent). Respects rate limits via sequential delay.
+  if (sourceName === 'auto_embed_new') {
+    if (!ctx?.pool) {
+      return { ok: false, error: 'auto_embed_new：需要 PostgreSQL' };
+    }
+    const useOpenAI = Boolean(process.env.OPENAI_API_KEY?.trim());
+    if (!useOpenAI) {
+      return { ok: false, error: 'auto_embed_new：需要 OPENAI_API_KEY' };
+    }
+
+    const { rows } = await ctx.pool.query<{
+      id: string;
+      company_name: string;
+      summary: string;
+      industry_key: string | null;
+      search_tags: string | null;
+    }>(`
+      SELECT c.id, c.company_name, c.summary, c.industry_key, c.search_tags
+      FROM cases c
+      LEFT JOIN case_embeddings e ON e.case_id = c.id
+      WHERE c.status = 'published' AND e.case_id IS NULL
+      ORDER BY c.created_at
+      LIMIT 50
+    `);
+
+    if (rows.length === 0) return { ok: true, detail: 'auto_embed_new：no unembedded cases' };
+
+    let done = 0;
+    let failed = 0;
+    for (const row of rows) {
+      try {
+        const vec = await embedCaseDocument(row.company_name, row.summary);
+        await ctx.pool.query(
+          `INSERT INTO case_embeddings (case_id, embedding)
+           VALUES ($1::uuid, $2::vector(1536))
+           ON CONFLICT (case_id) DO UPDATE SET embedding = EXCLUDED.embedding, updated_at = NOW()`,
+          [row.id, vectorToPgLiteral(vec)],
+        );
+        done++;
+        // 350ms between calls = ~3 req/s, well under rate limits
+        await new Promise((r) => setTimeout(r, 350));
+      } catch {
+        failed++;
+      }
+    }
+    return { ok: true, detail: `auto_embed_new: done=${done} failed=${failed}` };
+  }
+
+  // ── cleanup_sessions ────────────────────────────────────────────────────────
+  // Prunes expired user refresh tokens
+  if (sourceName === 'cleanup_sessions') {
+    if (!ctx?.pool) return { ok: false, error: 'cleanup_sessions：需要 PostgreSQL' };
+    const { rowCount } = await ctx.pool.query(`DELETE FROM user_sessions WHERE expires_at < NOW()`);
+    return { ok: true, detail: `cleanup_sessions: pruned ${rowCount ?? 0} rows` };
+  }
+
   return { ok: true, detail: 'noop' };
 }
