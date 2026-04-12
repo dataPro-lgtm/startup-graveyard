@@ -27,7 +27,7 @@ const FACTOR_RULES: Rule[] = [
   {
     id: 'premature_scaling',
     reasonKey: 'premature_scaling',
-    level1Key: 'Finance',
+    level1Key: 'finance',
     level2Key: 'premature_scaling',
     level3Key: 'cash_burn',
     explanation: '快速扩张、过早放大成本或单位经济承压。',
@@ -48,7 +48,7 @@ const FACTOR_RULES: Rule[] = [
   {
     id: 'product_market_fit',
     reasonKey: 'product_market_fit',
-    level1Key: 'Market',
+    level1Key: 'market',
     level2Key: 'product_market_fit',
     level3Key: 'weak_demand',
     explanation: '产品价值不成立、用户需求不足或留存验证失败。',
@@ -67,7 +67,7 @@ const FACTOR_RULES: Rule[] = [
   {
     id: 'regulatory',
     reasonKey: 'regulatory',
-    level1Key: 'Regulatory',
+    level1Key: 'regulatory',
     level2Key: 'regulatory_compliance',
     level3Key: 'lawsuit_or_investigation',
     explanation: '监管、合规或诉讼直接破坏商业模式可持续性。',
@@ -87,7 +87,7 @@ const FACTOR_RULES: Rule[] = [
   {
     id: 'competition',
     reasonKey: 'competition',
-    level1Key: 'Competitive',
+    level1Key: 'competitive',
     level2Key: 'better_funded_competitor',
     level3Key: 'platform_competition',
     explanation: '平台型巨头或更强竞争者进入，导致获客和留存迅速恶化。',

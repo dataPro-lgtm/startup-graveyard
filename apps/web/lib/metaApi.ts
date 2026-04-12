@@ -3,8 +3,11 @@ import { API_BASE_URL } from './api';
 import {
   BUSINESS_MODEL_LABELS,
   COUNTRY_LABELS,
+  FAILURE_FACTOR_LEVEL_1_LABELS,
+  FAILURE_FACTOR_LEVEL_2_LABELS,
   INDUSTRY_LABELS,
   PRIMARY_FAILURE_REASON_LABELS,
+  TIMELINE_EVENT_TYPE_LABELS,
 } from '@sg/shared/taxonomy';
 import { homeSummarySchema, type HomeSummary } from '@sg/shared/schemas/meta';
 
@@ -13,6 +16,9 @@ const taxonomySchema = z.object({
   countries: z.record(z.string()),
   businessModels: z.record(z.string()).optional(),
   primaryFailureReasons: z.record(z.string()).optional(),
+  failureFactorLevel1: z.record(z.string()).optional(),
+  failureFactorLevel2: z.record(z.string()).optional(),
+  timelineEventTypes: z.record(z.string()).optional(),
 });
 
 export type TaxonomyLabels = {
@@ -20,6 +26,9 @@ export type TaxonomyLabels = {
   countries: Record<string, string>;
   businessModels: Record<string, string>;
   primaryFailureReasons: Record<string, string>;
+  failureFactorLevel1: Record<string, string>;
+  failureFactorLevel2: Record<string, string>;
+  timelineEventTypes: Record<string, string>;
 };
 
 function taxonomyFallback(): TaxonomyLabels {
@@ -28,6 +37,9 @@ function taxonomyFallback(): TaxonomyLabels {
     countries: { ...COUNTRY_LABELS },
     businessModels: { ...BUSINESS_MODEL_LABELS },
     primaryFailureReasons: { ...PRIMARY_FAILURE_REASON_LABELS },
+    failureFactorLevel1: { ...FAILURE_FACTOR_LEVEL_1_LABELS },
+    failureFactorLevel2: { ...FAILURE_FACTOR_LEVEL_2_LABELS },
+    timelineEventTypes: { ...TIMELINE_EVENT_TYPE_LABELS },
   };
 }
 
@@ -37,6 +49,9 @@ function normalizeTaxonomy(parsed: z.infer<typeof taxonomySchema>): TaxonomyLabe
     countries: parsed.countries,
     businessModels: parsed.businessModels ?? { ...BUSINESS_MODEL_LABELS },
     primaryFailureReasons: parsed.primaryFailureReasons ?? { ...PRIMARY_FAILURE_REASON_LABELS },
+    failureFactorLevel1: parsed.failureFactorLevel1 ?? { ...FAILURE_FACTOR_LEVEL_1_LABELS },
+    failureFactorLevel2: parsed.failureFactorLevel2 ?? { ...FAILURE_FACTOR_LEVEL_2_LABELS },
+    timelineEventTypes: parsed.timelineEventTypes ?? { ...TIMELINE_EVENT_TYPE_LABELS },
   };
 }
 

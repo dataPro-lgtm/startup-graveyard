@@ -147,3 +147,9 @@
 - 新增 PostgreSQL 集成测试 harness，会创建隔离测试库、回放全部 migration，并在测试后自动清理。
 - 补了两条真实库主链断言：`review approval -> rebuild_case_search_index` 与 `pipeline_url_draft -> extract_case_signals`。
 - 默认单元测试仍走 mock；需要真实库验证时可执行 `pnpm --filter @sg/api test:pg`。
+
+已完成 M1 第六段（taxonomy 规范化）：
+
+- shared taxonomy 扩展为产品可用的枚举层：补齐 primary failure reasons、failure-factor level1/level2、timeline event types 的标签与别名归一化。
+- Admin 草稿录入 / case 修正页改为基于 taxonomy 的选项化输入，减少自由文本导致的脏数据。
+- API schema 会在写入前把常见别名、大小写、空格形式归一成 canonical key，Case Detail 展示也统一走标签映射。

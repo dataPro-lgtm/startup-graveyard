@@ -57,9 +57,13 @@ describe('public API (mock DB)', () => {
     const body = JSON.parse(res.body) as {
       businessModels: Record<string, string>;
       primaryFailureReasons: Record<string, string>;
+      failureFactorLevel1: Record<string, string>;
+      timelineEventTypes: Record<string, string>;
     };
     expect(body.businessModels.marketplace).toBeDefined();
     expect(body.primaryFailureReasons.premature_scaling).toBeDefined();
+    expect(body.failureFactorLevel1.finance).toBeDefined();
+    expect(body.timelineEventTypes.founded).toBeDefined();
   });
 
   it('GET /v1/meta/home-summary returns published aggregates', async () => {

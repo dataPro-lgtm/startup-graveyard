@@ -113,6 +113,9 @@ components:
         - countries
         - businessModels
         - primaryFailureReasons
+        - failureFactorLevel1
+        - failureFactorLevel2
+        - timelineEventTypes
       properties:
         industries:
           type: object
@@ -124,6 +127,15 @@ components:
           type: object
           additionalProperties: { type: string }
         primaryFailureReasons:
+          type: object
+          additionalProperties: { type: string }
+        failureFactorLevel1:
+          type: object
+          additionalProperties: { type: string }
+        failureFactorLevel2:
+          type: object
+          additionalProperties: { type: string }
+        timelineEventTypes:
           type: object
           additionalProperties: { type: string }
     HomeSummary:
@@ -515,8 +527,8 @@ paths:
   /v1/meta/taxonomy:
     get:
       summary: >-
-        Label maps for industries, countries, business models, and primary
-        failure reasons (shared with web)
+        Label maps for industries, countries, business models, primary failure
+        reasons, failure-factor taxonomy, and timeline event types
       responses:
         '200':
           description: Taxonomy label maps

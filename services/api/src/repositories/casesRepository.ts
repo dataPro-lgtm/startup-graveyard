@@ -277,9 +277,9 @@ const AIRLIFT_BUILTIN_EVIDENCE: EvidenceSourceItem[] = [
 const AIRLIFT_BUILTIN_FACTORS: FailureFactorItem[] = [
   {
     id: 'f0000000-0000-4000-8000-000000000001',
-    level1Key: 'execution',
-    level2Key: 'scaling',
-    level3Key: 'premature_scaling',
+    level1Key: 'finance',
+    level2Key: 'premature_scaling',
+    level3Key: 'cash_burn',
     weight: 0.85,
     explanation: '扩张节奏相对单位经济模型偏快（示例因子）。',
   },

@@ -1,4 +1,11 @@
 import { z } from 'zod';
+import {
+  normalizeFailureFactorLevel1Key,
+  normalizeFailureFactorLevel2Key,
+  normalizeFreeformTaxonomyKey,
+  normalizePrimaryFailureReasonKey,
+  normalizeTimelineEventType,
+} from '@sg/shared/taxonomy';
 
 const emptyToUndef = (v: unknown) => (v === '' || v === null || v === undefined ? undefined : v);
 
@@ -29,9 +36,27 @@ export const addEvidenceBodySchema = z.object({
 export type AddEvidenceBody = z.infer<typeof addEvidenceBodySchema>;
 
 export const addFailureFactorBodySchema = z.object({
-  level1Key: z.string().trim().min(1).max(100),
-  level2Key: z.string().trim().min(1).max(100),
-  level3Key: z.preprocess(emptyToUndef, z.string().trim().max(100).optional()),
+  level1Key: z
+    .string()
+    .trim()
+    .min(1)
+    .max(100)
+    .transform((s) => normalizeFailureFactorLevel1Key(s) ?? normalizeFreeformTaxonomyKey(s)),
+  level2Key: z
+    .string()
+    .trim()
+    .min(1)
+    .max(100)
+    .transform((s) => normalizeFailureFactorLevel2Key(s) ?? normalizeFreeformTaxonomyKey(s)),
+  level3Key: z.preprocess(
+    emptyToUndef,
+    z
+      .string()
+      .trim()
+      .max(100)
+      .transform((s) => normalizeFailureFactorLevel2Key(s) ?? normalizeFreeformTaxonomyKey(s))
+      .optional(),
+  ),
   weight: z.coerce.number().min(0).max(100).default(1),
   explanation: z.preprocess(emptyToUndef, z.string().trim().max(8000).optional()),
 });
@@ -44,7 +69,12 @@ export const addTimelineEventBodySchema = z.object({
     .trim()
     .max(40)
     .refine((s) => !Number.isNaN(Date.parse(s)), { message: 'invalid_date' }),
-  eventType: z.string().trim().min(1).max(80),
+  eventType: z
+    .string()
+    .trim()
+    .min(1)
+    .max(80)
+    .transform((s) => normalizeTimelineEventType(s) ?? normalizeFreeformTaxonomyKey(s)),
   title: z.string().trim().min(1).max(500),
   description: z.preprocess(emptyToUndef, z.string().trim().max(8000).optional()),
   amountUsd: z.preprocess(
@@ -60,7 +90,12 @@ export const updateCaseAnalysisBodySchema = z
   .object({
     primaryFailureReasonKey: z.preprocess(
       emptyToUndef,
-      z.string().trim().max(100).optional(),
+      z
+        .string()
+        .trim()
+        .max(100)
+        .transform((s) => normalizePrimaryFailureReasonKey(s) ?? normalizeFreeformTaxonomyKey(s))
+        .optional(),
     ),
     keyLessons: z.preprocess(emptyToUndef, z.string().trim().max(12_000).optional()),
   })

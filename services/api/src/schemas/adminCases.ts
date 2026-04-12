@@ -1,4 +1,8 @@
 import { z } from 'zod';
+import {
+  normalizeFreeformTaxonomyKey,
+  normalizePrimaryFailureReasonKey,
+} from '@sg/shared/taxonomy';
 
 export const createDraftCaseBodySchema = z.object({
   slug: z
@@ -9,7 +13,12 @@ export const createDraftCaseBodySchema = z.object({
     .transform((s) => s.toLowerCase()),
   companyName: z.string().trim().min(1).max(500),
   summary: z.string().trim().min(1).max(20000),
-  industryKey: z.string().trim().min(1).max(100),
+  industryKey: z
+    .string()
+    .trim()
+    .min(1)
+    .max(100)
+    .transform((s) => normalizeFreeformTaxonomyKey(s)),
   countryCode: z.preprocess(
     (v) => (v === '' || v === null || v === undefined ? undefined : v),
     z
@@ -21,7 +30,12 @@ export const createDraftCaseBodySchema = z.object({
   ),
   businessModelKey: z.preprocess(
     (v) => (v === '' || v === null || v === undefined ? undefined : v),
-    z.string().trim().max(100).optional(),
+    z
+      .string()
+      .trim()
+      .max(100)
+      .transform((s) => normalizeFreeformTaxonomyKey(s))
+      .optional(),
   ),
   foundedYear: z.preprocess(
     (v) => (v === '' || v === null || v === undefined ? undefined : v),
@@ -37,7 +51,12 @@ export const createDraftCaseBodySchema = z.object({
   ),
   primaryFailureReasonKey: z.preprocess(
     (v) => (v === '' || v === null || v === undefined ? undefined : v),
-    z.string().trim().max(100).optional(),
+    z
+      .string()
+      .trim()
+      .max(100)
+      .transform((s) => normalizePrimaryFailureReasonKey(s) ?? normalizeFreeformTaxonomyKey(s))
+      .optional(),
   ),
   assignedTo: z.preprocess(
     (v) => (v === '' || v === null || v === undefined ? undefined : v),

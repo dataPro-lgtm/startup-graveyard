@@ -3,6 +3,10 @@
  * The shared schemas are the single source of truth for response shapes.
  */
 import { z } from 'zod';
+import {
+  normalizeFreeformTaxonomyKey,
+  normalizePrimaryFailureReasonKey,
+} from '@sg/shared/taxonomy';
 
 // Re-export shared response schemas so API routes can reference them
 export {
@@ -20,7 +24,16 @@ const emptyToUndefined = (v: unknown) =>
 
 export const listCasesQuerySchema = z.object({
   q: z.preprocess(emptyToUndefined, z.string().trim().optional()),
-  industry: z.preprocess(emptyToUndefined, z.string().trim().optional()),
+  industry: z.preprocess(
+    emptyToUndefined,
+    z
+      .string()
+      .trim()
+      .min(1)
+      .max(100)
+      .transform((s) => normalizeFreeformTaxonomyKey(s))
+      .optional(),
+  ),
   country: z.preprocess(
     emptyToUndefined,
     z
@@ -41,7 +54,7 @@ export const listCasesQuerySchema = z.object({
       .trim()
       .min(1)
       .max(100)
-      .transform((s) => s.toLowerCase())
+      .transform((s) => normalizeFreeformTaxonomyKey(s))
       .optional(),
   ),
   primaryFailureReasonKey: z.preprocess(
@@ -51,7 +64,7 @@ export const listCasesQuerySchema = z.object({
       .trim()
       .min(1)
       .max(100)
-      .transform((s) => s.toLowerCase())
+      .transform((s) => normalizePrimaryFailureReasonKey(s) ?? normalizeFreeformTaxonomyKey(s))
       .optional(),
   ),
   sort: z.preprocess(emptyToUndefined, z.enum(['relevance', 'updated_at']).optional()),

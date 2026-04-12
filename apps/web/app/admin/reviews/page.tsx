@@ -4,6 +4,7 @@ import { fetchAdminAudit } from '@/lib/adminAuditServer';
 import { fetchAdminIngestionJobs } from '@/lib/adminIngestionServer';
 import { fetchAdminReviews } from '@/lib/adminReviewsServer';
 import { fetchAdminSourceSnapshots } from '@/lib/adminSourceSnapshotsServer';
+import { fetchTaxonomy } from '@/lib/metaApi';
 import { pickSearchParam } from '@/lib/searchParams';
 import {
   approveReview,
@@ -123,16 +124,25 @@ export default async function AdminReviewsPage({
 }) {
   const raw = await searchParams;
   const qs = buildReviewsApiQuery(raw);
-  const [result, audit, ingestion, snapshots] = await Promise.all([
+  const [result, audit, ingestion, snapshots, taxonomy] = await Promise.all([
     fetchAdminReviews(qs),
     fetchAdminAudit(25),
     fetchAdminIngestionJobs(buildIngestionListQuery(raw)),
     fetchAdminSourceSnapshots('?limit=8'),
+    fetchTaxonomy(),
   ]);
   const tab = tabFromRaw(raw);
 
   const ok = pickSearchParam(raw.ok);
   const err = pickSearchParam(raw.err);
+  const industryEntries = Object.entries(taxonomy.industries).sort(([a], [b]) => a.localeCompare(b));
+  const countryEntries = Object.entries(taxonomy.countries).sort(([a], [b]) => a.localeCompare(b));
+  const businessModelEntries = Object.entries(taxonomy.businessModels).sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
+  const primaryReasonEntries = Object.entries(taxonomy.primaryFailureReasons).sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
 
   return (
     <main style={{ maxWidth: 900, margin: '0 auto', padding: '40px 24px 80px' }}>
@@ -178,23 +188,47 @@ export default async function AdminReviewsPage({
             </label>
             <label style={fieldStyle}>
               行业 key
-              <input name="industryKey" required placeholder="如 saas" style={inputLike} />
+              <input
+                name="industryKey"
+                required
+                list="industry-key-options"
+                placeholder="如 saas"
+                style={inputLike}
+              />
             </label>
             <label style={fieldStyle}>
               国家 ISO2（可选）
-              <input name="countryCode" maxLength={2} placeholder="US" style={inputLike} />
+              <input
+                name="countryCode"
+                maxLength={2}
+                list="country-code-options"
+                placeholder="US"
+                style={inputLike}
+              />
             </label>
             <label style={fieldStyle}>
               商业模式 key（可选）
-              <input name="businessModelKey" placeholder="如 marketplace" style={inputLike} />
+              <input
+                name="businessModelKey"
+                list="business-model-options"
+                placeholder="如 marketplace"
+                style={inputLike}
+              />
             </label>
             <label style={fieldStyle}>
               主失败原因 key（可选）
-              <input
+              <select
                 name="primaryFailureReasonKey"
-                placeholder="如 premature_scaling"
                 style={inputLike}
-              />
+                defaultValue=""
+              >
+                <option value="">未设置</option>
+                {primaryReasonEntries.map(([key, label]) => (
+                  <option key={key} value={key}>
+                    {label} ({key})
+                  </option>
+                ))}
+              </select>
             </label>
             <label style={fieldStyle}>
               成立年（可选）
@@ -229,6 +263,27 @@ export default async function AdminReviewsPage({
             创建并进入审核
           </button>
         </form>
+        <datalist id="industry-key-options">
+          {industryEntries.map(([key, label]) => (
+            <option key={key} value={key}>
+              {label}
+            </option>
+          ))}
+        </datalist>
+        <datalist id="country-code-options">
+          {countryEntries.map(([key, label]) => (
+            <option key={key} value={key}>
+              {label}
+            </option>
+          ))}
+        </datalist>
+        <datalist id="business-model-options">
+          {businessModelEntries.map(([key, label]) => (
+            <option key={key} value={key}>
+              {label}
+            </option>
+          ))}
+        </datalist>
       </section>
 
       <nav style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 28 }}>

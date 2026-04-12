@@ -76,8 +76,8 @@ describe('admin reviews API (mock DB)', () => {
       url: `/v1/admin/cases/${created.caseId}/failure-factors`,
       headers: adminHeaders,
       payload: {
-        level1Key: 'go_to_market',
-        level2Key: 'channel_mismatch',
+        level1Key: 'Go To Market',
+        level2Key: 'Channel Mismatch',
         weight: 12,
       },
     });
@@ -145,6 +145,14 @@ describe('admin reviews API (mock DB)', () => {
       url: '/v1/cases/by-slug/maturity-gate',
     });
     expect(publicRes.statusCode).toBe(200);
+    expect(JSON.parse(publicRes.body)).toMatchObject({
+      failureFactors: expect.arrayContaining([
+        expect.objectContaining({
+          level1Key: 'go_to_market',
+          level2Key: 'channel_mismatch',
+        }),
+      ]),
+    });
   });
 
   it('supports request-changes and resubmit transitions', async () => {

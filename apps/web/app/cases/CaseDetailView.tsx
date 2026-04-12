@@ -11,8 +11,11 @@ import { fetchTaxonomy } from '@/lib/metaApi';
 import {
   businessModelLabel,
   countryLabel,
+  failureFactorLevel1Label,
+  failureFactorLevel2Label,
   industryLabel,
   primaryFailureReasonLabel,
+  timelineEventTypeLabel,
 } from '@sg/shared/taxonomy';
 
 const sectionTitle = {
@@ -42,10 +45,19 @@ const EVENT_TYPE_META: Record<string, { label: string; color: string; dot: strin
   shutdown: { label: '关闭', color: '#f87171', dot: '#f87171' },
   acquisition: { label: '收购', color: '#a78bfa', dot: '#a78bfa' },
   regulatory: { label: '监管事件', color: '#fb923c', dot: '#fb923c' },
+  competition: { label: '竞争压力', color: '#f59e0b', dot: '#f59e0b' },
   other: { label: '其他', color: '#6b7280', dot: '#6b7280' },
 };
 
-function TimelineEventCard({ evt, isLast }: { evt: TimelineEvent; isLast: boolean }) {
+function TimelineEventCard({
+  evt,
+  isLast,
+  label,
+}: {
+  evt: TimelineEvent;
+  isLast: boolean;
+  label: string;
+}) {
   const meta = EVENT_TYPE_META[evt.eventType] ?? EVENT_TYPE_META.other;
   const dotStyle: CSSProperties = {
     position: 'absolute',
@@ -96,7 +108,7 @@ function TimelineEventCard({ evt, isLast }: { evt: TimelineEvent; isLast: boolea
               letterSpacing: 0.5,
             }}
           >
-            {meta.label}
+            {label}
           </span>
           <span style={{ color: '#9fb3ff', fontSize: 13 }}>{evt.eventDate}</span>
           {evt.amountUsd != null && (
@@ -152,6 +164,12 @@ export async function CaseDetailView({
   const bm = (k: string | null) => pickLabel(tax.businessModels, k, businessModelLabel);
   const pfr = (k: string | null) =>
     pickLabel(tax.primaryFailureReasons, k, primaryFailureReasonLabel);
+  const factorLevel1 = (k: string | null) =>
+    pickLabel(tax.failureFactorLevel1, k, failureFactorLevel1Label);
+  const factorLevel2 = (k: string | null) =>
+    pickLabel(tax.failureFactorLevel2, k, failureFactorLevel2Label);
+  const timelineLabel = (k: string | null) =>
+    pickLabel(tax.timelineEventTypes, k, timelineEventTypeLabel);
 
   const topFactor =
     item.failureFactors.length > 0
@@ -235,8 +253,9 @@ export async function CaseDetailView({
                 <span
                   style={{ color: '#c8d0e5', fontSize: 15, lineHeight: 1.55, flex: '1 1 240px' }}
                 >
-                  最高权重因子 · {topFactor.level1Key} → {topFactor.level2Key}
-                  {topFactor.level3Key ? ` → ${topFactor.level3Key}` : ''}
+                  最高权重因子 · {factorLevel1(topFactor.level1Key)} →{' '}
+                  {factorLevel2(topFactor.level2Key)}
+                  {topFactor.level3Key ? ` → ${factorLevel2(topFactor.level3Key)}` : ''}
                   <span style={{ color: '#9fb3ff', marginLeft: 8 }}>权重 {topFactor.weight}</span>
                   {topFactor.explanation ? ` — ${explainSnippet(topFactor.explanation, 160)}` : ''}
                 </span>
@@ -350,6 +369,7 @@ export async function CaseDetailView({
                 key={evt.id}
                 evt={evt}
                 isLast={idx === item.timelineEvents.length - 1}
+                label={timelineLabel(evt.eventType)}
               />
             ))}
           </div>
@@ -374,8 +394,8 @@ export async function CaseDetailView({
               <li key={f.id} style={card}>
                 <div style={{ color: '#c8d0e5', fontSize: 15, marginBottom: 6 }}>
                   <strong style={{ color: '#f5f7fb' }}>
-                    {f.level1Key} → {f.level2Key}
-                    {f.level3Key ? ` → ${f.level3Key}` : ''}
+                    {factorLevel1(f.level1Key)} → {factorLevel2(f.level2Key)}
+                    {f.level3Key ? ` → ${factorLevel2(f.level3Key)}` : ''}
                   </strong>
                   <span style={{ marginLeft: 12, color: '#9fb3ff' }}>权重 {f.weight}</span>
                 </div>

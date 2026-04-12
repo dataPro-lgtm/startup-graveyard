@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 import Link from 'next/link';
+import { fetchTaxonomy } from '@/lib/metaApi';
 import { pickSearchParam } from '@/lib/searchParams';
 import {
   addCaseEvidence,
@@ -44,6 +45,19 @@ export default async function AdminCaseAttachmentsPage({
   const raw = await searchParams;
   const ok = pickSearchParam(raw.ok);
   const err = pickSearchParam(raw.err);
+  const taxonomy = await fetchTaxonomy();
+  const factorLevel1Entries = Object.entries(taxonomy.failureFactorLevel1).sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
+  const factorLevel2Entries = Object.entries(taxonomy.failureFactorLevel2).sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
+  const eventTypeEntries = Object.entries(taxonomy.timelineEventTypes).sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
+  const primaryReasonEntries = Object.entries(taxonomy.primaryFailureReasons).sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
 
   return (
     <main style={{ maxWidth: 720, margin: '0 auto', padding: '40px 24px 80px' }}>
@@ -178,11 +192,22 @@ export default async function AdminCaseAttachmentsPage({
         <form action={addCaseFailureFactor.bind(null, caseId)} style={{ display: 'grid', gap: 12 }}>
           <label style={fieldStyle}>
             level1Key
-            <input name="level1Key" required style={inputLike} />
+            <select name="level1Key" required defaultValue="finance" style={inputLike}>
+              {factorLevel1Entries.map(([key, label]) => (
+                <option key={key} value={key}>
+                  {label} ({key})
+                </option>
+              ))}
+            </select>
           </label>
           <label style={fieldStyle}>
             level2Key
-            <input name="level2Key" required style={inputLike} />
+            <input
+              name="level2Key"
+              required
+              list="failure-factor-level2-options"
+              style={inputLike}
+            />
           </label>
           <label style={fieldStyle}>
             level3Key（可选）
@@ -230,12 +255,18 @@ export default async function AdminCaseAttachmentsPage({
           </label>
           <label style={fieldStyle}>
             eventType
-            <input
+            <select
               name="eventType"
               required
-              placeholder="如 funding / shutdown / layoff / regulatory"
               style={inputLike}
-            />
+              defaultValue="funding"
+            >
+              {eventTypeEntries.map(([key, label]) => (
+                <option key={key} value={key}>
+                  {label} ({key})
+                </option>
+              ))}
+            </select>
           </label>
           <label style={fieldStyle}>
             title
@@ -276,11 +307,18 @@ export default async function AdminCaseAttachmentsPage({
         <form action={updateCaseAnalysis.bind(null, caseId)} style={{ display: 'grid', gap: 12 }}>
           <label style={fieldStyle}>
             primaryFailureReasonKey（可选）
-            <input
+            <select
               name="primaryFailureReasonKey"
-              placeholder="如 premature_scaling / product_market_fit"
               style={inputLike}
-            />
+              defaultValue=""
+            >
+              <option value="">不更新</option>
+              {primaryReasonEntries.map(([key, label]) => (
+                <option key={key} value={key}>
+                  {label} ({key})
+                </option>
+              ))}
+            </select>
           </label>
           <label style={fieldStyle}>
             keyLessons（可选，多行）
@@ -302,6 +340,13 @@ export default async function AdminCaseAttachmentsPage({
             更新分析
           </button>
         </form>
+        <datalist id="failure-factor-level2-options">
+          {factorLevel2Entries.map(([key, label]) => (
+            <option key={key} value={key}>
+              {label}
+            </option>
+          ))}
+        </datalist>
       </section>
     </main>
   );

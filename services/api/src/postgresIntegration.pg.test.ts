@@ -101,8 +101,8 @@ suite('postgres integration', () => {
       headers: adminHeaders,
       payload: {
         level1Key: 'Finance',
-        level2Key: 'premature_scaling',
-        level3Key: 'cash_burn',
+        level2Key: 'Premature Scaling',
+        level3Key: 'Cash Burn',
         weight: 88,
         explanation: 'The business expanded faster than its unit economics allowed.',
       },
@@ -174,6 +174,7 @@ suite('postgres integration', () => {
       companyName: 'PG Index Case',
       failureFactors: expect.arrayContaining([
         expect.objectContaining({
+          level1Key: 'finance',
           level2Key: 'premature_scaling',
         }),
       ]),
