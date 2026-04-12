@@ -121,10 +121,7 @@ export class MockReviewsRepository implements ReviewsRepository {
     };
   }
 
-  async reject(
-    id: string,
-    decisionNote?: string,
-  ): Promise<RejectReviewResult | null> {
+  async reject(id: string, decisionNote?: string): Promise<RejectReviewResult | null> {
     const idx = this.items.findIndex((r) => r.id === id);
     if (idx < 0) return null;
     const r = this.items[idx];
@@ -195,10 +192,7 @@ export class PgReviewsRepository implements ReviewsRepository {
         ? `SELECT COUNT(*)::bigint AS c FROM reviews r`
         : `SELECT COUNT(*)::bigint AS c FROM reviews r WHERE r.review_status = $1`;
 
-    const listParams =
-      status === null
-        ? [params.limit, offset]
-        : [status, params.limit, offset];
+    const listParams = status === null ? [params.limit, offset] : [status, params.limit, offset];
 
     const [listRes, countRes] = await Promise.all([
       this.pool.query<ReviewRow>(listSql, listParams),
@@ -248,10 +242,7 @@ export class PgReviewsRepository implements ReviewsRepository {
     });
   }
 
-  async reject(
-    id: string,
-    decisionNote?: string,
-  ): Promise<RejectReviewResult | null> {
+  async reject(id: string, decisionNote?: string): Promise<RejectReviewResult | null> {
     return withTransaction(this.pool, async (client) => {
       const res = await client.query<{ case_id: string }>(
         `
@@ -267,10 +258,9 @@ export class PgReviewsRepository implements ReviewsRepository {
 
       const caseId = res.rows[0]!.case_id;
 
-      await client.query(
-        `UPDATE cases SET status = 'rejected', updated_at = NOW() WHERE id = $1`,
-        [caseId],
-      );
+      await client.query(`UPDATE cases SET status = 'rejected', updated_at = NOW() WHERE id = $1`, [
+        caseId,
+      ]);
       await client.query(
         `INSERT INTO admin_audit_events (action, review_id, case_id, metadata)
          VALUES ($1, $2, $3, $4::jsonb)`,

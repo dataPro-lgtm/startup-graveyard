@@ -46,10 +46,8 @@ export async function createDraftCase(formData: FormData) {
     assignedTo: pickStr(formData, 'assignedTo'),
     businessModelKey: pickStr(formData, 'businessModelKey'),
     primaryFailureReasonKey: pickStr(formData, 'primaryFailureReasonKey'),
-    foundedYear:
-      foundedYearRaw !== undefined ? Number(foundedYearRaw) : undefined,
-    closedYear:
-      closedYearRaw !== undefined ? Number(closedYearRaw) : undefined,
+    foundedYear: foundedYearRaw !== undefined ? Number(foundedYearRaw) : undefined,
+    closedYear: closedYearRaw !== undefined ? Number(closedYearRaw) : undefined,
     totalFundingUsd,
   };
 
@@ -70,12 +68,7 @@ export async function createDraftCase(formData: FormData) {
     redirect('/admin/reviews?err=draft_validation');
   }
 
-  if (
-    !payload.slug ||
-    !payload.companyName ||
-    !payload.summary ||
-    !payload.industryKey
-  ) {
+  if (!payload.slug || !payload.companyName || !payload.summary || !payload.industryKey) {
     redirect('/admin/reviews?err=draft_fields');
   }
 
@@ -102,10 +95,10 @@ export async function approveReview(formData: FormData) {
     redirect('/admin/reviews?err=config');
   }
 
-  const res = await fetch(
-    `${API_BASE_URL}/v1/admin/reviews/${encodeURIComponent(id)}/approve`,
-    { method: 'POST', headers: h },
-  );
+  const res = await fetch(`${API_BASE_URL}/v1/admin/reviews/${encodeURIComponent(id)}/approve`, {
+    method: 'POST',
+    headers: h,
+  });
   revalidatePath('/admin/reviews');
   if (res.status === 404) redirect('/admin/reviews?err=notfound');
   if (!res.ok) redirect('/admin/reviews?err=approve');
@@ -116,8 +109,7 @@ export async function rejectReview(formData: FormData) {
   const id = formData.get('reviewId');
   if (typeof id !== 'string') redirect('/admin/reviews?err=invalid');
   const noteRaw = formData.get('decisionNote');
-  const decisionNote =
-    typeof noteRaw === 'string' && noteRaw.trim() ? noteRaw.trim() : undefined;
+  const decisionNote = typeof noteRaw === 'string' && noteRaw.trim() ? noteRaw.trim() : undefined;
 
   let h: HeadersInit;
   try {
@@ -126,14 +118,11 @@ export async function rejectReview(formData: FormData) {
     redirect('/admin/reviews?err=config');
   }
 
-  const res = await fetch(
-    `${API_BASE_URL}/v1/admin/reviews/${encodeURIComponent(id)}/reject`,
-    {
-      method: 'POST',
-      headers: { ...h, 'Content-Type': 'application/json' },
-      body: JSON.stringify(decisionNote ? { decisionNote } : {}),
-    },
-  );
+  const res = await fetch(`${API_BASE_URL}/v1/admin/reviews/${encodeURIComponent(id)}/reject`, {
+    method: 'POST',
+    headers: { ...h, 'Content-Type': 'application/json' },
+    body: JSON.stringify(decisionNote ? { decisionNote } : {}),
+  });
   revalidatePath('/admin/reviews');
   if (res.status === 404) redirect('/admin/reviews?err=notfound');
   if (!res.ok) redirect('/admin/reviews?err=reject');
@@ -189,19 +178,14 @@ export async function processNextIngestionJob() {
     redirect('/admin/reviews?err=config');
   }
 
-  const res = await fetch(
-    `${API_BASE_URL}/v1/admin/ingestion-jobs/process-next`,
-    { method: 'POST', headers: h },
-  );
+  const res = await fetch(`${API_BASE_URL}/v1/admin/ingestion-jobs/process-next`, {
+    method: 'POST',
+    headers: h,
+  });
   revalidatePath('/admin/reviews');
   if (!res.ok) redirect('/admin/reviews?err=process_next_failed');
   const json: unknown = await res.json();
-  if (
-    json &&
-    typeof json === 'object' &&
-    'ok' in json &&
-    (json as { ok: unknown }).ok === false
-  ) {
+  if (json && typeof json === 'object' && 'ok' in json && (json as { ok: unknown }).ok === false) {
     redirect('/admin/reviews?ok=ingest_empty');
   }
   redirect('/admin/reviews?ok=ingest_processed');
@@ -216,8 +200,7 @@ export async function reclaimStaleIngestionJobs(formData: FormData) {
   }
 
   const minsRaw = formData.get('maxRunningMinutes');
-  const mins =
-    typeof minsRaw === 'string' && minsRaw.trim() ? minsRaw.trim() : '30';
+  const mins = typeof minsRaw === 'string' && minsRaw.trim() ? minsRaw.trim() : '30';
   const res = await fetch(
     `${API_BASE_URL}/v1/admin/ingestion-jobs/reclaim-stale?maxRunningMinutes=${encodeURIComponent(mins)}`,
     { method: 'POST', headers: h },
@@ -266,9 +249,7 @@ export async function requeueIngestionJob(formData: FormData) {
     );
   }
   if (stayDetail) {
-    redirect(
-      `/admin/ingestion-jobs/${encodeURIComponent(id)}?ok=requeued`,
-    );
+    redirect(`/admin/ingestion-jobs/${encodeURIComponent(id)}?ok=requeued`);
   }
   redirect('/admin/reviews?ok=requeued');
 }

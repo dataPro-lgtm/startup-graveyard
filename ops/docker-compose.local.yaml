@@ -6,18 +6,18 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: startup_graveyard
     ports:
-      - "5432:5432"
+      - '5432:5432'
   opensearch:
     image: opensearchproject/opensearch:3
     environment:
       discovery.type: single-node
-      plugins.security.disabled: "true"
+      plugins.security.disabled: 'true'
       OPENSEARCH_JAVA_OPTS: -Xms512m -Xmx512m
     ports:
-      - "9200:9200"
+      - '9200:9200'
   temporal:
     image: temporalio/auto-setup:1.27
     environment:
       DB: sqlite
     ports:
-      - "7233:7233"
+      - '7233:7233'

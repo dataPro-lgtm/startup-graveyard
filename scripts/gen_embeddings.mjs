@@ -8,7 +8,10 @@ import pg from 'pg';
 
 const DATABASE_URL = process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@127.0.0.1:5433/sg';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL ?? 'https://api.openai.com').replace(/\/$/, '');
+const OPENAI_BASE_URL = (process.env.OPENAI_BASE_URL ?? 'https://api.openai.com').replace(
+  /\/$/,
+  '',
+);
 
 if (!OPENAI_API_KEY) {
   console.error('OPENAI_API_KEY not set');
@@ -55,26 +58,34 @@ async function main() {
       `摘要：${row.summary}`,
       row.search_tags ? `标签：${row.search_tags}` : '',
       row.key_lessons ? `教训：${row.key_lessons.slice(0, 400)}` : '',
-    ].filter(Boolean).join('\n');
+    ]
+      .filter(Boolean)
+      .join('\n');
 
     try {
       const embedding = await embedText(text);
-      await pool.query(`
+      await pool.query(
+        `
         INSERT INTO case_embeddings (case_id, embedding, updated_at)
         VALUES ($1, $2, now())
         ON CONFLICT (case_id) DO UPDATE SET embedding = $2, updated_at = now()
-      `, [row.id, JSON.stringify(embedding)]);
+      `,
+        [row.id, JSON.stringify(embedding)],
+      );
       console.log(`✓ ${row.slug}`);
     } catch (e) {
       console.error(`✗ ${row.slug}:`, e.message);
     }
 
     // Rate limit: 3 req/s
-    await new Promise(r => setTimeout(r, 350));
+    await new Promise((r) => setTimeout(r, 350));
   }
 
   await pool.end();
   console.log('Done.');
 }
 
-main().catch(e => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

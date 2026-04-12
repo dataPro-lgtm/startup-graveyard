@@ -4,6 +4,7 @@ Task:
 Review the proposed change before implementation.
 
 Deliver:
+
 1. architecture review
 2. data model impact
 3. API contract impact
@@ -14,6 +15,7 @@ Deliver:
 8. concrete recommendations for Codex
 
 Rules:
+
 - be specific
 - identify hidden coupling
 - do not write code unless needed to clarify an interface

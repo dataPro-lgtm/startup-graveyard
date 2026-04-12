@@ -248,7 +248,11 @@ export class PgIngestionJobsRepository implements IngestionJobsRepository {
          VALUES ($1, NULL, NULL, $2::jsonb)`,
         [
           'ingestion.job_queued',
-          JSON.stringify({ jobId: id, sourceName: input.sourceName, triggerType: input.triggerType }),
+          JSON.stringify({
+            jobId: id,
+            sourceName: input.sourceName,
+            triggerType: input.triggerType,
+          }),
         ],
       );
       return { id };
@@ -302,7 +306,12 @@ export class PgIngestionJobsRepository implements IngestionJobsRepository {
           `INSERT INTO admin_audit_events (action, review_id, case_id, metadata) VALUES ($1, NULL, NULL, $2::jsonb)`,
           [
             'ingestion.job_succeeded',
-            JSON.stringify({ jobId: id, sourceName: claimed.source_name, triggerType: claimed.trigger_type, detail: runResult.detail ?? null }),
+            JSON.stringify({
+              jobId: id,
+              sourceName: claimed.source_name,
+              triggerType: claimed.trigger_type,
+              detail: runResult.detail ?? null,
+            }),
           ],
         );
       } else {
@@ -314,7 +323,12 @@ export class PgIngestionJobsRepository implements IngestionJobsRepository {
           `INSERT INTO admin_audit_events (action, review_id, case_id, metadata) VALUES ($1, NULL, NULL, $2::jsonb)`,
           [
             'ingestion.job_failed',
-            JSON.stringify({ jobId: id, sourceName: claimed.source_name, triggerType: claimed.trigger_type, error: runResult.error }),
+            JSON.stringify({
+              jobId: id,
+              sourceName: claimed.source_name,
+              triggerType: claimed.trigger_type,
+              error: runResult.error,
+            }),
           ],
         );
       }
@@ -360,7 +374,10 @@ export class PgIngestionJobsRepository implements IngestionJobsRepository {
         await client.query(
           `INSERT INTO admin_audit_events (action, review_id, case_id, metadata)
            VALUES ($1, NULL, NULL, $2::jsonb)`,
-          ['ingestion.jobs_reclaimed_stale', JSON.stringify({ count: jobIds.length, jobIds, maxRunningMinutes })],
+          [
+            'ingestion.jobs_reclaimed_stale',
+            JSON.stringify({ count: jobIds.length, jobIds, maxRunningMinutes }),
+          ],
         );
       }
       return { reclaimed: jobIds.length, jobIds };

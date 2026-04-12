@@ -15,9 +15,7 @@ export type IngestionRunContext = {
   pool?: Pool;
 };
 
-export type IngestionRunResult =
-  | { ok: true; detail?: string }
-  | { ok: false; error: string };
+export type IngestionRunResult = { ok: true; detail?: string } | { ok: false; error: string };
 
 const ERR_MAX = 4000;
 
@@ -47,8 +45,7 @@ async function fetchHtmlTitle(
     const html = await res.text();
     const m = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html);
     const rawTitle = m?.[1]?.replace(/\s+/g, ' ').trim() ?? '';
-    const title =
-      rawTitle.length > 0 ? rawTitle.slice(0, 800) : '(未找到 <title>)';
+    const title = rawTitle.length > 0 ? rawTitle.slice(0, 800) : '(未找到 <title>)';
     return { ok: true, title };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -103,9 +100,7 @@ export async function runIngestionJob(
     if (!parsed.success) {
       return {
         ok: false,
-        error: clip(
-          `create_draft：${JSON.stringify(parsed.error.flatten().fieldErrors)}`,
-        ),
+        error: clip(`create_draft：${JSON.stringify(parsed.error.flatten().fieldErrors)}`),
       };
     }
     const out = await ctx.adminWrite.createDraftCaseWithReview(parsed.data);
@@ -122,8 +117,7 @@ export async function runIngestionJob(
     if (!ctx?.adminWrite) {
       return {
         ok: false,
-        error:
-          'pipeline_url_draft：服务端未注入 adminWrite（仅 API 进程内可用）',
+        error: 'pipeline_url_draft：服务端未注入 adminWrite（仅 API 进程内可用）',
       };
     }
     const urlRaw = payload.url;
@@ -144,9 +138,7 @@ export async function runIngestionJob(
     if (!parsed.success) {
       return {
         ok: false,
-        error: clip(
-          `pipeline_url_draft：${JSON.stringify(parsed.error.flatten().fieldErrors)}`,
-        ),
+        error: clip(`pipeline_url_draft：${JSON.stringify(parsed.error.flatten().fieldErrors)}`),
       };
     }
     const out = await ctx.adminWrite.createDraftCaseWithReview(parsed.data);
@@ -181,10 +173,7 @@ export async function runIngestionJob(
     const row = await ctx.pool.query<{
       company_name: string;
       summary: string;
-    }>(
-      `SELECT company_name, summary FROM cases WHERE id = $1 LIMIT 1`,
-      [caseId],
-    );
+    }>(`SELECT company_name, summary FROM cases WHERE id = $1 LIMIT 1`, [caseId]);
     const c = row.rows[0];
     if (!c) {
       return { ok: false, error: 'upsert_embedding_stub：case 不存在' };

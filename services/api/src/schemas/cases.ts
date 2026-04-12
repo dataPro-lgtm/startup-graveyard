@@ -23,21 +23,38 @@ export const listCasesQuerySchema = z.object({
   industry: z.preprocess(emptyToUndefined, z.string().trim().optional()),
   country: z.preprocess(
     emptyToUndefined,
-    z.string().trim().length(2).transform((s) => s.toUpperCase()).optional(),
+    z
+      .string()
+      .trim()
+      .length(2)
+      .transform((s) => s.toUpperCase())
+      .optional(),
   ),
-  closedYear: z.preprocess(emptyToUndefined, z.coerce.number().int().min(1800).max(2100).optional()),
+  closedYear: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().int().min(1800).max(2100).optional(),
+  ),
   businessModelKey: z.preprocess(
     emptyToUndefined,
-    z.string().trim().min(1).max(100).transform((s) => s.toLowerCase()).optional(),
+    z
+      .string()
+      .trim()
+      .min(1)
+      .max(100)
+      .transform((s) => s.toLowerCase())
+      .optional(),
   ),
   primaryFailureReasonKey: z.preprocess(
     emptyToUndefined,
-    z.string().trim().min(1).max(100).transform((s) => s.toLowerCase()).optional(),
+    z
+      .string()
+      .trim()
+      .min(1)
+      .max(100)
+      .transform((s) => s.toLowerCase())
+      .optional(),
   ),
-  sort: z.preprocess(
-    emptyToUndefined,
-    z.enum(['relevance', 'updated_at']).optional(),
-  ),
+  sort: z.preprocess(emptyToUndefined, z.enum(['relevance', 'updated_at']).optional()),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });

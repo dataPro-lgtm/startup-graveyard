@@ -9,17 +9,13 @@ export type CreateDraftCaseResult =
   | { ok: false; error: 'duplicate_slug' };
 
 export interface AdminWriteRepository {
-  createDraftCaseWithReview(
-    input: CreateDraftCaseBody,
-  ): Promise<CreateDraftCaseResult>;
+  createDraftCaseWithReview(input: CreateDraftCaseBody): Promise<CreateDraftCaseResult>;
 }
 
 export class PgAdminWriteRepository implements AdminWriteRepository {
   constructor(private readonly pool: Pool) {}
 
-  async createDraftCaseWithReview(
-    input: CreateDraftCaseBody,
-  ): Promise<CreateDraftCaseResult> {
+  async createDraftCaseWithReview(input: CreateDraftCaseBody): Promise<CreateDraftCaseResult> {
     try {
       return await withTransaction(this.pool, async (client) => {
         const ins = await client.query<{ id: string }>(
@@ -80,12 +76,7 @@ export class PgAdminWriteRepository implements AdminWriteRepository {
         return { ok: true as const, caseId, reviewId };
       });
     } catch (e: unknown) {
-      if (
-        e &&
-        typeof e === 'object' &&
-        'code' in e &&
-        (e as { code: string }).code === '23505'
-      ) {
+      if (e && typeof e === 'object' && 'code' in e && (e as { code: string }).code === '23505') {
         return { ok: false, error: 'duplicate_slug' };
       }
       throw e;
@@ -99,9 +90,7 @@ export class MockAdminWriteRepository implements AdminWriteRepository {
     private readonly reviews: MockReviewsRepository,
   ) {}
 
-  async createDraftCaseWithReview(
-    input: CreateDraftCaseBody,
-  ): Promise<CreateDraftCaseResult> {
+  async createDraftCaseWithReview(input: CreateDraftCaseBody): Promise<CreateDraftCaseResult> {
     const c = this.cases.adminCreateDraft(input);
     if (!c.ok) return c;
     const reviewId = this.reviews.adminQueueReview({

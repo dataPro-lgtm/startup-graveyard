@@ -59,16 +59,14 @@ function buildContextSnippet(c: NonNullCaseDetail): string {
   return parts.join('\n');
 }
 
-function buildFallbackAnswer(
-  question: string,
-  cases: NonNullCaseDetail[],
-): string {
+function buildFallbackAnswer(question: string, cases: NonNullCaseDetail[]): string {
   if (cases.length === 0) {
     return `关于"${question}"，当前知识库中暂未找到高度相关的失败案例。请尝试调整关键词或浏览全部案例列表。`;
   }
-  const reasons = [
-    ...new Set(cases.map((c) => c.primaryFailureReasonKey).filter(Boolean)),
-  ].slice(0, 3);
+  const reasons = [...new Set(cases.map((c) => c.primaryFailureReasonKey).filter(Boolean))].slice(
+    0,
+    3,
+  );
 
   return (
     `关于"${question}"，以下是知识库中与此最相关的 ${cases.length} 个失败案例：\n\n` +
@@ -119,9 +117,7 @@ export async function copilotRoutes(app: FastifyInstance) {
   app.post('/answer', async (request, reply) => {
     const parsed = copilotAnswerBodySchema.safeParse(request.body);
     if (!parsed.success) {
-      return reply
-        .code(400)
-        .send({ error: 'invalid_body', details: parsed.error.flatten() });
+      return reply.code(400).send({ error: 'invalid_body', details: parsed.error.flatten() });
     }
 
     const { question, topK } = parsed.data;

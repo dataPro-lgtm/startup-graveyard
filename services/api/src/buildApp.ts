@@ -46,9 +46,7 @@ export type BuildAppOptions = {
 };
 
 /** 注册路由与仓库，不 listen（供 `inject` 测试与生产启动）。 */
-export async function buildApp(
-  options: BuildAppOptions = {},
-): Promise<ReturnType<typeof Fastify>> {
+export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnType<typeof Fastify>> {
   const server = Fastify({ logger: options.logger ?? true });
 
   const pgPool = getPool();
@@ -78,17 +76,9 @@ export async function buildApp(
   server.decorate('casesRepo', casesRepo as CasesRepository);
   server.decorate('reviewsRepo', reviewsRepo as ReviewsRepository);
   server.decorate('adminWriteRepo', adminWriteRepo as AdminWriteRepository);
-  server.decorate(
-    'adminAttachmentsRepo',
-    adminAttachmentsRepo as AdminCaseAttachmentsRepository,
-  );
-  server.decorate(
-    'ingestionJobsRepo',
-    ingestionJobsRepo as IngestionJobsRepository,
-  );
-  const auditRepo = pgPool
-    ? new PgAuditRepository(pgPool)
-    : new MockAuditRepository();
+  server.decorate('adminAttachmentsRepo', adminAttachmentsRepo as AdminCaseAttachmentsRepository);
+  server.decorate('ingestionJobsRepo', ingestionJobsRepo as IngestionJobsRepository);
+  const auditRepo = pgPool ? new PgAuditRepository(pgPool) : new MockAuditRepository();
   server.decorate('auditRepo', auditRepo as AuditRepository);
   if (!pgPool) {
     server.log.warn('DATABASE_URL unset; using in-memory mock cases + reviews');

@@ -1,10 +1,7 @@
 import type { CSSProperties } from 'react';
 import Link from 'next/link';
 import { pickSearchParam } from '@/lib/searchParams';
-import {
-  addCaseEvidence,
-  addCaseFailureFactor,
-} from '../attachmentActions';
+import { addCaseEvidence, addCaseFailureFactor } from '../attachmentActions';
 
 const fieldStyle: CSSProperties = {
   display: 'flex',
@@ -66,9 +63,7 @@ export default async function AdminCaseAttachmentsPage({
         <p style={{ color: '#7dffb3', marginBottom: 16 }}>已添加失败因子。</p>
       ) : null}
       {err === 'config' ? (
-        <p style={{ color: '#ff8a8a', marginBottom: 16 }}>
-          Web 未配置 ADMIN_API_KEY。
-        </p>
+        <p style={{ color: '#ff8a8a', marginBottom: 16 }}>Web 未配置 ADMIN_API_KEY。</p>
       ) : null}
       {err === 'notfound' ? (
         <p style={{ color: '#ff8a8a', marginBottom: 16 }}>案例不存在（UUID 无效或未入库）。</p>
@@ -127,11 +122,7 @@ export default async function AdminCaseAttachmentsPage({
           </label>
           <label style={fieldStyle}>
             excerpt（可选）
-            <textarea
-              name="excerpt"
-              rows={3}
-              style={{ ...inputLike, resize: 'vertical' }}
-            />
+            <textarea name="excerpt" rows={3} style={{ ...inputLike, resize: 'vertical' }} />
           </label>
           <button
             type="submit"
@@ -153,10 +144,7 @@ export default async function AdminCaseAttachmentsPage({
 
       <section style={card}>
         <h2 style={{ fontSize: 18, margin: '0 0 14px' }}>失败因子</h2>
-        <form
-          action={addCaseFailureFactor.bind(null, caseId)}
-          style={{ display: 'grid', gap: 12 }}
-        >
+        <form action={addCaseFailureFactor.bind(null, caseId)} style={{ display: 'grid', gap: 12 }}>
           <label style={fieldStyle}>
             level1Key
             <input name="level1Key" required style={inputLike} />
@@ -171,15 +159,18 @@ export default async function AdminCaseAttachmentsPage({
           </label>
           <label style={fieldStyle}>
             weight（0–100，默认 1）
-            <input name="weight" type="number" min={0} max={100} defaultValue={1} style={inputLike} />
+            <input
+              name="weight"
+              type="number"
+              min={0}
+              max={100}
+              defaultValue={1}
+              style={inputLike}
+            />
           </label>
           <label style={fieldStyle}>
             explanation（可选）
-            <textarea
-              name="explanation"
-              rows={3}
-              style={{ ...inputLike, resize: 'vertical' }}
-            />
+            <textarea name="explanation" rows={3} style={{ ...inputLike, resize: 'vertical' }} />
           </label>
           <button
             type="submit"

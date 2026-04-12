@@ -1,7 +1,6 @@
 import { z } from 'zod';
 
-const emptyToUndef = (v: unknown) =>
-  v === '' || v === null || v === undefined ? undefined : v;
+const emptyToUndef = (v: unknown) => (v === '' || v === null || v === undefined ? undefined : v);
 
 export const adminCaseIdParamSchema = z.object({
   caseId: z.string().uuid(),
@@ -23,9 +22,7 @@ export const addEvidenceBodySchema = z.object({
         .refine((s) => !Number.isNaN(Date.parse(s)), { message: 'invalid_date' }),
     ]),
   ),
-  credibilityLevel: z
-    .enum(['low', 'medium', 'high'])
-    .default('medium'),
+  credibilityLevel: z.enum(['low', 'medium', 'high']).default('medium'),
   excerpt: z.preprocess(emptyToUndef, z.string().trim().max(8000).optional()),
 });
 

@@ -30,24 +30,18 @@ const card = {
 } as const;
 
 const EVENT_TYPE_META: Record<string, { label: string; color: string; dot: string }> = {
-  founded:        { label: '成立',     color: '#5b7cff', dot: '#5b7cff' },
-  funding:        { label: '融资',     color: '#34d399', dot: '#34d399' },
+  founded: { label: '成立', color: '#5b7cff', dot: '#5b7cff' },
+  funding: { label: '融资', color: '#34d399', dot: '#34d399' },
   product_launch: { label: '产品上线', color: '#60a5fa', dot: '#60a5fa' },
-  pivot:          { label: '战略转型', color: '#fbbf24', dot: '#fbbf24' },
-  layoff:         { label: '裁员',     color: '#f97316', dot: '#f97316' },
-  shutdown:       { label: '关闭',     color: '#f87171', dot: '#f87171' },
-  acquisition:    { label: '收购',     color: '#a78bfa', dot: '#a78bfa' },
-  regulatory:     { label: '监管事件', color: '#fb923c', dot: '#fb923c' },
-  other:          { label: '其他',     color: '#6b7280', dot: '#6b7280' },
+  pivot: { label: '战略转型', color: '#fbbf24', dot: '#fbbf24' },
+  layoff: { label: '裁员', color: '#f97316', dot: '#f97316' },
+  shutdown: { label: '关闭', color: '#f87171', dot: '#f87171' },
+  acquisition: { label: '收购', color: '#a78bfa', dot: '#a78bfa' },
+  regulatory: { label: '监管事件', color: '#fb923c', dot: '#fb923c' },
+  other: { label: '其他', color: '#6b7280', dot: '#6b7280' },
 };
 
-function TimelineEventCard({
-  evt,
-  isLast,
-}: {
-  evt: TimelineEvent;
-  isLast: boolean;
-}) {
+function TimelineEventCard({ evt, isLast }: { evt: TimelineEvent; isLast: boolean }) {
   const meta = EVENT_TYPE_META[evt.eventType] ?? EVENT_TYPE_META.other;
   const dotStyle: CSSProperties = {
     position: 'absolute',
@@ -77,7 +71,15 @@ function TimelineEventCard({
           background: '#10172b',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'baseline',
+            gap: 10,
+            flexWrap: 'wrap',
+            marginBottom: 6,
+          }}
+        >
           <span
             style={{
               display: 'inline-block',
@@ -94,18 +96,14 @@ function TimelineEventCard({
           </span>
           <span style={{ color: '#9fb3ff', fontSize: 13 }}>{evt.eventDate}</span>
           {evt.amountUsd != null && (
-            <span style={{ color: '#34d399', fontSize: 13 }}>
-              {formatUsd(evt.amountUsd)}
-            </span>
+            <span style={{ color: '#34d399', fontSize: 13 }}>{formatUsd(evt.amountUsd)}</span>
           )}
         </div>
         <div style={{ color: '#f5f7fb', fontWeight: 600, fontSize: 15, marginBottom: 4 }}>
           {evt.title}
         </div>
         {evt.description && (
-          <div style={{ color: '#c8d0e5', fontSize: 14, lineHeight: 1.6 }}>
-            {evt.description}
-          </div>
+          <div style={{ color: '#c8d0e5', fontSize: 14, lineHeight: 1.6 }}>{evt.description}</div>
         )}
       </div>
     </div>
@@ -130,8 +128,7 @@ export async function CaseDetailView({
   similar: CaseListItem[];
 }) {
   const tax = await fetchTaxonomy();
-  const bm = (k: string | null) =>
-    pickLabel(tax.businessModels, k, businessModelLabel);
+  const bm = (k: string | null) => pickLabel(tax.businessModels, k, businessModelLabel);
   const pfr = (k: string | null) =>
     pickLabel(tax.primaryFailureReasons, k, primaryFailureReasonLabel);
 
@@ -148,10 +145,7 @@ export async function CaseDetailView({
 
   return (
     <main style={{ maxWidth: 1120, margin: '0 auto', padding: '48px 24px 80px' }}>
-      <Link
-        href="/"
-        style={{ color: '#9fb3ff', textDecoration: 'none', fontSize: 14 }}
-      >
+      <Link href="/" style={{ color: '#9fb3ff', textDecoration: 'none', fontSize: 14 }}>
         ← 返回列表
       </Link>
       <article style={{ ...card, marginTop: 24, padding: 28 }}>
@@ -168,9 +162,7 @@ export async function CaseDetailView({
         >
           <span>
             行业 {industryLabel(item.industry)}
-            {industryLabel(item.industry) !== item.industry
-              ? ` (${item.industry})`
-              : ''}
+            {industryLabel(item.industry) !== item.industry ? ` (${item.industry})` : ''}
           </span>
           <span>
             国家 {countryLabel(item.country)}
@@ -219,13 +211,13 @@ export async function CaseDetailView({
                 </span>
               ) : null}
               {topFactor ? (
-                <span style={{ color: '#c8d0e5', fontSize: 15, lineHeight: 1.55, flex: '1 1 240px' }}>
+                <span
+                  style={{ color: '#c8d0e5', fontSize: 15, lineHeight: 1.55, flex: '1 1 240px' }}
+                >
                   最高权重因子 · {topFactor.level1Key} → {topFactor.level2Key}
                   {topFactor.level3Key ? ` → ${topFactor.level3Key}` : ''}
                   <span style={{ color: '#9fb3ff', marginLeft: 8 }}>权重 {topFactor.weight}</span>
-                  {topFactor.explanation
-                    ? ` — ${explainSnippet(topFactor.explanation, 160)}`
-                    : ''}
+                  {topFactor.explanation ? ` — ${explainSnippet(topFactor.explanation, 160)}` : ''}
                 </span>
               ) : item.primaryFailureReasonKey ? (
                 <span style={{ color: '#8a96b0', fontSize: 14 }}>暂无结构化因子明细</span>
@@ -259,7 +251,10 @@ export async function CaseDetailView({
                     style={{
                       display: 'flex',
                       gap: 12,
-                      marginBottom: i < item.keyLessons!.split('\n').filter(l => l.trim()).length - 1 ? 14 : 0,
+                      marginBottom:
+                        i < item.keyLessons!.split('\n').filter((l) => l.trim()).length - 1
+                          ? 14
+                          : 0,
                       alignItems: 'flex-start',
                     }}
                   >
@@ -326,9 +321,7 @@ export async function CaseDetailView({
                   {s.country ? ` · ${countryLabel(s.country)}` : ''}
                   {s.closedYear != null ? ` · ${s.closedYear}` : ''}
                   {s.foundedYear != null ? ` · 成立 ${s.foundedYear}` : ''}
-                  {s.totalFundingUsd != null
-                    ? ` · ${formatUsd(s.totalFundingUsd)}`
-                    : ''}
+                  {s.totalFundingUsd != null ? ` · ${formatUsd(s.totalFundingUsd)}` : ''}
                 </div>
                 <p style={{ margin: '8px 0 0', fontSize: 14, color: '#c8d0e5', lineHeight: 1.55 }}>
                   {s.summary}
@@ -344,17 +337,23 @@ export async function CaseDetailView({
           <h2 style={sectionTitle}>发展时间线</h2>
           <div style={{ position: 'relative', paddingLeft: 24 }}>
             {/* 竖线 */}
-            <div style={{
-              position: 'absolute',
-              left: 8,
-              top: 0,
-              bottom: 0,
-              width: 2,
-              background: '#1d2746',
-              borderRadius: 1,
-            }} />
+            <div
+              style={{
+                position: 'absolute',
+                left: 8,
+                top: 0,
+                bottom: 0,
+                width: 2,
+                background: '#1d2746',
+                borderRadius: 1,
+              }}
+            />
             {item.timelineEvents.map((evt, idx) => (
-              <TimelineEventCard key={evt.id} evt={evt} isLast={idx === item.timelineEvents.length - 1} />
+              <TimelineEventCard
+                key={evt.id}
+                evt={evt}
+                isLast={idx === item.timelineEvents.length - 1}
+              />
             ))}
           </div>
         </section>
@@ -381,9 +380,7 @@ export async function CaseDetailView({
                     {f.level1Key} → {f.level2Key}
                     {f.level3Key ? ` → ${f.level3Key}` : ''}
                   </strong>
-                  <span style={{ marginLeft: 12, color: '#9fb3ff' }}>
-                    权重 {f.weight}
-                  </span>
+                  <span style={{ marginLeft: 12, color: '#9fb3ff' }}>权重 {f.weight}</span>
                 </div>
                 {f.explanation ? (
                   <p style={{ margin: 0, color: '#b8c0d8', lineHeight: 1.6, fontSize: 14 }}>
@@ -436,9 +433,7 @@ export async function CaseDetailView({
                   <div style={{ fontSize: 13, color: '#9fb3ff' }}>{e.publisher}</div>
                 ) : null}
                 {e.excerpt ? (
-                  <p style={{ margin: '8px 0 0', fontSize: 14, color: '#c8d0e5' }}>
-                    {e.excerpt}
-                  </p>
+                  <p style={{ margin: '8px 0 0', fontSize: 14, color: '#c8d0e5' }}>{e.excerpt}</p>
                 ) : null}
               </li>
             ))}

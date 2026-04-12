@@ -1,38 +1,22 @@
 import type { Pool } from 'pg';
 import type { AddEvidenceBody, AddFailureFactorBody } from '../schemas/adminCaseAttachments.js';
 import type { CasesRepository } from './casesRepository.js';
-import {
-  appendMockEvidence,
-  appendMockFailureFactor,
-} from './mockCaseExtras.js';
+import { appendMockEvidence, appendMockFailureFactor } from './mockCaseExtras.js';
 
 export type AttachmentWriteResult =
   | { ok: true; id: string }
   | { ok: false; error: 'case_not_found' };
 
 export interface AdminCaseAttachmentsRepository {
-  addEvidence(
-    caseId: string,
-    body: AddEvidenceBody,
-  ): Promise<AttachmentWriteResult>;
-  addFailureFactor(
-    caseId: string,
-    body: AddFailureFactorBody,
-  ): Promise<AttachmentWriteResult>;
+  addEvidence(caseId: string, body: AddEvidenceBody): Promise<AttachmentWriteResult>;
+  addFailureFactor(caseId: string, body: AddFailureFactorBody): Promise<AttachmentWriteResult>;
 }
 
-export class PgAdminCaseAttachmentsRepository
-  implements AdminCaseAttachmentsRepository
-{
+export class PgAdminCaseAttachmentsRepository implements AdminCaseAttachmentsRepository {
   constructor(private readonly pool: Pool) {}
 
-  async addEvidence(
-    caseId: string,
-    body: AddEvidenceBody,
-  ): Promise<AttachmentWriteResult> {
-    const publishedAt = body.publishedAt
-      ? new Date(body.publishedAt)
-      : null;
+  async addEvidence(caseId: string, body: AddEvidenceBody): Promise<AttachmentWriteResult> {
+    const publishedAt = body.publishedAt ? new Date(body.publishedAt) : null;
 
     const client = await this.pool.connect();
     try {
@@ -153,20 +137,13 @@ export class PgAdminCaseAttachmentsRepository
   }
 }
 
-export class MockAdminCaseAttachmentsRepository
-  implements AdminCaseAttachmentsRepository
-{
+export class MockAdminCaseAttachmentsRepository implements AdminCaseAttachmentsRepository {
   constructor(private readonly cases: CasesRepository) {}
 
-  async addEvidence(
-    caseId: string,
-    body: AddEvidenceBody,
-  ): Promise<AttachmentWriteResult> {
+  async addEvidence(caseId: string, body: AddEvidenceBody): Promise<AttachmentWriteResult> {
     const exists = await this.cases.caseExists(caseId);
     if (!exists) return { ok: false, error: 'case_not_found' };
-    const publishedAt = body.publishedAt
-      ? new Date(body.publishedAt).toISOString()
-      : null;
+    const publishedAt = body.publishedAt ? new Date(body.publishedAt).toISOString() : null;
     const item = appendMockEvidence(caseId, {
       sourceType: body.sourceType,
       title: body.title,

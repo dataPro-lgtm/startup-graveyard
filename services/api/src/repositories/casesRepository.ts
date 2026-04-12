@@ -2,10 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Pool, QueryResultRow } from 'pg';
 import type { CreateDraftCaseBody } from '../schemas/adminCases.js';
 import { embedSearchQuery, vectorToPgLiteral } from '../ai/openaiEmbed.js';
-import {
-  getMockExtraEvidence,
-  getMockExtraFactors,
-} from './mockCaseExtras.js';
+import { getMockExtraEvidence, getMockExtraFactors } from './mockCaseExtras.js';
 
 export type ListCasesSort = 'relevance' | 'updated_at';
 
@@ -288,30 +285,22 @@ function mockRelevanceScore(item: CaseListItem, qRaw: string): number {
   return s;
 }
 
-function matchesFilters(
-  item: CaseListItem,
-  p: ListCasesParams,
-): boolean {
+function matchesFilters(item: CaseListItem, p: ListCasesParams): boolean {
   if (p.q) {
     const q = p.q.toLowerCase().trim();
     const hit =
-      item.companyName.toLowerCase().includes(q) ||
-      item.summary.toLowerCase().includes(q);
+      item.companyName.toLowerCase().includes(q) || item.summary.toLowerCase().includes(q);
     if (!hit && mockRelevanceScore(item, p.q) <= 0) return false;
   }
   if (p.industry && item.industry !== p.industry) return false;
   if (p.country && item.country !== p.country.toUpperCase()) return false;
   if (p.closedYear != null && item.closedYear !== p.closedYear) return false;
-  if (
-    p.businessModelKey &&
-    (item.businessModelKey ?? '').toLowerCase() !== p.businessModelKey
-  ) {
+  if (p.businessModelKey && (item.businessModelKey ?? '').toLowerCase() !== p.businessModelKey) {
     return false;
   }
   if (
     p.primaryFailureReasonKey &&
-    (item.primaryFailureReasonKey ?? '').toLowerCase() !==
-      p.primaryFailureReasonKey
+    (item.primaryFailureReasonKey ?? '').toLowerCase() !== p.primaryFailureReasonKey
   ) {
     return false;
   }
@@ -355,11 +344,8 @@ export class MockCasesRepository implements CasesRepository {
 
   async list(params: ListCasesParams): Promise<ListCasesResult> {
     const qTrim = params.q?.trim() ?? '';
-    const sortMode: ListCasesSort =
-      params.sort ?? (qTrim ? 'relevance' : 'updated_at');
-    const published = this.rows
-      .filter((r) => r.status === 'published')
-      .map(mockRowToItem);
+    const sortMode: ListCasesSort = params.sort ?? (qTrim ? 'relevance' : 'updated_at');
+    const published = this.rows.filter((r) => r.status === 'published').map(mockRowToItem);
     const filtered = published.filter((x) => matchesFilters(x, params));
     const ordered = [...filtered];
     if (qTrim && sortMode === 'relevance') {
@@ -410,9 +396,7 @@ export class MockCasesRepository implements CasesRepository {
 
   async getPublishedBySlug(slug: string): Promise<CaseDetail | null> {
     const key = slug.trim().toLowerCase();
-    const r = this.rows.find(
-      (x) => x.slug.toLowerCase() === key && x.status === 'published',
-    );
+    const r = this.rows.find((x) => x.slug.toLowerCase() === key && x.status === 'published');
     if (!r) return null;
     return this.getById(r.id);
   }
@@ -421,21 +405,15 @@ export class MockCasesRepository implements CasesRepository {
     return this.rows.some((r) => r.id === id);
   }
 
-  async findSimilarPublished(
-    anchorId: string,
-    limit: number,
-  ): Promise<CaseListItem[]> {
-    const anchor = this.rows.find(
-      (r) => r.id === anchorId && r.status === 'published',
-    );
+  async findSimilarPublished(anchorId: string, limit: number): Promise<CaseListItem[]> {
+    const anchor = this.rows.find((r) => r.id === anchorId && r.status === 'published');
     if (!anchor) return [];
     const others = this.rows
       .filter((r) => r.status === 'published' && r.id !== anchorId)
       .map(mockRowToItem);
     others.sort((a, b) => {
       const score = (x: CaseListItem) =>
-        (x.industry === anchor.industry ? 4 : 0) +
-        (x.country === anchor.country ? 2 : 0);
+        (x.industry === anchor.industry ? 4 : 0) + (x.country === anchor.country ? 2 : 0);
       return score(b) - score(a) || a.companyName.localeCompare(b.companyName);
     });
     return others.slice(0, limit);
@@ -444,9 +422,7 @@ export class MockCasesRepository implements CasesRepository {
   /** 供 `MockAdminWriteRepository`：创建草稿（不进入公开列表直至 publish）。 */
   adminCreateDraft(
     input: CreateDraftCaseBody,
-  ):
-    | { ok: true; caseId: string }
-    | { ok: false; error: 'duplicate_slug' } {
+  ): { ok: true; caseId: string } | { ok: false; error: 'duplicate_slug' } {
     if (this.rows.some((r) => r.slug === input.slug)) {
       return { ok: false, error: 'duplicate_slug' };
     }
@@ -474,10 +450,7 @@ export class PgCasesRepository implements CasesRepository {
   constructor(private readonly pool: Pool) {}
 
   async caseExists(id: string): Promise<boolean> {
-    const r = await this.pool.query(
-      `SELECT 1 FROM cases WHERE id = $1 LIMIT 1`,
-      [id],
-    );
+    const r = await this.pool.query(`SELECT 1 FROM cases WHERE id = $1 LIMIT 1`, [id]);
     return (r.rowCount ?? 0) > 0;
   }
 
@@ -504,26 +477,31 @@ export class PgCasesRepository implements CasesRepository {
 
     const values: unknown[] = ['published'];
     const clauses: string[] = ['c.status = $1'];
-    let n = 2;
     let qTrgmParam: number | null = null;
 
+    // Helper: push a value and return its 1-based $N placeholder
+    const push = (v: unknown): number => {
+      values.push(v);
+      return values.length;
+    };
+
     if (q) {
-      const iLike = n++;
-      const iQ = n++;
+      const iLike = push(`%${q}%`);
+      const iQ = push(q);
       clauses.push(
         `(c.company_name ILIKE $${iLike} OR c.summary ILIKE $${iLike} OR c.search_tags ILIKE $${iLike}
           OR similarity(c.company_name, $${iQ}) > 0.03
           OR similarity(c.summary, $${iQ}) > 0.03
           OR similarity(c.search_tags, $${iQ}) > 0.05)`,
       );
-      values.push(`%${q}%`, q);
       qTrgmParam = iQ;
     }
-    if (industry) { clauses.push(`c.industry_key = $${n++}`); values.push(industry); }
-    if (country) { clauses.push(`c.country_code = $${n++}`); values.push(country); }
-    if (closedYear !== null) { clauses.push(`c.closed_year = $${n++}`); values.push(closedYear); }
-    if (businessModelKey) { clauses.push(`c.business_model_key = $${n++}`); values.push(businessModelKey); }
-    if (primaryFailureReasonKey) { clauses.push(`c.primary_failure_reason_key = $${n++}`); values.push(primaryFailureReasonKey); }
+    if (industry) clauses.push(`c.industry_key = $${push(industry)}`);
+    if (country) clauses.push(`c.country_code = $${push(country)}`);
+    if (closedYear !== null) clauses.push(`c.closed_year = $${push(closedYear)}`);
+    if (businessModelKey) clauses.push(`c.business_model_key = $${push(businessModelKey)}`);
+    if (primaryFailureReasonKey)
+      clauses.push(`c.primary_failure_reason_key = $${push(primaryFailureReasonKey)}`);
 
     return { whereSql: clauses.join(' AND '), values, qTrgmParam };
   }
@@ -584,7 +562,6 @@ export class PgCasesRepository implements CasesRepository {
 
     // Optionally fetch query vector for hybrid ranking
     let vecIdx: number | null = null;
-    let joinSql = '';
     if (q && sortMode === 'relevance' && qTrgmParam !== null) {
       const qVec = await embedSearchQuery(q);
       if (qVec != null && qVec.length === 1536) {
@@ -593,10 +570,12 @@ export class PgCasesRepository implements CasesRepository {
       }
     }
 
-    const { orderBy, joinSql: dynamicJoin } = this.#buildOrderBy({
-      sortMode, q, qTrgmParam, vecIdx,
+    const { orderBy, joinSql } = this.#buildOrderBy({
+      sortMode,
+      q,
+      qTrgmParam,
+      vecIdx,
     });
-    joinSql = dynamicJoin;
 
     values.push(params.limit, offset);
     const limIdx = values.length - 1;
@@ -731,14 +710,10 @@ export class PgCasesRepository implements CasesRepository {
     return this.#detailFromPublishedRow(row);
   }
 
-  async findSimilarPublished(
-    anchorId: string,
-    limit: number,
-  ): Promise<CaseListItem[]> {
-    const anchorEmb = await this.pool.query(
-      `SELECT 1 FROM case_embeddings WHERE case_id = $1`,
-      [anchorId],
-    );
+  async findSimilarPublished(anchorId: string, limit: number): Promise<CaseListItem[]> {
+    const anchorEmb = await this.pool.query(`SELECT 1 FROM case_embeddings WHERE case_id = $1`, [
+      anchorId,
+    ]);
     if ((anchorEmb.rowCount ?? 0) === 0) return [];
 
     const res = await this.pool.query<CaseRow>(
