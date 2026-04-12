@@ -78,6 +78,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <a href="/" style={{ color: '#9fb3ff', textDecoration: 'none' }}>
               案例库
             </a>
+            <a href="/research" style={{ color: '#9fb3ff', textDecoration: 'none' }}>
+              研究入口
+            </a>
             <a
               href="/copilot"
               style={{ color: '#5b7cff', textDecoration: 'none', fontWeight: 600 }}

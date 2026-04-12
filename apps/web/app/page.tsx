@@ -8,6 +8,7 @@ import {
 } from '@/lib/casesApi';
 import { formatUsd } from '@/lib/formatUsd';
 import { fetchHomeSummary, fetchTaxonomy } from '@/lib/metaApi';
+import { RESEARCH_PRESETS } from '@/lib/researchPresets';
 import { countryLabel, industryLabel } from '@sg/shared/taxonomy';
 import { pickSearchParam } from '@/lib/searchParams';
 
@@ -94,6 +95,7 @@ export default async function HomePage({
   const failurePatterns =
     homeSummary?.failurePatterns ??
     new Set((data?.items ?? []).map((it) => it.primaryFailureReasonKey).filter(Boolean)).size;
+  const featuredResearchPresets = RESEARCH_PRESETS.slice(0, 3);
 
   return (
     <main style={{ maxWidth: 1120, margin: '0 auto', padding: '48px 24px 80px' }}>
@@ -194,6 +196,89 @@ export default async function HomePage({
               )}
             </div>
           ))}
+        </section>
+      )}
+
+      {!hasFilters && (
+        <section
+          style={{
+            marginBottom: 28,
+            padding: 22,
+            borderRadius: 16,
+            border: '1px solid #1d2746',
+            background:
+              'linear-gradient(135deg, rgba(20,34,56,0.95), rgba(12,18,33,0.98) 58%, rgba(18,40,57,0.95))',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: 18,
+              alignItems: 'end',
+              flexWrap: 'wrap',
+              marginBottom: 16,
+            }}
+          >
+            <div>
+              <p style={{ margin: '0 0 6px', color: '#9fb3ff', fontSize: 12, letterSpacing: 1 }}>
+                RESEARCH HUB
+              </p>
+              <h2 style={{ margin: '0 0 8px', fontSize: 26 }}>不要只刷案例，直接切进研究视角。</h2>
+              <p style={{ margin: 0, maxWidth: 720, color: '#c8d0e5', lineHeight: 1.7 }}>
+                用预设专题和趋势入口，快速切入“过早扩张”“监管击穿”“平台模式失速”这类高复用研究问题。
+              </p>
+            </div>
+            <Link
+              href="/research"
+              style={{
+                padding: '10px 16px',
+                borderRadius: 10,
+                background: '#5b7cff',
+                color: '#fff',
+                textDecoration: 'none',
+                fontWeight: 700,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              打开 Research Hub
+            </Link>
+          </div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+              gap: 12,
+            }}
+          >
+            {featuredResearchPresets.map((preset) => (
+              <Link
+                key={preset.slug}
+                href={`/research#${preset.slug}`}
+                style={{
+                  textDecoration: 'none',
+                  color: '#f5f7fb',
+                  borderRadius: 14,
+                  border: '1px solid #24345b',
+                  background: '#0d1426',
+                  padding: '14px 16px',
+                  display: 'grid',
+                  gap: 6,
+                }}
+              >
+                <div
+                  style={{
+                    width: 40,
+                    height: 5,
+                    borderRadius: 999,
+                    background: preset.accent,
+                  }}
+                />
+                <div style={{ fontWeight: 700, fontSize: 16 }}>{preset.title}</div>
+                <div style={{ color: '#c8d0e5', lineHeight: 1.6, fontSize: 13 }}>{preset.description}</div>
+              </Link>
+            ))}
+          </div>
         </section>
       )}
 

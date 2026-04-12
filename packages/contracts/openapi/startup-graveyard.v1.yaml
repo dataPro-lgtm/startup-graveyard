@@ -145,6 +145,47 @@ components:
         totalCases: { type: integer, minimum: 0 }
         totalFundingUsd: { type: number, minimum: 0 }
         failurePatterns: { type: integer, minimum: 0 }
+    ResearchBucket:
+      type: object
+      required: [key, caseCount, totalFundingUsd]
+      properties:
+        key: { type: string }
+        caseCount: { type: integer, minimum: 0 }
+        totalFundingUsd: { type: number, minimum: 0 }
+    ResearchTimelinePoint:
+      type: object
+      required: [year, caseCount, totalFundingUsd]
+      properties:
+        year: { type: integer }
+        caseCount: { type: integer, minimum: 0 }
+        totalFundingUsd: { type: number, minimum: 0 }
+    ResearchOverview:
+      type: object
+      required:
+        - summary
+        - topIndustries
+        - topCountries
+        - topFailureReasons
+        - closureTimeline
+      properties:
+        summary:
+          $ref: '#/components/schemas/HomeSummary'
+        topIndustries:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResearchBucket'
+        topCountries:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResearchBucket'
+        topFailureReasons:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResearchBucket'
+        closureTimeline:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResearchTimelinePoint'
     ReviewPublishReadiness:
       type: object
       required: [ready, evidenceCount, failureFactorCount, missing]
@@ -546,6 +587,16 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HomeSummary'
+  /v1/meta/research-overview:
+    get:
+      summary: Aggregated research overview for topic and trend discovery pages
+      responses:
+        '200':
+          description: Published case aggregates grouped for research workflows
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResearchOverview'
   /v1/auth/register:
     post:
       summary: Register a new user account

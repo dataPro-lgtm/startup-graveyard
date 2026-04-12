@@ -85,6 +85,26 @@ export type HomeSummary = {
   failurePatterns: number;
 };
 
+export type ResearchBucket = {
+  key: string;
+  caseCount: number;
+  totalFundingUsd: number;
+};
+
+export type ResearchTimelinePoint = {
+  year: number;
+  caseCount: number;
+  totalFundingUsd: number;
+};
+
+export type ResearchOverview = {
+  summary: HomeSummary;
+  topIndustries: ResearchBucket[];
+  topCountries: ResearchBucket[];
+  topFailureReasons: ResearchBucket[];
+  closureTimeline: ResearchTimelinePoint[];
+};
+
 export type AdminCaseReviewSnapshot = {
   caseId: string;
   slug: string;
@@ -102,6 +122,7 @@ export interface CasesRepository {
   /** Published only; case-insensitive slug match (citext). */
   getPublishedBySlug(slug: string): Promise<CaseDetail | null>;
   getHomeSummary(): Promise<HomeSummary>;
+  getResearchOverview(): Promise<ResearchOverview>;
   /** Any status (draft / rejected / published). */
   caseExists(id: string): Promise<boolean>;
   /** Published only; returns [] when anchor has no embedding. */
@@ -413,6 +434,46 @@ export class MockCasesRepository implements CasesRepository {
     };
   }
 
+  async getResearchOverview(): Promise<ResearchOverview> {
+    const published = this.rows.filter((r) => r.status === 'published');
+    const byKey = (
+      pick: (row: MockCaseRow) => string | null,
+      limit = 6,
+    ): ResearchBucket[] =>
+      [...published.reduce((map, row) => {
+        const key = pick(row);
+        if (!key) return map;
+        const cur = map.get(key) ?? { key, caseCount: 0, totalFundingUsd: 0 };
+        cur.caseCount += 1;
+        cur.totalFundingUsd += row.totalFundingUsd ?? 0;
+        map.set(key, cur);
+        return map;
+      }, new Map<string, ResearchBucket>()).values()]
+        .sort((a, b) => b.caseCount - a.caseCount || b.totalFundingUsd - a.totalFundingUsd)
+        .slice(0, limit);
+
+    const closureTimeline = [...published.reduce((map, row) => {
+      if (!row.closedYear) return map;
+      const cur = map.get(row.closedYear) ?? {
+        year: row.closedYear,
+        caseCount: 0,
+        totalFundingUsd: 0,
+      };
+      cur.caseCount += 1;
+      cur.totalFundingUsd += row.totalFundingUsd ?? 0;
+      map.set(row.closedYear, cur);
+      return map;
+    }, new Map<number, ResearchTimelinePoint>()).values()].sort((a, b) => a.year - b.year);
+
+    return {
+      summary: await this.getHomeSummary(),
+      topIndustries: byKey((row) => row.industry),
+      topCountries: byKey((row) => row.country),
+      topFailureReasons: byKey((row) => row.primaryFailureReasonKey),
+      closureTimeline,
+    };
+  }
+
   async getById(id: string): Promise<CaseDetail | null> {
     const r = this.rows.find((x) => x.id === id && x.status === 'published');
     if (!r) return null;
@@ -553,6 +614,100 @@ export class PgCasesRepository implements CasesRepository {
       totalCases: Number(row?.total_cases ?? 0),
       totalFundingUsd: Number(row?.total_funding_usd ?? 0),
       failurePatterns: Number(row?.failure_patterns ?? 0),
+    };
+  }
+
+  async getResearchOverview(): Promise<ResearchOverview> {
+    const [summary, industryRes, countryRes, reasonRes, timelineRes] = await Promise.all([
+      this.getHomeSummary(),
+      this.pool.query<{
+        key: string;
+        case_count: string;
+        total_funding_usd: string;
+      }>(
+        `
+        SELECT
+          industry_key AS key,
+          COUNT(*)::bigint AS case_count,
+          COALESCE(SUM(total_funding_usd), 0)::numeric AS total_funding_usd
+        FROM cases
+        WHERE status = 'published'
+        GROUP BY industry_key
+        ORDER BY case_count DESC, total_funding_usd DESC, key ASC
+        LIMIT 6
+        `,
+      ),
+      this.pool.query<{
+        key: string;
+        case_count: string;
+        total_funding_usd: string;
+      }>(
+        `
+        SELECT
+          country_code AS key,
+          COUNT(*)::bigint AS case_count,
+          COALESCE(SUM(total_funding_usd), 0)::numeric AS total_funding_usd
+        FROM cases
+        WHERE status = 'published'
+          AND country_code IS NOT NULL
+        GROUP BY country_code
+        ORDER BY case_count DESC, total_funding_usd DESC, key ASC
+        LIMIT 6
+        `,
+      ),
+      this.pool.query<{
+        key: string;
+        case_count: string;
+        total_funding_usd: string;
+      }>(
+        `
+        SELECT
+          primary_failure_reason_key AS key,
+          COUNT(*)::bigint AS case_count,
+          COALESCE(SUM(total_funding_usd), 0)::numeric AS total_funding_usd
+        FROM cases
+        WHERE status = 'published'
+          AND primary_failure_reason_key IS NOT NULL
+        GROUP BY primary_failure_reason_key
+        ORDER BY case_count DESC, total_funding_usd DESC, key ASC
+        LIMIT 6
+        `,
+      ),
+      this.pool.query<{
+        year: number;
+        case_count: string;
+        total_funding_usd: string;
+      }>(
+        `
+        SELECT
+          closed_year AS year,
+          COUNT(*)::bigint AS case_count,
+          COALESCE(SUM(total_funding_usd), 0)::numeric AS total_funding_usd
+        FROM cases
+        WHERE status = 'published'
+          AND closed_year IS NOT NULL
+        GROUP BY closed_year
+        ORDER BY year ASC
+        `,
+      ),
+    ]);
+
+    const mapBucket = (row: { key: string; case_count: string; total_funding_usd: string }) => ({
+      key: row.key,
+      caseCount: Number(row.case_count),
+      totalFundingUsd: Number(row.total_funding_usd),
+    });
+
+    return {
+      summary,
+      topIndustries: industryRes.rows.map(mapBucket),
+      topCountries: countryRes.rows.map(mapBucket),
+      topFailureReasons: reasonRes.rows.map(mapBucket),
+      closureTimeline: timelineRes.rows.map((row) => ({
+        year: Number(row.year),
+        caseCount: Number(row.case_count),
+        totalFundingUsd: Number(row.total_funding_usd),
+      })),
     };
   }
 

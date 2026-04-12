@@ -79,6 +79,51 @@ describe('public API (mock DB)', () => {
     expect(body.failurePatterns).toBe(1);
   });
 
+  it('GET /v1/meta/research-overview returns grouped research aggregates', async () => {
+    const res = await app.inject({ method: 'GET', url: '/v1/meta/research-overview' });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body) as {
+      summary: { totalCases: number; totalFundingUsd: number; failurePatterns: number };
+      topIndustries: Array<{ key: string; caseCount: number; totalFundingUsd: number }>;
+      topCountries: Array<{ key: string; caseCount: number; totalFundingUsd: number }>;
+      topFailureReasons: Array<{ key: string; caseCount: number; totalFundingUsd: number }>;
+      closureTimeline: Array<{ year: number; caseCount: number; totalFundingUsd: number }>;
+    };
+    expect(body.summary.totalCases).toBe(2);
+    expect(body.topIndustries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'mobility',
+          caseCount: 2,
+        }),
+      ]),
+    );
+    expect(body.topCountries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'PK',
+          caseCount: 2,
+        }),
+      ]),
+    );
+    expect(body.topFailureReasons).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'premature_scaling',
+          caseCount: 1,
+        }),
+      ]),
+    );
+    expect(body.closureTimeline).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          year: 2022,
+          caseCount: 1,
+        }),
+      ]),
+    );
+  });
+
   it('GET /v1/admin/audit is disabled when ADMIN_API_KEY is unset', async () => {
     const res = await app.inject({ method: 'GET', url: '/v1/admin/audit?limit=5' });
     expect(res.statusCode).toBe(503);

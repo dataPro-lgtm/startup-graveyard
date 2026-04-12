@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { type CopilotResult, askCopilotAction } from './actions';
 
 const SUGGESTED_QUESTIONS = [
@@ -13,11 +14,13 @@ const SUGGESTED_QUESTIONS = [
 ];
 
 export default function CopilotPage() {
+  const searchParams = useSearchParams();
   const [question, setQuestion] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<CopilotResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const initializedQuestionRef = useRef<string | null>(null);
 
   async function handleSubmit(q: string) {
     const trimmed = q.trim();
@@ -44,6 +47,31 @@ export default function CopilotPage() {
     if (inputRef.current) inputRef.current.value = q;
     handleSubmit(q);
   }
+
+  useEffect(() => {
+    const presetQuestion = searchParams.get('q')?.trim() ?? '';
+    if (!presetQuestion) return;
+    if (initializedQuestionRef.current === presetQuestion) return;
+    initializedQuestionRef.current = presetQuestion;
+    setQuestion(presetQuestion);
+    if (inputRef.current) inputRef.current.value = presetQuestion;
+    if (searchParams.get('run') === '1') {
+      void (async () => {
+        setLoading(true);
+        setError(null);
+        setResult(null);
+        try {
+          const res = await askCopilotAction(presetQuestion);
+          if (!res.ok) setError(`Copilot 请求失败：${res.error}`);
+          else setResult(res);
+        } catch {
+          setError('请求出错，请稍后重试。');
+        } finally {
+          setLoading(false);
+        }
+      })();
+    }
+  }, [searchParams]);
 
   return (
     <main style={{ maxWidth: 860, margin: '0 auto', padding: '48px 24px 80px' }}>

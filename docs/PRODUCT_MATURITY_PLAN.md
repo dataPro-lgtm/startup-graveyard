@@ -159,3 +159,9 @@
 - 新增 `backfill_case_taxonomy` ingestion job，会批量扫描历史 case / failure_factors / timeline_events，把旧的 freeform/alias key 回填成 canonical taxonomy。
 - 回填完成后，会为受影响的 published case 自动排入 `rebuild_case_search_index`，避免搜索索引、筛选统计和详情展示继续读取旧 key。
 - 新增纯规则测试与 PostgreSQL 集成回归，保证历史脏数据修复后，公开接口与索引层看到的是一致的 canonical 值。
+
+已完成 M2 第一段（Research Hub / 预设专题）：
+
+- 新增 `/v1/meta/research-overview`，把首页 summary、热门行业、热门国家、热门失败主因和倒闭时间线收口成研究型聚合接口。
+- Web 新增 `/research` 页面，提供预设专题入口、趋势聚合面板、最新案例流，并可一键带着问题跳转到 Copilot。
+- 首页与顶层导航已接入 Research Hub，产品入口从“单纯搜索列表”升级为“搜索 + 研究”双入口。

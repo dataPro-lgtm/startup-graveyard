@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { homeSummarySchema } from '@sg/shared/schemas/meta';
+import { homeSummarySchema, researchOverviewSchema } from '@sg/shared/schemas/meta';
 import {
   BUSINESS_MODEL_LABELS,
   COUNTRY_LABELS,
@@ -24,5 +24,10 @@ export async function metaRoutes(app: FastifyInstance) {
   app.get('/home-summary', async () => {
     const summary = await app.casesRepo.getHomeSummary();
     return homeSummarySchema.parse(summary);
+  });
+
+  app.get('/research-overview', async () => {
+    const overview = await app.casesRepo.getResearchOverview();
+    return researchOverviewSchema.parse(overview);
   });
 }
