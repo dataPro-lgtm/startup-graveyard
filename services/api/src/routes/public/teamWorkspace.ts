@@ -86,6 +86,12 @@ export async function teamWorkspaceRoutes(app: FastifyInstance) {
     if (result === 'user_already_in_workspace') {
       return reply.code(409).send({ error: 'user_already_in_workspace' });
     }
+    if (result === 'workspace_plan_inactive') {
+      return reply.code(409).send({ error: 'workspace_plan_inactive' });
+    }
+    if (result === 'seat_limit_reached') {
+      return reply.code(409).send({ error: 'seat_limit_reached' });
+    }
     return teamWorkspaceContextMutationResponseSchema.parse({ ok: true, workspace: result });
   });
 

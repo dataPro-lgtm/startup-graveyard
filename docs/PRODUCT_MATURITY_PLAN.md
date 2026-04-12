@@ -214,3 +214,9 @@
 - Team 用户现在可以在账户页创建团队工作区，邀请成员，并查看成员、待接受邀请、共享 Saved Views 和共享案例。
 - 公开 API、shared schema、数据库模型已经补齐 `team_workspaces / members / invites / shared_saved_views / shared_cases`，mock / PostgreSQL 两套仓库都支持同一套协作闭环。
 - 案例详情页与 Saved Views 列表已经接入“共享到 Team Workspace”入口，这让 M3 从个人研究资产沉淀，升级成了基础团队协作资产层。
+
+已完成 M3 第四段第一部分（seat / billing ops foundation）：
+
+- Team Workspace 现在会直接暴露 seat limit、reserved seats、billing owner、账单状态、到期取消标记和风险 warning codes，团队运营状态不再是黑箱。
+- 邀请成员已经从“只要点邀请就行”升级成“受 seat limit 和 workspace billing 状态约束”的正式商业化行为；当席位已满或账单已降级时，接口和前端都会给出明确阻断原因。
+- 这为后续的失败补偿、自动账单告警、到期降级和 workspace 级 entitlement 继承打下了基础，但这些更深的订阅运营能力还没有全部实现。

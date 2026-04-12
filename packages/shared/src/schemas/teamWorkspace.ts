@@ -1,9 +1,16 @@
 import { z } from 'zod';
+import { billingStatusSchema, subscriptionTierSchema } from './auth.js';
 import { caseListItemSchema } from './cases.js';
 import { savedViewItemSchema } from './savedViews.js';
 
 export const teamWorkspaceRoleSchema = z.enum(['owner', 'admin', 'member']);
 export const teamWorkspaceInviteStatusSchema = z.enum(['pending', 'accepted', 'revoked']);
+export const teamWorkspaceBillingWarningSchema = z.enum([
+  'workspace_plan_inactive',
+  'past_due',
+  'cancel_at_period_end',
+  'seat_limit_reached',
+]);
 
 export const teamWorkspaceMemberSchema = z.object({
   userId: z.string().uuid(),
@@ -37,6 +44,22 @@ export const teamWorkspaceSharedCaseSchema = caseListItemSchema.extend({
   sharedAt: z.string(),
 });
 
+export const teamWorkspaceBillingSchema = z.object({
+  ownerUserId: z.string().uuid(),
+  ownerDisplayName: z.string().nullable(),
+  ownerEmail: z.string().email(),
+  subscription: subscriptionTierSchema,
+  billingStatus: billingStatusSchema,
+  currentPeriodEnd: z.string().nullable(),
+  cancelAtPeriodEnd: z.boolean(),
+  seatLimit: z.number().int().nonnegative(),
+  seatsUsed: z.number().int().nonnegative(),
+  reservedSeats: z.number().int().nonnegative(),
+  seatsRemaining: z.number().int().nonnegative(),
+  canInviteMore: z.boolean(),
+  warningCodes: z.array(teamWorkspaceBillingWarningSchema),
+});
+
 export const teamWorkspaceSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
@@ -46,6 +69,7 @@ export const teamWorkspaceSchema = z.object({
   sharedSavedViewCount: z.number().int().nonnegative(),
   sharedCaseCount: z.number().int().nonnegative(),
   createdAt: z.string(),
+  billing: teamWorkspaceBillingSchema,
   members: z.array(teamWorkspaceMemberSchema),
   invites: z.array(teamWorkspaceInviteSchema),
   sharedSavedViews: z.array(teamWorkspaceSharedSavedViewSchema),
@@ -88,9 +112,11 @@ export const teamWorkspaceContextMutationResponseSchema = z.object({
 
 export type TeamWorkspaceRole = z.infer<typeof teamWorkspaceRoleSchema>;
 export type TeamWorkspaceInviteStatus = z.infer<typeof teamWorkspaceInviteStatusSchema>;
+export type TeamWorkspaceBillingWarning = z.infer<typeof teamWorkspaceBillingWarningSchema>;
 export type TeamWorkspaceMember = z.infer<typeof teamWorkspaceMemberSchema>;
 export type TeamWorkspaceInvite = z.infer<typeof teamWorkspaceInviteSchema>;
 export type TeamWorkspaceSharedSavedView = z.infer<typeof teamWorkspaceSharedSavedViewSchema>;
 export type TeamWorkspaceSharedCase = z.infer<typeof teamWorkspaceSharedCaseSchema>;
+export type TeamWorkspaceBilling = z.infer<typeof teamWorkspaceBillingSchema>;
 export type TeamWorkspace = z.infer<typeof teamWorkspaceSchema>;
 export type TeamWorkspaceContextResponse = z.infer<typeof teamWorkspaceContextResponseSchema>;

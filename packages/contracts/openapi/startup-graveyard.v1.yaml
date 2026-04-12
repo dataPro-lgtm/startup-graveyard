@@ -559,6 +559,9 @@ components:
     TeamWorkspaceInviteStatus:
       type: string
       enum: [pending, accepted, revoked]
+    TeamWorkspaceBillingWarning:
+      type: string
+      enum: [workspace_plan_inactive, past_due, cancel_at_period_end, seat_limit_reached]
     TeamWorkspaceMember:
       type: object
       required: [userId, email, displayName, role, joinedAt]
@@ -603,6 +606,43 @@ components:
             sharedByUserId: { type: string, format: uuid }
             sharedByName: { type: string, nullable: true }
             sharedAt: { type: string }
+    TeamWorkspaceBilling:
+      type: object
+      required:
+        [
+          ownerUserId,
+          ownerDisplayName,
+          ownerEmail,
+          subscription,
+          billingStatus,
+          currentPeriodEnd,
+          cancelAtPeriodEnd,
+          seatLimit,
+          seatsUsed,
+          reservedSeats,
+          seatsRemaining,
+          canInviteMore,
+          warningCodes,
+        ]
+      properties:
+        ownerUserId: { type: string, format: uuid }
+        ownerDisplayName: { type: string, nullable: true }
+        ownerEmail: { type: string, format: email }
+        subscription:
+          $ref: '#/components/schemas/SubscriptionTier'
+        billingStatus:
+          $ref: '#/components/schemas/BillingStatus'
+        currentPeriodEnd: { type: string, nullable: true }
+        cancelAtPeriodEnd: { type: boolean }
+        seatLimit: { type: integer, minimum: 0 }
+        seatsUsed: { type: integer, minimum: 0 }
+        reservedSeats: { type: integer, minimum: 0 }
+        seatsRemaining: { type: integer, minimum: 0 }
+        canInviteMore: { type: boolean }
+        warningCodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/TeamWorkspaceBillingWarning'
     TeamWorkspace:
       type: object
       required:
@@ -615,6 +655,7 @@ components:
           sharedSavedViewCount,
           sharedCaseCount,
           createdAt,
+          billing,
           members,
           invites,
           sharedSavedViews,
@@ -630,6 +671,8 @@ components:
         sharedSavedViewCount: { type: integer, minimum: 0 }
         sharedCaseCount: { type: integer, minimum: 0 }
         createdAt: { type: string }
+        billing:
+          $ref: '#/components/schemas/TeamWorkspaceBilling'
         members:
           type: array
           items:
@@ -1918,7 +1961,7 @@ paths:
         '404':
           description: Workspace or user not found
         '409':
-          description: User already belongs to a workspace
+          description: User already belongs to a workspace, the seat limit is reached, or the workspace billing plan is inactive
   /v1/team-workspace/invites/{inviteId}/accept:
     post:
       summary: Accept a pending team workspace invite

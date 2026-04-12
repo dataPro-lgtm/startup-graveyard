@@ -1,7 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
 import type { UserProfile } from '@sg/shared/schemas/auth';
+import { resolveTeamWorkspaceSeatLimit } from '@sg/shared/billing';
 import type {
+  TeamWorkspaceBilling,
+  TeamWorkspaceBillingWarning,
   TeamWorkspace,
   TeamWorkspaceContextResponse,
   TeamWorkspaceInvite,
@@ -51,6 +54,7 @@ type PgWorkspaceMembershipRow = {
   joined_at: Date | string;
   name: string;
   created_at: Date | string;
+  owner_user_id: string;
 };
 
 type PgWorkspaceInviteRow = {
@@ -102,6 +106,17 @@ type PgWorkspaceCaseRow = {
   shared_by_name: string | null;
   shared_at: Date | string;
 };
+
+type WorkspaceBillingOwner = Pick<
+  UserProfile,
+  | 'id'
+  | 'email'
+  | 'displayName'
+  | 'subscription'
+  | 'billingStatus'
+  | 'currentPeriodEnd'
+  | 'cancelAtPeriodEnd'
+>;
 
 function toIso(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
@@ -175,6 +190,41 @@ function rowToSharedCase(row: PgWorkspaceCaseRow): TeamWorkspaceSharedCase {
   };
 }
 
+function buildWorkspaceBilling(input: {
+  owner: WorkspaceBillingOwner;
+  seatsUsed: number;
+  pendingInviteCount: number;
+}): TeamWorkspaceBilling {
+  const seatLimit = resolveTeamWorkspaceSeatLimit({
+    subscription: input.owner.subscription,
+    billingStatus: input.owner.billingStatus,
+  });
+  const reservedSeats = input.seatsUsed + input.pendingInviteCount;
+  const seatsRemaining = Math.max(0, seatLimit - reservedSeats);
+  const warningCodes: TeamWorkspaceBillingWarning[] = [];
+
+  if (seatLimit === 0) warningCodes.push('workspace_plan_inactive');
+  if (input.owner.billingStatus === 'past_due') warningCodes.push('past_due');
+  if (input.owner.cancelAtPeriodEnd) warningCodes.push('cancel_at_period_end');
+  if (seatLimit > 0 && reservedSeats >= seatLimit) warningCodes.push('seat_limit_reached');
+
+  return {
+    ownerUserId: input.owner.id,
+    ownerDisplayName: input.owner.displayName,
+    ownerEmail: input.owner.email,
+    subscription: input.owner.subscription,
+    billingStatus: input.owner.billingStatus,
+    currentPeriodEnd: input.owner.currentPeriodEnd,
+    cancelAtPeriodEnd: input.owner.cancelAtPeriodEnd,
+    seatLimit,
+    seatsUsed: input.seatsUsed,
+    reservedSeats,
+    seatsRemaining,
+    canInviteMore: seatLimit > 0 && reservedSeats < seatLimit,
+    warningCodes,
+  };
+}
+
 export interface TeamWorkspacesRepository {
   getContextForUser(user: UserProfile): Promise<TeamWorkspaceContextResponse>;
   createWorkspace(
@@ -185,7 +235,14 @@ export interface TeamWorkspacesRepository {
     actorUserId: string,
     email: string,
     role: ManageRole,
-  ): Promise<TeamWorkspace | 'workspace_not_found' | 'forbidden' | 'user_already_in_workspace'>;
+  ): Promise<
+    | TeamWorkspace
+    | 'workspace_not_found'
+    | 'forbidden'
+    | 'user_already_in_workspace'
+    | 'seat_limit_reached'
+    | 'workspace_plan_inactive'
+  >;
   acceptInvite(
     user: UserProfile,
     inviteId: string,
@@ -252,12 +309,22 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
     actorUserId: string,
     email: string,
     role: ManageRole,
-  ): Promise<TeamWorkspace | 'workspace_not_found' | 'forbidden' | 'user_already_in_workspace'> {
+  ): Promise<
+    | TeamWorkspace
+    | 'workspace_not_found'
+    | 'forbidden'
+    | 'user_already_in_workspace'
+    | 'seat_limit_reached'
+    | 'workspace_plan_inactive'
+  > {
     const actorMembership = this.membershipByUserId.get(actorUserId);
     if (!actorMembership) return 'workspace_not_found';
     if (actorMembership.role === 'member') return 'forbidden';
 
     const normalizedEmail = email.trim().toLowerCase();
+    const workspaceView = await this.buildWorkspaceForUser(actorUserId);
+    if (!workspaceView) return 'workspace_not_found';
+
     const usersToCheck = await Promise.all(
       [...this.membershipByUserId.keys()].map(async (userId) => this.usersRepo.getById(userId)),
     );
@@ -265,10 +332,21 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
       return 'user_already_in_workspace';
     }
 
+    if (workspaceView.billing.warningCodes.includes('workspace_plan_inactive')) {
+      return 'workspace_plan_inactive';
+    }
+
     const workspace = this.workspaces.get(actorMembership.workspaceId)!;
     const existing = [...this.invites.values()].find(
-      (invite) => invite.workspaceId === workspace.id && invite.email === normalizedEmail,
+      (invite) =>
+        invite.workspaceId === workspace.id &&
+        invite.email === normalizedEmail &&
+        invite.status === 'pending',
     );
+    if (!existing && !workspaceView.billing.canInviteMore) {
+      return 'seat_limit_reached';
+    }
+
     const invite: WorkspaceInviteRecord = {
       id: existing?.id ?? randomUUID(),
       workspaceId: workspace.id,
@@ -448,6 +526,9 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
       )
     ).filter((item): item is TeamWorkspaceSharedCase => item !== null);
 
+    const owner = await this.usersRepo.getById(workspace.ownerUserId);
+    if (!owner) return null;
+
     return {
       id: workspace.id,
       name: workspace.name,
@@ -457,6 +538,11 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
       sharedSavedViewCount: sharedSavedViews.length,
       sharedCaseCount: sharedCases.length,
       createdAt: workspace.createdAt,
+      billing: buildWorkspaceBilling({
+        owner,
+        seatsUsed: members.length,
+        pendingInviteCount: invites.length,
+      }),
       members,
       invites,
       sharedSavedViews,
@@ -513,10 +599,20 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
     actorUserId: string,
     email: string,
     role: ManageRole,
-  ): Promise<TeamWorkspace | 'workspace_not_found' | 'forbidden' | 'user_already_in_workspace'> {
+  ): Promise<
+    | TeamWorkspace
+    | 'workspace_not_found'
+    | 'forbidden'
+    | 'user_already_in_workspace'
+    | 'seat_limit_reached'
+    | 'workspace_plan_inactive'
+  > {
     const membership = await this.findMembership(actorUserId);
     if (!membership) return 'workspace_not_found';
     if (membership.role === 'member') return 'forbidden';
+
+    const workspace = await this.buildWorkspaceForUser(actorUserId);
+    if (!workspace) return 'workspace_not_found';
 
     const { rowCount: memberCount } = await this.pool.query(
       `SELECT 1
@@ -527,6 +623,18 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
       [email],
     );
     if ((memberCount ?? 0) > 0) return 'user_already_in_workspace';
+
+    if (workspace.billing.warningCodes.includes('workspace_plan_inactive')) {
+      return 'workspace_plan_inactive';
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    const existingInvite = workspace.invites.find(
+      (invite) => invite.email.toLowerCase() === normalizedEmail,
+    );
+    if (!existingInvite && !workspace.billing.canInviteMore) {
+      return 'seat_limit_reached';
+    }
 
     await this.pool.query(
       `INSERT INTO team_workspace_invites (workspace_id, email, role, created_by_user_id)
@@ -539,7 +647,7 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
          accepted_by_user_id = NULL,
          accepted_at = NULL,
          created_at = NOW()`,
-      [membership.workspaceId, email.trim().toLowerCase(), role, actorUserId],
+      [membership.workspaceId, normalizedEmail, role, actorUserId],
     );
     return (await this.buildWorkspaceForUser(actorUserId))!;
   }
@@ -657,7 +765,7 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
 
   private async findMembership(userId: string): Promise<WorkspaceMembershipRecord | null> {
     const { rows } = await this.pool.query<PgWorkspaceMembershipRow>(
-      `SELECT m.workspace_id, m.role, m.joined_at, w.name, w.created_at
+      `SELECT m.workspace_id, m.role, m.joined_at, w.name, w.created_at, w.owner_user_id
        FROM team_workspace_members m
        JOIN team_workspaces w ON w.id = m.workspace_id
        WHERE m.user_id = $1
@@ -695,7 +803,7 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
 
   private async buildWorkspaceForUser(userId: string): Promise<TeamWorkspace | null> {
     const { rows } = await this.pool.query<PgWorkspaceMembershipRow>(
-      `SELECT m.workspace_id, m.role, m.joined_at, w.name, w.created_at
+      `SELECT m.workspace_id, m.role, m.joined_at, w.name, w.created_at, w.owner_user_id
        FROM team_workspace_members m
        JOIN team_workspaces w ON w.id = m.workspace_id
        WHERE m.user_id = $1
@@ -706,7 +814,7 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
     if (!membership) return null;
 
     const workspaceId = membership.workspace_id;
-    const [memberRows, inviteRows, sharedSavedViewRows, sharedCaseRows] = await Promise.all([
+    const [memberRows, inviteRows, sharedSavedViewRows, sharedCaseRows, ownerRows] = await Promise.all([
       this.pool.query<PgWorkspaceMemberRow>(
         `SELECT
            u.id AS user_id,
@@ -788,7 +896,32 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
          ORDER BY tc.created_at DESC`,
         [workspaceId],
       ),
+      this.pool.query<{
+        id: string;
+        email: string;
+        display_name: string | null;
+        subscription: UserProfile['subscription'];
+        billing_status: UserProfile['billingStatus'];
+        current_period_end: Date | string | null;
+        cancel_at_period_end: boolean;
+      }>(
+        `SELECT
+           id,
+           email,
+           display_name,
+           subscription,
+           billing_status,
+           current_period_end,
+           cancel_at_period_end
+         FROM users
+         WHERE id = $1
+         LIMIT 1`,
+        [membership.owner_user_id],
+      ),
     ]);
+
+    const owner = ownerRows.rows[0];
+    if (!owner) return null;
 
     return {
       id: workspaceId,
@@ -799,6 +932,19 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
       sharedSavedViewCount: sharedSavedViewRows.rows.length,
       sharedCaseCount: sharedCaseRows.rows.length,
       createdAt: toIso(membership.created_at),
+      billing: buildWorkspaceBilling({
+        owner: {
+          id: owner.id,
+          email: owner.email,
+          displayName: owner.display_name,
+          subscription: owner.subscription,
+          billingStatus: owner.billing_status,
+          currentPeriodEnd: owner.current_period_end ? toIso(owner.current_period_end) : null,
+          cancelAtPeriodEnd: owner.cancel_at_period_end,
+        },
+        seatsUsed: memberRows.rows.length,
+        pendingInviteCount: inviteRows.rows.length,
+      }),
       members: memberRows.rows.map(rowToMember),
       invites: inviteRows.rows.map(rowToInvite),
       sharedSavedViews: sharedSavedViewRows.rows.map(rowToSharedSavedView),

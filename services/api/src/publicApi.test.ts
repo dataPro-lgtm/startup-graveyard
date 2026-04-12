@@ -664,6 +664,16 @@ describe('public API (mock DB)', () => {
         name: 'Mobility Failure Desk',
         role: 'owner',
         memberCount: 1,
+        billing: {
+          subscription: 'team',
+          billingStatus: 'active',
+          seatLimit: 5,
+          seatsUsed: 1,
+          reservedSeats: 1,
+          seatsRemaining: 4,
+          canInviteMore: true,
+          warningCodes: [],
+        },
       },
     });
 
@@ -725,6 +735,13 @@ describe('public API (mock DB)', () => {
     expect(JSON.parse(inviteRes.body)).toMatchObject({
       ok: true,
       workspace: {
+        billing: {
+          seatLimit: 5,
+          seatsUsed: 1,
+          reservedSeats: 2,
+          seatsRemaining: 3,
+          canInviteMore: true,
+        },
         invites: [{ email: memberEmail, role: 'admin' }],
       },
     });
@@ -760,6 +777,13 @@ describe('public API (mock DB)', () => {
         name: 'Mobility Failure Desk',
         role: 'admin',
         memberCount: 2,
+        billing: {
+          ownerEmail,
+          seatLimit: 5,
+          seatsUsed: 2,
+          reservedSeats: 2,
+          seatsRemaining: 3,
+        },
       },
     });
 
@@ -794,6 +818,14 @@ describe('public API (mock DB)', () => {
         memberCount: 2,
         sharedSavedViewCount: 1,
         sharedCaseCount: 1,
+        billing: {
+          ownerEmail,
+          seatLimit: 5,
+          seatsUsed: 2,
+          reservedSeats: 2,
+          seatsRemaining: 3,
+          warningCodes: [],
+        },
       },
     });
 
@@ -817,7 +849,145 @@ describe('public API (mock DB)', () => {
         sharedCases: expect.arrayContaining([
           expect.objectContaining({ id: firstCaseId }),
         ]),
+        billing: expect.objectContaining({
+          ownerEmail,
+          seatLimit: 5,
+          seatsUsed: 2,
+          reservedSeats: 2,
+        }),
       },
+    });
+  });
+
+  it('team workspace enforces seat limits and surfaces billing risk warnings', async () => {
+    const ownerEmail = `seat-owner-${Date.now()}@example.com`;
+    const ownerRegisterRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        email: ownerEmail,
+        password: 'password123',
+        displayName: 'Seat Owner',
+      },
+    });
+    expect(ownerRegisterRes.statusCode).toBe(201);
+    const ownerRegistered = JSON.parse(ownerRegisterRes.body) as {
+      user: { id: string };
+      accessToken: string;
+    };
+
+    await app.usersRepo.updateBillingAccount(ownerRegistered.user.id, {
+      subscription: 'team',
+      billingStatus: 'active',
+      billingInterval: 'month',
+    });
+
+    const createWorkspaceRes = await app.inject({
+      method: 'POST',
+      url: '/v1/team-workspace',
+      headers: {
+        authorization: `Bearer ${ownerRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: { name: 'Seat Ops Desk' },
+    });
+    expect(createWorkspaceRes.statusCode).toBe(200);
+
+    for (const inviteIndex of [1, 2, 3, 4]) {
+      const inviteRes = await app.inject({
+        method: 'POST',
+        url: '/v1/team-workspace/invites',
+        headers: {
+          authorization: `Bearer ${ownerRegistered.accessToken}`,
+          'content-type': 'application/json',
+        },
+        payload: {
+          email: `seat-member-${inviteIndex}-${Date.now()}@example.com`,
+          role: 'member',
+        },
+      });
+      expect(inviteRes.statusCode).toBe(200);
+    }
+
+    const fullContextRes = await app.inject({
+      method: 'GET',
+      url: '/v1/team-workspace/me',
+      headers: { authorization: `Bearer ${ownerRegistered.accessToken}` },
+    });
+    expect(fullContextRes.statusCode).toBe(200);
+    expect(JSON.parse(fullContextRes.body)).toMatchObject({
+      workspace: {
+        billing: {
+          seatLimit: 5,
+          seatsUsed: 1,
+          reservedSeats: 5,
+          seatsRemaining: 0,
+          canInviteMore: false,
+          warningCodes: ['seat_limit_reached'],
+        },
+      },
+    });
+
+    const blockedInviteRes = await app.inject({
+      method: 'POST',
+      url: '/v1/team-workspace/invites',
+      headers: {
+        authorization: `Bearer ${ownerRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        email: `seat-member-overflow-${Date.now()}@example.com`,
+        role: 'member',
+      },
+    });
+    expect(blockedInviteRes.statusCode).toBe(409);
+    expect(JSON.parse(blockedInviteRes.body)).toMatchObject({
+      error: 'seat_limit_reached',
+    });
+
+    await app.usersRepo.updateBillingAccount(ownerRegistered.user.id, {
+      subscription: 'pro',
+      billingStatus: 'active',
+      billingInterval: 'month',
+      cancelAtPeriodEnd: true,
+    });
+
+    const degradedContextRes = await app.inject({
+      method: 'GET',
+      url: '/v1/team-workspace/me',
+      headers: { authorization: `Bearer ${ownerRegistered.accessToken}` },
+    });
+    expect(degradedContextRes.statusCode).toBe(200);
+    expect(JSON.parse(degradedContextRes.body)).toMatchObject({
+      workspace: {
+        billing: {
+          subscription: 'pro',
+          billingStatus: 'active',
+          seatLimit: 0,
+          canInviteMore: false,
+          warningCodes: expect.arrayContaining([
+            'workspace_plan_inactive',
+            'cancel_at_period_end',
+          ]),
+        },
+      },
+    });
+
+    const inactiveInviteRes = await app.inject({
+      method: 'POST',
+      url: '/v1/team-workspace/invites',
+      headers: {
+        authorization: `Bearer ${ownerRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        email: `seat-member-inactive-${Date.now()}@example.com`,
+        role: 'member',
+      },
+    });
+    expect(inactiveInviteRes.statusCode).toBe(409);
+    expect(JSON.parse(inactiveInviteRes.body)).toMatchObject({
+      error: 'workspace_plan_inactive',
     });
   });
 

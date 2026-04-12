@@ -15,18 +15,48 @@ import {
   isApiError,
   notifyTeamWorkspaceUpdated,
 } from '@/lib/teamWorkspaceApi';
+import { PLAN_LABELS } from '@sg/shared/billing';
 import { industryLabel, primaryFailureReasonLabel } from '@sg/shared/taxonomy';
-import type { TeamWorkspaceContextResponse } from '@sg/shared/schemas/teamWorkspace';
+import type {
+  TeamWorkspaceBilling,
+  TeamWorkspaceBillingWarning,
+  TeamWorkspaceContextResponse,
+} from '@sg/shared/schemas/teamWorkspace';
 
 function apiErrorMessage(error: { error: string }) {
   if (error.error === 'entitlement_required') return 'Team Workspace 仅对 Team 套餐开放创建。';
   if (error.error === 'already_in_workspace') return '当前账户已经加入了一个团队工作区。';
   if (error.error === 'user_already_in_workspace') return '该邮箱对应用户已经在别的团队工作区中。';
+  if (error.error === 'seat_limit_reached') return '当前工作区席位已满，无法继续邀请。';
+  if (error.error === 'workspace_plan_inactive') {
+    return '当前 Team 工作区账单未处于可用状态，邀请功能已暂停。';
+  }
   if (error.error === 'email_mismatch') return '邀请邮箱和当前登录账户不一致。';
   if (error.error === 'workspace_not_found') return '当前还没有可操作的团队工作区。';
   if (error.error === 'forbidden') return '当前角色没有成员管理权限。';
   if (error.error === 'invite_not_found') return '邀请不存在，或已经被处理。';
   return `团队工作区操作失败：${error.error}`;
+}
+
+function billingStatusLabel(value: TeamWorkspaceBilling['billingStatus']) {
+  if (value === 'active') return '正常订阅';
+  if (value === 'trialing') return '试用中';
+  if (value === 'past_due') return '付款待处理';
+  if (value === 'canceled') return '已取消';
+  return '未激活';
+}
+
+function warningMessage(code: TeamWorkspaceBillingWarning) {
+  if (code === 'workspace_plan_inactive') {
+    return '账单所有者当前不在有效 Team 计费状态，工作区已进入降级风险状态。';
+  }
+  if (code === 'past_due') {
+    return '当前订阅处于 past due，若未及时补款，团队能力会被进一步收紧。';
+  }
+  if (code === 'cancel_at_period_end') {
+    return '当前订阅已设置到期取消，请在周期结束前确认是否续费。';
+  }
+  return '当前席位已经用满，新的成员邀请会被阻止。';
 }
 
 export function TeamWorkspacePanel() {
@@ -192,8 +222,8 @@ export function TeamWorkspacePanel() {
           <div style={{ color: '#9fb3ff', fontSize: 13, lineHeight: 1.7 }}>
             <div>{workspace.name}</div>
             <div>
-              {workspace.memberCount} 位成员 · {workspace.sharedSavedViewCount} 个共享视图 ·{' '}
-              {workspace.sharedCaseCount} 个共享案例
+              {workspace.billing.seatsUsed}/{workspace.billing.seatLimit} 席位已使用 ·{' '}
+              {workspace.sharedSavedViewCount} 个共享视图 · {workspace.sharedCaseCount} 个共享案例
             </div>
           </div>
         ) : null}
@@ -278,6 +308,68 @@ export function TeamWorkspacePanel() {
 
       {workspace ? (
         <div style={{ display: 'grid', gap: 18 }}>
+          <div style={{ ...cardStyle, display: 'grid', gap: 12 }}>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                gap: 12,
+                flexWrap: 'wrap',
+                alignItems: 'start',
+              }}
+            >
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>团队账单与席位</div>
+                <div style={{ color: '#9fb3ff', fontSize: 13, lineHeight: 1.7 }}>
+                  账单所有者：{workspace.billing.ownerDisplayName ?? workspace.billing.ownerEmail}
+                  <br />
+                  套餐：{PLAN_LABELS[workspace.billing.subscription]} · 状态：
+                  {billingStatusLabel(workspace.billing.billingStatus)}
+                  <br />
+                  席位占用：{workspace.billing.seatsUsed}/{workspace.billing.seatLimit} 已使用，
+                  {workspace.billing.reservedSeats} 已保留
+                  <br />
+                  剩余可邀请：{workspace.billing.seatsRemaining}
+                  {workspace.billing.currentPeriodEnd
+                    ? ` · 周期结束 ${new Date(workspace.billing.currentPeriodEnd).toLocaleDateString(
+                        'zh-CN',
+                      )}`
+                    : ''}
+                </div>
+              </div>
+              <div style={{ color: '#9fb3ff', fontSize: 12, textAlign: 'right', lineHeight: 1.7 }}>
+                <div>{workspace.billing.canInviteMore ? '可继续邀请' : '邀请已暂停'}</div>
+                <div>
+                  {workspace.billing.cancelAtPeriodEnd ? '到期后取消已开启' : '续费状态正常'}
+                </div>
+              </div>
+            </div>
+            {workspace.billing.warningCodes.length > 0 ? (
+              <div style={{ display: 'grid', gap: 8 }}>
+                {workspace.billing.warningCodes.map((code) => (
+                  <div
+                    key={code}
+                    style={{
+                      borderRadius: 12,
+                      border: '1px solid #4b2430',
+                      background: '#23131a',
+                      color: '#fbc5cf',
+                      padding: '10px 12px',
+                      fontSize: 13,
+                      lineHeight: 1.7,
+                    }}
+                  >
+                    {warningMessage(code)}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ color: '#8a96b0', fontSize: 13 }}>
+                当前团队工作区账单和席位状态健康，没有待处理的运营告警。
+              </div>
+            )}
+          </div>
+
           {workspace.canManageMembers ? (
             <div style={{ ...cardStyle, display: 'grid', gap: 12 }}>
               <div style={{ fontSize: 16, fontWeight: 700 }}>邀请成员</div>
@@ -298,11 +390,18 @@ export function TeamWorkspacePanel() {
                 </select>
                 <button
                   onClick={() => void handleInviteMember()}
-                  disabled={saving || !inviteEmail.trim()}
-                  style={primaryButton(saving || !inviteEmail.trim())}
+                  disabled={saving || !inviteEmail.trim() || !workspace.billing.canInviteMore}
+                  style={primaryButton(
+                    saving || !inviteEmail.trim() || !workspace.billing.canInviteMore,
+                  )}
                 >
                   {saving ? '发送中…' : '发送邀请'}
                 </button>
+              </div>
+              <div style={{ color: '#8a96b0', fontSize: 12, lineHeight: 1.7 }}>
+                {workspace.billing.canInviteMore
+                  ? `当前还可保留 ${workspace.billing.seatsRemaining} 个席位（已包含待接受邀请）。`
+                  : '当前无法继续邀请，请先释放席位或处理账单状态。'}
               </div>
             </div>
           ) : null}

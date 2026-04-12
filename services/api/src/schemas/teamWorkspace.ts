@@ -1,6 +1,8 @@
 export {
   createTeamWorkspaceBodySchema,
   inviteTeamWorkspaceMemberBodySchema,
+  teamWorkspaceBillingSchema,
+  teamWorkspaceBillingWarningSchema,
   shareCaseToWorkspaceBodySchema,
   shareSavedViewToWorkspaceBodySchema,
   teamWorkspaceContextMutationResponseSchema,
@@ -11,6 +13,8 @@ export {
   teamWorkspaceRoleSchema,
   teamWorkspaceSchema,
   type TeamWorkspace,
+  type TeamWorkspaceBilling,
+  type TeamWorkspaceBillingWarning,
   type TeamWorkspaceContextResponse,
   type TeamWorkspaceInvite,
   type TeamWorkspaceMember,

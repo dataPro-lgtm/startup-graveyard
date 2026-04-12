@@ -30,6 +30,8 @@ export const PLAN_SUMMARIES: Record<SubscriptionTier, string> = {
   team: '面向团队协作的增强版，含更高限额和团队工作区能力。',
 };
 
+export const TEAM_PLAN_SEAT_LIMIT = 5;
+
 const ACTIVE_BILLING_STATUSES: ReadonlySet<BillingStatus> = new Set([
   'active',
   'trialing',
@@ -88,4 +90,13 @@ export function resolveEntitlements(input: {
     return baseEntitlementsForTier('free');
   }
   return baseEntitlementsForTier(input.subscription);
+}
+
+export function resolveTeamWorkspaceSeatLimit(input: {
+  subscription: SubscriptionTier;
+  billingStatus: BillingStatus;
+}): number {
+  return input.subscription === 'team' && isPaidEntitlementActive(input)
+    ? TEAM_PLAN_SEAT_LIMIT
+    : 0;
 }
