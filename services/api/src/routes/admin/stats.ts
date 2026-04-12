@@ -137,6 +137,8 @@ async function fetchContentStats(pool: Pool): Promise<ContentStatsResult> {
   const s = summaryRes.rows[0];
   const ingestionMap: Record<string, number> = {};
   for (const row of ingestionRes.rows) ingestionMap[row.status] = Number(row.cnt);
+  const toIsoString = (value: string | Date) =>
+    value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 
   return {
     totalPublished: Number(s.total_published),
@@ -158,7 +160,7 @@ async function fetchContentStats(pool: Pool): Promise<ContentStatsResult> {
       id: r.id,
       slug: r.slug,
       companyName: r.company_name,
-      createdAt: r.created_at,
+      createdAt: toIsoString(r.created_at),
     })),
     pendingReviews: Number(reviewsRes.rows[0]?.pending ?? 0),
     ingestionStats: {

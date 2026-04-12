@@ -714,6 +714,57 @@ async function getSessionSummaryRow(
   return res.rows[0] ?? null;
 }
 
+async function getSessionDetailWithDb(
+  db: Pool | PoolClient,
+  visitorId: string,
+  sessionId: string,
+): Promise<CopilotSessionDetail | null> {
+  const sessionRow = await getSessionSummaryRow(db, visitorId, sessionId);
+  if (!sessionRow) return null;
+
+  const messagesRes = await db.query<MessageRow>(
+    `
+    SELECT
+      m.id,
+      m.role,
+      m.content,
+      m.citations,
+      m.grounded,
+      m.model,
+      m.created_at,
+      f.vote AS feedback_vote,
+      f.note AS feedback_note,
+      r.provider AS run_provider,
+      r.model AS run_model,
+      r.prompt_version AS run_prompt_version,
+      r.response_ms AS run_response_ms,
+      r.prompt_tokens AS run_prompt_tokens,
+      r.completion_tokens AS run_completion_tokens,
+      r.total_tokens AS run_total_tokens,
+      r.estimated_cost_usd AS run_estimated_cost_usd,
+      r.retrieved_case_count AS run_retrieved_case_count,
+      r.pinned_case_count AS run_pinned_case_count,
+      r.citation_count AS run_citation_count,
+      r.fallback_reason AS run_fallback_reason,
+      r.created_at AS run_created_at
+    FROM copilot_messages m
+    LEFT JOIN copilot_message_feedback f
+      ON f.message_id = m.id
+    LEFT JOIN copilot_runs r
+      ON r.assistant_message_id = m.id
+    WHERE m.session_id = $1
+    ORDER BY m.created_at ASC, m.id ASC
+    `,
+    [sessionId],
+  );
+
+  return {
+    session: rowToSessionSummary(sessionRow),
+    pinnedCaseIds: normalizeCaseIds(sessionRow.pinned_case_ids),
+    messages: messagesRes.rows.map(rowToMessage),
+  };
+}
+
 export class PgCopilotSessionsRepository implements CopilotSessionsRepository {
   constructor(private readonly pool: Pool) {}
 
@@ -768,50 +819,7 @@ export class PgCopilotSessionsRepository implements CopilotSessionsRepository {
   }
 
   async getSession(visitorId: string, sessionId: string): Promise<CopilotSessionDetail | null> {
-    const sessionRow = await getSessionSummaryRow(this.pool, visitorId, sessionId);
-    if (!sessionRow) return null;
-
-    const messagesRes = await this.pool.query<MessageRow>(
-      `
-      SELECT
-        m.id,
-        m.role,
-        m.content,
-        m.citations,
-        m.grounded,
-        m.model,
-        m.created_at,
-        f.vote AS feedback_vote,
-        f.note AS feedback_note,
-        r.provider AS run_provider,
-        r.model AS run_model,
-        r.prompt_version AS run_prompt_version,
-        r.response_ms AS run_response_ms,
-        r.prompt_tokens AS run_prompt_tokens,
-        r.completion_tokens AS run_completion_tokens,
-        r.total_tokens AS run_total_tokens,
-        r.estimated_cost_usd AS run_estimated_cost_usd,
-        r.retrieved_case_count AS run_retrieved_case_count,
-        r.pinned_case_count AS run_pinned_case_count,
-        r.citation_count AS run_citation_count,
-        r.fallback_reason AS run_fallback_reason,
-        r.created_at AS run_created_at
-      FROM copilot_messages m
-      LEFT JOIN copilot_message_feedback f
-        ON f.message_id = m.id
-      LEFT JOIN copilot_runs r
-        ON r.assistant_message_id = m.id
-      WHERE m.session_id = $1
-      ORDER BY m.created_at ASC, m.id ASC
-      `,
-      [sessionId],
-    );
-
-    return {
-      session: rowToSessionSummary(sessionRow),
-      pinnedCaseIds: normalizeCaseIds(sessionRow.pinned_case_ids),
-      messages: messagesRes.rows.map(rowToMessage),
-    };
+    return getSessionDetailWithDb(this.pool, visitorId, sessionId);
   }
 
   async saveAnswerTurn(input: SaveCopilotAnswerTurnInput): Promise<SaveCopilotAnswerTurnResult | null> {
@@ -934,7 +942,7 @@ export class PgCopilotSessionsRepository implements CopilotSessionsRepository {
         [sessionId, title],
       );
 
-      const detail = await this.getSession(input.visitorId, sessionId);
+      const detail = await getSessionDetailWithDb(client, input.visitorId, sessionId);
       if (!detail) return null;
       return {
         session: detail,
