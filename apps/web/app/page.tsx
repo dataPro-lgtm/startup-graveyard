@@ -86,11 +86,31 @@ export default async function HomePage({
 
   return (
     <main style={{ maxWidth: 1120, margin: '0 auto', padding: '48px 24px 80px' }}>
-      <section style={{ marginBottom: 32 }}>
-        <p style={{ color: '#9fb3ff', fontSize: 14, letterSpacing: 1.2 }}>FAILURE INTELLIGENCE</p>
-        <h1 style={{ fontSize: 42, lineHeight: 1.15, margin: '8px 0 12px' }}>Startup Graveyard</h1>
-        <p style={{ maxWidth: 720, color: '#c8d0e5', lineHeight: 1.7 }}>
-          把失败案例从内容库升级为结构化、可检索、可解释的决策知识系统。
+      <section style={{ marginBottom: 36 }}>
+        <p
+          style={{
+            color: '#9fb3ff',
+            fontSize: 12,
+            letterSpacing: 1.6,
+            textTransform: 'uppercase',
+            margin: '0 0 10px',
+          }}
+        >
+          Failure Intelligence
+        </p>
+        <h1
+          style={{
+            fontSize: 'clamp(32px, 5vw, 48px)',
+            lineHeight: 1.12,
+            margin: '0 0 14px',
+            fontWeight: 800,
+          }}
+        >
+          Startup Graveyard
+        </h1>
+        <p style={{ maxWidth: 680, color: '#c8d0e5', lineHeight: 1.75, margin: 0, fontSize: 16 }}>
+          结构化的创业失败档案库——每一个案例都是可检索、可对比、可深度问答的决策参考。
+          不只看热闹，更看懂规律。
         </p>
       </section>
 
@@ -393,63 +413,81 @@ export default async function HomePage({
         <p style={{ color: '#c8d0e5', marginBottom: 24 }}>没有匹配的案例，试试放宽筛选条件。</p>
       ) : null}
 
-      <section style={{ display: 'grid', gap: 16 }}>
+      <section style={{ display: 'grid', gap: 12 }}>
         {items.map((item) => (
           <article
             key={item.id}
             style={{
               border: '1px solid #1d2746',
               borderRadius: 16,
-              padding: 20,
+              padding: '18px 20px',
               background: '#10172b',
+              transition: 'border-color 0.15s',
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
-              <div>
-                <h2 style={{ margin: '0 0 8px', fontSize: 24 }}>
-                  <Link
-                    href={caseListHref(item)}
-                    style={{ color: '#f5f7fb', textDecoration: 'none' }}
-                  >
-                    {item.companyName}
-                  </Link>
-                </h2>
-                <p style={{ margin: 0, color: '#c8d0e5' }}>{item.summary}</p>
+            {/* top row: name + meta badges */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                justifyContent: 'space-between',
+                gap: 12,
+                flexWrap: 'wrap',
+                marginBottom: 8,
+              }}
+            >
+              <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: 1.25 }}>
+                <Link href={caseListHref(item)} style={{ color: '#f5f7fb', textDecoration: 'none' }}>
+                  {item.companyName}
+                </Link>
+              </h2>
+              {/* right-side chips */}
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                {item.totalFundingUsd != null && item.totalFundingUsd > 0 && (
+                  <span style={chipStyle('#1a2c1e', '#34d399')}>
+                    {formatUsd(item.totalFundingUsd)}
+                  </span>
+                )}
+                {item.closedYear != null && (
+                  <span style={chipStyle('#1d1a2e', '#9fb3ff')}>†{item.closedYear}</span>
+                )}
               </div>
-              <div style={{ minWidth: 200, color: '#9fb3ff', fontSize: 14 }}>
-                <div title={item.industry}>{industryLabel(item.industry)}</div>
-                {industryLabel(item.industry) !== item.industry ? (
-                  <div style={{ fontSize: 11, opacity: 0.65, marginTop: 2 }}>{item.industry}</div>
-                ) : null}
-                <div style={{ marginTop: 8 }} title={item.country ?? ''}>
-                  {countryLabel(item.country)}
-                </div>
-                {item.country && countryLabel(item.country) !== item.country ? (
-                  <div style={{ fontSize: 11, opacity: 0.65, marginTop: 2 }}>{item.country}</div>
-                ) : null}
-                <div style={{ marginTop: 8 }}>关闭年 {item.closedYear ?? '—'}</div>
-                {item.foundedYear != null ? (
-                  <div style={{ marginTop: 8 }}>成立 {item.foundedYear}</div>
-                ) : null}
-                {item.businessModelKey ? (
-                  <div style={{ marginTop: 8 }} title={item.businessModelKey}>
-                    {taxonomy.businessModels[item.businessModelKey.toLowerCase()] ??
-                      item.businessModelKey}
-                  </div>
-                ) : null}
-                {item.totalFundingUsd != null ? (
-                  <div style={{ marginTop: 8 }}>{formatUsd(item.totalFundingUsd)}</div>
-                ) : null}
-                {item.primaryFailureReasonKey ? (
-                  <div
-                    style={{ marginTop: 8, fontSize: 12, opacity: 0.9 }}
-                    title={item.primaryFailureReasonKey}
-                  >
-                    {taxonomy.primaryFailureReasons[item.primaryFailureReasonKey.toLowerCase()] ??
-                      item.primaryFailureReasonKey}
-                  </div>
-                ) : null}
-              </div>
+            </div>
+
+            {/* summary */}
+            <p
+              style={{
+                margin: '0 0 10px',
+                color: '#c8d0e5',
+                fontSize: 14,
+                lineHeight: 1.65,
+              }}
+            >
+              {item.summary}
+            </p>
+
+            {/* bottom tag row */}
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              {item.industry && (
+                <span style={tagStyle}>
+                  {industryLabel(item.industry)}
+                </span>
+              )}
+              {item.country && (
+                <span style={tagStyle}>{countryLabel(item.country)}</span>
+              )}
+              {item.primaryFailureReasonKey && (
+                <span style={chipStyle('#2a1a1a', '#f87171')}>
+                  {taxonomy.primaryFailureReasons[item.primaryFailureReasonKey.toLowerCase()] ??
+                    item.primaryFailureReasonKey}
+                </span>
+              )}
+              {item.businessModelKey && (
+                <span style={tagStyle}>
+                  {taxonomy.businessModels[item.businessModelKey.toLowerCase()] ??
+                    item.businessModelKey}
+                </span>
+              )}
             </div>
           </article>
         ))}
@@ -505,4 +543,29 @@ const pagerLinkStyle: CSSProperties = {
   padding: '6px 12px',
   borderRadius: 8,
   border: '1px solid #2a3658',
+};
+
+function chipStyle(bg: string, color: string): CSSProperties {
+  return {
+    display: 'inline-block',
+    padding: '3px 10px',
+    borderRadius: 999,
+    background: bg,
+    color,
+    fontSize: 12,
+    fontWeight: 600,
+    letterSpacing: 0.3,
+    whiteSpace: 'nowrap',
+  };
+}
+
+const tagStyle: CSSProperties = {
+  display: 'inline-block',
+  padding: '3px 10px',
+  borderRadius: 999,
+  background: '#151e35',
+  color: '#9fb3ff',
+  fontSize: 12,
+  letterSpacing: 0.3,
+  whiteSpace: 'nowrap',
 };
