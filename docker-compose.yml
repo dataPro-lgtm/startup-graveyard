@@ -29,10 +29,99 @@ services:
     entrypoint: ['/bin/bash', '-euc']
     command:
       - |
+        psql -h postgres -U postgres -d sg -v ON_ERROR_STOP=1 <<'SQL'
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+          filename TEXT PRIMARY KEY,
+          applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        SQL
+        tracked_count="$$(psql -h postgres -U postgres -d sg -tAc "SELECT COUNT(*) FROM schema_migrations")"
+        if [[ "$$tracked_count" == "0" ]]; then
+          declare -A legacy_checks=(
+            ["0001_init.sql"]="SELECT to_regclass('public.cases') IS NOT NULL"
+            ["0002_admin_audit_events.sql"]="SELECT to_regclass('public.admin_audit_events') IS NOT NULL"
+            ["0003_cases_summary_trgm.sql"]="SELECT to_regclass('public.idx_cases_summary_trgm') IS NOT NULL"
+            ["0004_timeline_chunks_published.sql"]="SELECT to_regclass('public.timeline_events') IS NOT NULL AND to_regclass('public.case_chunks') IS NOT NULL"
+            ["0005_search_tags_lessons.sql"]="SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'cases' AND column_name = 'search_tags')"
+            ["0006_user_auth.sql"]="SELECT to_regclass('public.users') IS NOT NULL AND to_regclass('public.user_sessions') IS NOT NULL"
+            ["0007_ingestion_cron.sql"]="SELECT to_regclass('public.scheduled_jobs') IS NOT NULL"
+            ["0008_source_snapshots.sql"]="SELECT to_regclass('public.source_snapshots') IS NOT NULL"
+            ["0009_copilot_sessions.sql"]="SELECT to_regclass('public.copilot_sessions') IS NOT NULL"
+            ["0010_copilot_runs.sql"]="SELECT to_regclass('public.copilot_runs') IS NOT NULL"
+            ["0011_copilot_evals.sql"]="SELECT to_regclass('public.copilot_eval_cases') IS NOT NULL"
+          )
+          for name in "$${!legacy_checks[@]}"; do
+            present="$$(psql -h postgres -U postgres -d sg -tAc "$${legacy_checks[$$name]}")"
+            if [[ "$$present" == "t" ]]; then
+              psql -h postgres -U postgres -d sg -v ON_ERROR_STOP=1 -c "INSERT INTO schema_migrations (filename) VALUES ('$$name') ON CONFLICT DO NOTHING" >/dev/null
+            fi
+          done
+        fi
         shopt -s nullglob
         for f in /migrations/*.sql; do
-          echo ">> $$f"
+          name="$$(basename "$$f")"
+          applied="$$(psql -h postgres -U postgres -d sg -tAc "SELECT 1 FROM schema_migrations WHERE filename = '$$name' LIMIT 1")"
+          if [[ "$$applied" == "1" ]]; then
+            echo ">> skip $$name"
+            continue
+          fi
+          echo ">> apply $$name"
           psql -h postgres -U postgres -d sg -v ON_ERROR_STOP=1 -f "$$f"
+          psql -h postgres -U postgres -d sg -v ON_ERROR_STOP=1 -c "INSERT INTO schema_migrations (filename) VALUES ('$$name')"
+        done
+
+  seed:
+    profiles: [seed]
+    image: pgvector/pgvector:pg16
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: postgres
+    volumes:
+      - ./db/seed:/seed:ro
+    entrypoint: ['/bin/bash', '-euc']
+    command:
+      - |
+        psql -h postgres -U postgres -d sg -v ON_ERROR_STOP=1 <<'SQL'
+        CREATE TABLE IF NOT EXISTS schema_seeds (
+          filename TEXT PRIMARY KEY,
+          applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        SQL
+        tracked_count="$$(psql -h postgres -U postgres -d sg -tAc "SELECT COUNT(*) FROM schema_seeds")"
+        if [[ "$$tracked_count" == "0" ]]; then
+          case_count="$$(psql -h postgres -U postgres -d sg -tAc "SELECT COUNT(*) FROM cases")"
+          if [[ "$$case_count" != "0" ]]; then
+            for name in \
+              001_seed_taxonomy.sql \
+              002_seed_draft_review.sql \
+              003_seed_failure_factors.sql \
+              004_seed_peer_case_embeddings.sql \
+              005_seed_rich_cases.sql \
+              006_seed_timeline_events.sql \
+              007_seed_tags_lessons.sql \
+              008_seed_more_cases.sql \
+              009_seed_timeline_new.sql \
+              010_seed_global_cases.sql \
+              011_seed_timeline_global.sql \
+              012_seed_cn_cases.sql \
+              013_seed_timeline_cn.sql; do
+              psql -h postgres -U postgres -d sg -v ON_ERROR_STOP=1 -c "INSERT INTO schema_seeds (filename) VALUES ('$$name') ON CONFLICT DO NOTHING" >/dev/null
+            done
+          fi
+        fi
+        shopt -s nullglob
+        for f in /seed/*.sql; do
+          name="$$(basename "$$f")"
+          applied="$$(psql -h postgres -U postgres -d sg -tAc "SELECT 1 FROM schema_seeds WHERE filename = '$$name' LIMIT 1")"
+          if [[ "$$applied" == "1" ]]; then
+            echo ">> skip $$name"
+            continue
+          fi
+          echo ">> apply $$name"
+          psql -h postgres -U postgres -d sg -v ON_ERROR_STOP=1 -f "$$f"
+          psql -h postgres -U postgres -d sg -v ON_ERROR_STOP=1 -c "INSERT INTO schema_seeds (filename) VALUES ('$$name')"
         done
 
 volumes:

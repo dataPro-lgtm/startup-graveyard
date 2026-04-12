@@ -4,9 +4,15 @@ on:
   push:
     branches: [main]
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 concurrency:
   group: release
   cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
   # ─────────────────────────────────────────────────────────────────────────────
@@ -21,7 +27,7 @@ jobs:
       version: ${{ steps.get_version.outputs.version }}
       tag_exists: ${{ steps.check_tag.outputs.exists }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 

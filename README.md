@@ -142,8 +142,9 @@ make db-seed
 说明：
 
 - `docker-compose.yml` 会在本机暴露 `5433 -> 5432`
-- `make db-reset` 会清空 volume，并重新执行全部 migration + seed
-- seed 文件并不都保证可重复执行；在不确定数据库状态时，优先使用 `make db-reset`
+- `make db-migrate` 现在只会应用未记录的 migration，适合对已有 volume 做增量升级
+- `make db-seed` 会在容器内执行 pending seed，不依赖本机安装 `psql`
+- `make db-reset` 会清空 volume，并重新执行全部 migration + seed；当你想重建一个干净库时再使用
 
 ### 4. 启动应用
 
