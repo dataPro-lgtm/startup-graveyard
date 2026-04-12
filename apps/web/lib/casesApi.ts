@@ -1,4 +1,5 @@
 import { API_BASE_URL } from './api';
+import { buildSavedViewQueryString } from '@sg/shared/schemas/savedViews';
 import {
   caseListItemSchema,
   caseDetailSchema,
@@ -33,16 +34,17 @@ export type CasesSearchParams = {
 
 /** Build query string for shareable URLs (omits defaults page=1, limit=20). */
 export function buildCasesQueryString(p: CasesSearchParams): string {
-  const sp = new URLSearchParams();
-  if (p.q) sp.set('q', p.q);
-  if (p.industry) sp.set('industry', p.industry);
-  if (p.country) sp.set('country', p.country);
-  if (p.closedYear) sp.set('closedYear', p.closedYear);
-  if (p.businessModelKey) sp.set('businessModelKey', p.businessModelKey);
-  if (p.primaryFailureReasonKey) sp.set('primaryFailureReasonKey', p.primaryFailureReasonKey);
-  const hasQ = Boolean(p.q?.trim());
-  if (p.sort === 'updated_at' && hasQ) sp.set('sort', 'updated_at');
-  if (p.sort === 'relevance' && !hasQ) sp.set('sort', 'relevance');
+  const sp = new URLSearchParams(
+    buildSavedViewQueryString({
+      q: p.q,
+      industry: p.industry,
+      country: p.country,
+      closedYear: p.closedYear,
+      businessModelKey: p.businessModelKey,
+      primaryFailureReasonKey: p.primaryFailureReasonKey,
+      sort: p.sort === 'updated_at' || p.sort === 'relevance' ? p.sort : undefined,
+    }),
+  );
   if (p.page && p.page !== '1') sp.set('page', p.page);
   if (p.limit && p.limit !== '20') sp.set('limit', p.limit);
   return sp.toString();

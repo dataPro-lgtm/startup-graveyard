@@ -6,6 +6,7 @@ import type { CopilotEvalsRepository } from '../repositories/copilotEvalsReposit
 import type { CopilotSessionsRepository } from '../repositories/copilotSessionsRepository.js';
 import type { IngestionJobsRepository } from '../repositories/ingestionJobsRepository.js';
 import type { ReviewsRepository } from '../repositories/reviewsRepository.js';
+import type { SavedViewsRepository } from '../repositories/savedViewsRepository.js';
 import type { SourceSnapshotsRepository } from '../repositories/sourceSnapshotsRepository.js';
 import type { UsersRepository } from '../repositories/usersRepository.js';
 import type { WatchlistsRepository } from '../repositories/watchlistRepository.js';
@@ -23,5 +24,6 @@ declare module 'fastify' {
     copilotEvalsRepo: CopilotEvalsRepository;
     usersRepo: UsersRepository;
     watchlistsRepo: WatchlistsRepository;
+    savedViewsRepo: SavedViewsRepository;
   }
 }
