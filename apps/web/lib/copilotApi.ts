@@ -1,27 +1,16 @@
-import { z } from 'zod';
 import { API_BASE_URL } from './api';
+import {
+  copilotAnswerResponseSchema,
+  type CopilotAnswerResponse,
+  type CopilotCitation,
+} from '@sg/shared/schemas/copilot';
 
-const citationSchema = z.object({
-  caseId: z.string().uuid(),
-  slug: z.string(),
-  companyName: z.string(),
-  relevantText: z.string(),
-});
-
-const copilotResponseSchema = z.object({
-  answer: z.string(),
-  citations: z.array(citationSchema),
-  model: z.string().optional(),
-  grounded: z.boolean(),
-});
-
-export type CopilotCitation = z.infer<typeof citationSchema>;
-export type CopilotResponse = z.infer<typeof copilotResponseSchema>;
+export type { CopilotCitation, CopilotAnswerResponse as CopilotResponse };
 
 export async function askCopilot(
   question: string,
   topK = 5,
-): Promise<CopilotResponse | null> {
+): Promise<CopilotAnswerResponse | null> {
   const url = `${API_BASE_URL}/v1/copilot/answer`;
   try {
     const res = await fetch(url, {
@@ -32,7 +21,7 @@ export async function askCopilot(
     });
     if (!res.ok) return null;
     const json: unknown = await res.json();
-    const parsed = copilotResponseSchema.safeParse(json);
+    const parsed = copilotAnswerResponseSchema.safeParse(json);
     return parsed.success ? parsed.data : null;
   } catch {
     return null;

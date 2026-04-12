@@ -3,6 +3,7 @@ import type { Pool, QueryResultRow } from 'pg';
 import { runIngestionJob } from '../ingestion/runIngestionJob.js';
 import type { AdminWriteRepository } from './adminWriteRepository.js';
 import type { EnqueueIngestionJobBody } from '../schemas/ingestionJobs.js';
+import { withTransaction } from '../db/withTransaction.js';
 
 export type ListIngestionJobsParams = {
   limit: number;
@@ -232,60 +233,35 @@ export class PgIngestionJobsRepository implements IngestionJobsRepository {
   }
 
   async enqueue(input: EnqueueIngestionJobBody): Promise<{ id: string }> {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
+    return withTransaction(this.pool, async (client) => {
       const ins = await client.query<{ id: string }>(
         `
         INSERT INTO ingestion_jobs (source_name, trigger_type, status, payload)
         VALUES ($1, $2, 'queued', $3::jsonb)
         RETURNING id
         `,
-        [
-          input.sourceName,
-          input.triggerType,
-          JSON.stringify(input.payload ?? {}),
-        ],
+        [input.sourceName, input.triggerType, JSON.stringify(input.payload ?? {})],
       );
       const id = ins.rows[0]!.id;
       await client.query(
-        `
-        INSERT INTO admin_audit_events (action, review_id, case_id, metadata)
-        VALUES ($1, NULL, NULL, $2::jsonb)
-        `,
+        `INSERT INTO admin_audit_events (action, review_id, case_id, metadata)
+         VALUES ($1, NULL, NULL, $2::jsonb)`,
         [
           'ingestion.job_queued',
-          JSON.stringify({
-            jobId: id,
-            sourceName: input.sourceName,
-            triggerType: input.triggerType,
-          }),
+          JSON.stringify({ jobId: id, sourceName: input.sourceName, triggerType: input.triggerType }),
         ],
       );
-      await client.query('COMMIT');
       return { id };
-    } catch (e) {
-      try {
-        await client.query('ROLLBACK');
-      } catch {
-        /* ignore */
-      }
-      throw e;
-    } finally {
-      client.release();
-    }
+    });
   }
 
   async processNext(): Promise<ProcessNextStubResult> {
-    const client = await this.pool.connect();
-    let claimed: JobRow | undefined;
-    try {
-      await client.query('BEGIN');
+    // Phase 1: claim a queued job atomically
+    const claimed = await withTransaction(this.pool, async (client) => {
       const claim = await client.query<JobRow>(
         `
         WITH picked AS (
-          SELECT id
-          FROM ingestion_jobs
+          SELECT id FROM ingestion_jobs
           WHERE status = 'queued'
           ORDER BY created_at ASC
           FOR UPDATE SKIP LOCKED
@@ -299,105 +275,56 @@ export class PgIngestionJobsRepository implements IngestionJobsRepository {
                   j.started_at, j.finished_at, j.error_message, j.created_at
         `,
       );
-      if ((claim.rowCount ?? 0) === 0) {
-        await client.query('COMMIT');
-        return { ok: false, reason: 'empty_queue' };
-      }
-      claimed = claim.rows[0]!;
-      await client.query('COMMIT');
-    } catch (e) {
-      try {
-        await client.query('ROLLBACK');
-      } catch {
-        /* ignore */
-      }
-      throw e;
-    } finally {
-      client.release();
-    }
+      return (claim.rowCount ?? 0) === 0 ? null : claim.rows[0]!;
+    });
 
+    if (!claimed) return { ok: false, reason: 'empty_queue' };
+
+    // Phase 2: execute job (outside transaction — may do network calls)
     const runResult = await runIngestionJob(
       {
-        sourceName: claimed!.source_name,
-        triggerType: claimed!.trigger_type,
-        payload: mapPayload(claimed!.payload),
+        sourceName: claimed.source_name,
+        triggerType: claimed.trigger_type,
+        payload: mapPayload(claimed.payload),
       },
       { adminWrite: this.adminWrite, pool: this.pool },
     );
 
-    const fin = await this.pool.connect();
-    try {
-      await fin.query('BEGIN');
-      const id = claimed!.id;
+    // Phase 3: persist outcome
+    await withTransaction(this.pool, async (client) => {
+      const id = claimed.id;
       if (runResult.ok) {
-        await fin.query(
-          `
-          UPDATE ingestion_jobs
-          SET status = 'succeeded', finished_at = NOW(), error_message = NULL
-          WHERE id = $1
-          `,
+        await client.query(
+          `UPDATE ingestion_jobs SET status = 'succeeded', finished_at = NOW(), error_message = NULL WHERE id = $1`,
           [id],
         );
-        await fin.query(
-          `
-          INSERT INTO admin_audit_events (action, review_id, case_id, metadata)
-          VALUES ($1, NULL, NULL, $2::jsonb)
-          `,
+        await client.query(
+          `INSERT INTO admin_audit_events (action, review_id, case_id, metadata) VALUES ($1, NULL, NULL, $2::jsonb)`,
           [
             'ingestion.job_succeeded',
-            JSON.stringify({
-              jobId: id,
-              sourceName: claimed!.source_name,
-              triggerType: claimed!.trigger_type,
-              detail: runResult.detail ?? null,
-            }),
+            JSON.stringify({ jobId: id, sourceName: claimed.source_name, triggerType: claimed.trigger_type, detail: runResult.detail ?? null }),
           ],
         );
       } else {
-        await fin.query(
-          `
-          UPDATE ingestion_jobs
-          SET status = 'failed', finished_at = NOW(), error_message = $2
-          WHERE id = $1
-          `,
+        await client.query(
+          `UPDATE ingestion_jobs SET status = 'failed', finished_at = NOW(), error_message = $2 WHERE id = $1`,
           [id, runResult.error],
         );
-        await fin.query(
-          `
-          INSERT INTO admin_audit_events (action, review_id, case_id, metadata)
-          VALUES ($1, NULL, NULL, $2::jsonb)
-          `,
+        await client.query(
+          `INSERT INTO admin_audit_events (action, review_id, case_id, metadata) VALUES ($1, NULL, NULL, $2::jsonb)`,
           [
             'ingestion.job_failed',
-            JSON.stringify({
-              jobId: id,
-              sourceName: claimed!.source_name,
-              triggerType: claimed!.trigger_type,
-              error: runResult.error,
-            }),
+            JSON.stringify({ jobId: id, sourceName: claimed.source_name, triggerType: claimed.trigger_type, error: runResult.error }),
           ],
         );
       }
-      await fin.query('COMMIT');
-    } catch (e) {
-      try {
-        await fin.query('ROLLBACK');
-      } catch {
-        /* ignore */
-      }
-      throw e;
-    } finally {
-      fin.release();
-    }
+    });
 
     const sel = await this.pool.query<JobRow>(
-      `
-      SELECT id, source_name, trigger_type, status, payload,
-             started_at, finished_at, error_message, created_at
-      FROM ingestion_jobs
-      WHERE id = $1
-      `,
-      [claimed!.id],
+      `SELECT id, source_name, trigger_type, status, payload,
+              started_at, finished_at, error_message, created_at
+       FROM ingestion_jobs WHERE id = $1`,
+      [claimed.id],
     );
     const row = sel.rows[0];
     if (!row) throw new Error('ingestion job row missing after finalize');
@@ -408,14 +335,11 @@ export class PgIngestionJobsRepository implements IngestionJobsRepository {
     reclaimed: number;
     jobIds: string[];
   }> {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
+    return withTransaction(this.pool, async (client) => {
       const res = await client.query<{ id: string }>(
         `
         WITH stale AS (
-          SELECT id
-          FROM ingestion_jobs
+          SELECT id FROM ingestion_jobs
           WHERE status = 'running'
             AND started_at IS NOT NULL
             AND started_at < NOW() - ($1 * INTERVAL '1 minute')
@@ -424,8 +348,7 @@ export class PgIngestionJobsRepository implements IngestionJobsRepository {
         upd AS (
           UPDATE ingestion_jobs j
           SET status = 'queued', started_at = NULL, error_message = NULL
-          FROM stale s
-          WHERE j.id = s.id
+          FROM stale s WHERE j.id = s.id
           RETURNING j.id
         )
         SELECT id FROM upd
@@ -435,45 +358,21 @@ export class PgIngestionJobsRepository implements IngestionJobsRepository {
       const jobIds = res.rows.map((r) => r.id);
       if (jobIds.length > 0) {
         await client.query(
-          `
-          INSERT INTO admin_audit_events (action, review_id, case_id, metadata)
-          VALUES ($1, NULL, NULL, $2::jsonb)
-          `,
-          [
-            'ingestion.jobs_reclaimed_stale',
-            JSON.stringify({
-              count: jobIds.length,
-              jobIds,
-              maxRunningMinutes,
-            }),
-          ],
+          `INSERT INTO admin_audit_events (action, review_id, case_id, metadata)
+           VALUES ($1, NULL, NULL, $2::jsonb)`,
+          ['ingestion.jobs_reclaimed_stale', JSON.stringify({ count: jobIds.length, jobIds, maxRunningMinutes })],
         );
       }
-      await client.query('COMMIT');
       return { reclaimed: jobIds.length, jobIds };
-    } catch (e) {
-      try {
-        await client.query('ROLLBACK');
-      } catch {
-        /* ignore */
-      }
-      throw e;
-    } finally {
-      client.release();
-    }
+    });
   }
 
   async requeueFailed(id: string): Promise<IngestionJobItem | null> {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
+    return withTransaction(this.pool, async (client) => {
       const res = await client.query<JobRow>(
         `
         UPDATE ingestion_jobs
-        SET status = 'queued',
-            started_at = NULL,
-            finished_at = NULL,
-            error_message = NULL
+        SET status = 'queued', started_at = NULL, finished_at = NULL, error_message = NULL
         WHERE id = $1 AND status = 'failed'
         RETURNING id, source_name, trigger_type, status, payload,
                   started_at, finished_at, error_message, created_at
@@ -481,31 +380,14 @@ export class PgIngestionJobsRepository implements IngestionJobsRepository {
         [id],
       );
       const row = res.rows[0];
-      if (!row) {
-        await client.query('ROLLBACK');
-        return null;
-      }
+      if (!row) return null;
+
       await client.query(
-        `
-        INSERT INTO admin_audit_events (action, review_id, case_id, metadata)
-        VALUES ($1, NULL, NULL, $2::jsonb)
-        `,
-        [
-          'ingestion.job_requeued',
-          JSON.stringify({ jobId: id }),
-        ],
+        `INSERT INTO admin_audit_events (action, review_id, case_id, metadata)
+         VALUES ($1, NULL, NULL, $2::jsonb)`,
+        ['ingestion.job_requeued', JSON.stringify({ jobId: id })],
       );
-      await client.query('COMMIT');
       return rowToItem(row);
-    } catch (e) {
-      try {
-        await client.query('ROLLBACK');
-      } catch {
-        /* ignore */
-      }
-      throw e;
-    } finally {
-      client.release();
-    }
+    });
   }
 }

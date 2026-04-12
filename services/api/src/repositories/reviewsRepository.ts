@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool, QueryResultRow } from 'pg';
+import { withTransaction } from '../db/withTransaction.js';
 
 export type ListReviewsParams = {
   status?: string;
@@ -213,9 +214,7 @@ export class PgReviewsRepository implements ReviewsRepository {
   }
 
   async approve(id: string): Promise<ApproveReviewResult | null> {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
+    return withTransaction(this.pool, async (client) => {
       const upd = await client.query<{ case_id: string; approved_at: Date }>(
         `
         UPDATE reviews
@@ -225,58 +224,35 @@ export class PgReviewsRepository implements ReviewsRepository {
         `,
         [id],
       );
-      if (upd.rowCount === 0) {
-        await client.query('ROLLBACK');
-        return null;
-      }
+      if (upd.rowCount === 0) return null;
+
       const row = upd.rows[0]!;
       const caseId = row.case_id;
+
       await client.query(
-        `
-        UPDATE cases
-        SET status = 'published', updated_at = NOW()
-        WHERE id = $1
-        `,
+        `UPDATE cases SET status = 'published', updated_at = NOW() WHERE id = $1`,
         [caseId],
       );
       await client.query(
-        `
-        INSERT INTO admin_audit_events (action, review_id, case_id, metadata)
-        VALUES ($1, $2, $3, $4::jsonb)
-        `,
-        [
-          'review.approved',
-          id,
-          caseId,
-          JSON.stringify({ actor: 'admin_api' }),
-        ],
+        `INSERT INTO admin_audit_events (action, review_id, case_id, metadata)
+         VALUES ($1, $2, $3, $4::jsonb)`,
+        ['review.approved', id, caseId, JSON.stringify({ actor: 'admin_api' })],
       );
-      await client.query('COMMIT');
+
       return {
         reviewId: id,
         caseId,
-        status: 'approved',
+        status: 'approved' as const,
         approvedAt: row.approved_at.toISOString(),
       };
-    } catch (e) {
-      try {
-        await client.query('ROLLBACK');
-      } catch {
-        /* ignore */
-      }
-      throw e;
-    } finally {
-      client.release();
-    }
+    });
   }
 
   async reject(
     id: string,
     decisionNote?: string,
   ): Promise<RejectReviewResult | null> {
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
+    return withTransaction(this.pool, async (client) => {
       const res = await client.query<{ case_id: string }>(
         `
         UPDATE reviews
@@ -287,49 +263,26 @@ export class PgReviewsRepository implements ReviewsRepository {
         `,
         [id, decisionNote ?? null],
       );
-      if (res.rowCount === 0) {
-        await client.query('ROLLBACK');
-        return null;
-      }
+      if (res.rowCount === 0) return null;
+
       const caseId = res.rows[0]!.case_id;
+
       await client.query(
-        `
-        UPDATE cases
-        SET status = 'rejected', updated_at = NOW()
-        WHERE id = $1
-        `,
+        `UPDATE cases SET status = 'rejected', updated_at = NOW() WHERE id = $1`,
         [caseId],
       );
       await client.query(
-        `
-        INSERT INTO admin_audit_events (action, review_id, case_id, metadata)
-        VALUES ($1, $2, $3, $4::jsonb)
-        `,
+        `INSERT INTO admin_audit_events (action, review_id, case_id, metadata)
+         VALUES ($1, $2, $3, $4::jsonb)`,
         [
           'review.rejected',
           id,
           caseId,
-          JSON.stringify({
-            actor: 'admin_api',
-            decisionNote: decisionNote ?? null,
-          }),
+          JSON.stringify({ actor: 'admin_api', decisionNote: decisionNote ?? null }),
         ],
       );
-      await client.query('COMMIT');
-      return {
-        reviewId: id,
-        caseId,
-        status: 'rejected',
-      };
-    } catch (e) {
-      try {
-        await client.query('ROLLBACK');
-      } catch {
-        /* ignore */
-      }
-      throw e;
-    } finally {
-      client.release();
-    }
+
+      return { reviewId: id, caseId, status: 'rejected' as const };
+    });
   }
 }

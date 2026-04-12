@@ -1,5 +1,6 @@
 import type { Pool } from 'pg';
 import type { CreateDraftCaseBody } from '../schemas/adminCases.js';
+import { withTransaction } from '../db/withTransaction.js';
 import type { MockCasesRepository } from './casesRepository.js';
 import type { MockReviewsRepository } from './reviewsRepository.js';
 
@@ -19,11 +20,8 @@ export class PgAdminWriteRepository implements AdminWriteRepository {
   async createDraftCaseWithReview(
     input: CreateDraftCaseBody,
   ): Promise<CreateDraftCaseResult> {
-    const client = await this.pool.connect();
     try {
-      await client.query('BEGIN');
-      let caseId: string;
-      try {
+      return await withTransaction(this.pool, async (client) => {
         const ins = await client.query<{ id: string }>(
           `
           INSERT INTO cases (
@@ -50,58 +48,47 @@ export class PgAdminWriteRepository implements AdminWriteRepository {
             input.primaryFailureReasonKey ?? null,
           ],
         );
-        caseId = ins.rows[0]!.id;
-      } catch (e: unknown) {
-        await client.query('ROLLBACK');
-        if (
-          e &&
-          typeof e === 'object' &&
-          'code' in e &&
-          (e as { code: string }).code === '23505'
-        ) {
-          return { ok: false, error: 'duplicate_slug' };
-        }
-        throw e;
-      }
+        const caseId = ins.rows[0]!.id;
 
-      const rev = await client.query<{ id: string }>(
-        `
-        INSERT INTO reviews (case_id, review_status, assigned_to)
-        VALUES ($1, 'pending', $2)
-        RETURNING id
-        `,
-        [caseId, input.assignedTo ?? null],
-      );
-      const reviewId = rev.rows[0]!.id;
+        const rev = await client.query<{ id: string }>(
+          `
+          INSERT INTO reviews (case_id, review_status, assigned_to)
+          VALUES ($1, 'pending', $2)
+          RETURNING id
+          `,
+          [caseId, input.assignedTo ?? null],
+        );
+        const reviewId = rev.rows[0]!.id;
 
-      await client.query(
-        `
-        INSERT INTO admin_audit_events (action, review_id, case_id, metadata)
-        VALUES ($1, $2, $3, $4::jsonb)
-        `,
-        [
-          'case.draft_created',
-          reviewId,
-          caseId,
-          JSON.stringify({
-            actor: 'admin_api',
-            slug: input.slug,
-            companyName: input.companyName,
-          }),
-        ],
-      );
+        await client.query(
+          `
+          INSERT INTO admin_audit_events (action, review_id, case_id, metadata)
+          VALUES ($1, $2, $3, $4::jsonb)
+          `,
+          [
+            'case.draft_created',
+            reviewId,
+            caseId,
+            JSON.stringify({
+              actor: 'admin_api',
+              slug: input.slug,
+              companyName: input.companyName,
+            }),
+          ],
+        );
 
-      await client.query('COMMIT');
-      return { ok: true, caseId, reviewId };
-    } catch (e) {
-      try {
-        await client.query('ROLLBACK');
-      } catch {
-        /* ignore */
+        return { ok: true as const, caseId, reviewId };
+      });
+    } catch (e: unknown) {
+      if (
+        e &&
+        typeof e === 'object' &&
+        'code' in e &&
+        (e as { code: string }).code === '23505'
+      ) {
+        return { ok: false, error: 'duplicate_slug' };
       }
       throw e;
-    } finally {
-      client.release();
     }
   }
 }

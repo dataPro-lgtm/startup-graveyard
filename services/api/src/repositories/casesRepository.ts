@@ -85,13 +85,14 @@ export type ListCasesResult = {
 export interface CasesRepository {
   list(params: ListCasesParams): Promise<ListCasesResult>;
   getById(id: string): Promise<CaseDetail | null>;
-  /** 仅 `published`，slug 大小写不敏感（citext）。 */
+  /** Bulk fetch by IDs — returns only published cases, preserving input order. */
+  getByIds(ids: string[]): Promise<CaseDetail[]>;
+  /** Published only; case-insensitive slug match (citext). */
   getPublishedBySlug(slug: string): Promise<CaseDetail | null>;
-  /** 任意 `cases.id`（含 draft / rejected） */
+  /** Any status (draft / rejected / published). */
   caseExists(id: string): Promise<boolean>;
-  /** 仅 `published`；锚点无向量或无记录时返回 []。 */
+  /** Published only; returns [] when anchor has no embedding. */
   findSimilarPublished(anchorId: string, limit: number): Promise<CaseListItem[]>;
-  /** 获取案例时间线事件列表 */
   getTimeline(caseId: string): Promise<TimelineEventItem[]>;
 }
 
@@ -402,6 +403,11 @@ export class MockCasesRepository implements CasesRepository {
     };
   }
 
+  async getByIds(ids: string[]): Promise<CaseDetail[]> {
+    const results = await Promise.all(ids.map((id) => this.getById(id)));
+    return results.filter((r): r is CaseDetail => r !== null);
+  }
+
   async getPublishedBySlug(slug: string): Promise<CaseDetail | null> {
     const key = slug.trim().toLowerCase();
     const r = this.rows.find(
@@ -475,27 +481,36 @@ export class PgCasesRepository implements CasesRepository {
     return (r.rowCount ?? 0) > 0;
   }
 
-  async list(params: ListCasesParams): Promise<ListCasesResult> {
-    const offset = (params.page - 1) * params.limit;
+  // ---------------------------------------------------------------------------
+  // Query-building helpers (private)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Builds the WHERE clause and collects bound values.
+   * Returns the SQL fragment, values array, and the param index of the
+   * trigram query term (for use in ORDER BY), or null if no text query.
+   */
+  #buildWhereClause(params: ListCasesParams): {
+    whereSql: string;
+    values: unknown[];
+    qTrgmParam: number | null;
+  } {
     const q = params.q?.trim() || null;
     const industry = params.industry?.trim() || null;
     const country = params.country?.trim().toUpperCase() || null;
     const closedYear = params.closedYear ?? null;
     const businessModelKey = params.businessModelKey?.trim() || null;
-    const primaryFailureReasonKey =
-      params.primaryFailureReasonKey?.trim() || null;
-    const sortMode: ListCasesSort =
-      params.sort ?? (q ? 'relevance' : 'updated_at');
+    const primaryFailureReasonKey = params.primaryFailureReasonKey?.trim() || null;
 
     const values: unknown[] = ['published'];
-    const where = [`c.status = $1`];
+    const clauses: string[] = ['c.status = $1'];
     let n = 2;
     let qTrgmParam: number | null = null;
 
     if (q) {
       const iLike = n++;
       const iQ = n++;
-      where.push(
+      clauses.push(
         `(c.company_name ILIKE $${iLike} OR c.summary ILIKE $${iLike} OR c.search_tags ILIKE $${iLike}
           OR similarity(c.company_name, $${iQ}) > 0.03
           OR similarity(c.summary, $${iQ}) > 0.03
@@ -504,53 +519,84 @@ export class PgCasesRepository implements CasesRepository {
       values.push(`%${q}%`, q);
       qTrgmParam = iQ;
     }
-    if (industry) {
-      where.push(`c.industry_key = $${n++}`);
-      values.push(industry);
-    }
-    if (country) {
-      where.push(`c.country_code = $${n++}`);
-      values.push(country);
-    }
-    if (closedYear !== null) {
-      where.push(`c.closed_year = $${n++}`);
-      values.push(closedYear);
-    }
-    if (businessModelKey) {
-      where.push(`c.business_model_key = $${n++}`);
-      values.push(businessModelKey);
-    }
-    if (primaryFailureReasonKey) {
-      where.push(`c.primary_failure_reason_key = $${n++}`);
-      values.push(primaryFailureReasonKey);
+    if (industry) { clauses.push(`c.industry_key = $${n++}`); values.push(industry); }
+    if (country) { clauses.push(`c.country_code = $${n++}`); values.push(country); }
+    if (closedYear !== null) { clauses.push(`c.closed_year = $${n++}`); values.push(closedYear); }
+    if (businessModelKey) { clauses.push(`c.business_model_key = $${n++}`); values.push(businessModelKey); }
+    if (primaryFailureReasonKey) { clauses.push(`c.primary_failure_reason_key = $${n++}`); values.push(primaryFailureReasonKey); }
+
+    return { whereSql: clauses.join(' AND '), values, qTrgmParam };
+  }
+
+  /**
+   * Builds the ORDER BY clause.
+   * When a vector is available, uses 50/50 hybrid (vector cosine + trigram).
+   * Falls back to trigram-only, then recency.
+   */
+  #buildOrderBy(opts: {
+    sortMode: ListCasesSort;
+    q: string | null;
+    qTrgmParam: number | null;
+    vecIdx: number | null;
+  }): { orderBy: string; joinSql: string } {
+    const { sortMode, q, qTrgmParam, vecIdx } = opts;
+
+    if (!q || sortMode !== 'relevance' || qTrgmParam === null) {
+      return { orderBy: 'ORDER BY c.updated_at DESC', joinSql: '' };
     }
 
-    const whereSql = where.join(' AND ');
-    const baseLen = values.length;
+    const trgm = `COALESCE(GREATEST(
+      similarity(c.company_name, $${qTrgmParam}),
+      similarity(c.summary, $${qTrgmParam}),
+      similarity(c.search_tags, $${qTrgmParam})
+    ), 0)`;
 
-    let joinSql = '';
-    let orderBy: string;
-    if (q && sortMode === 'relevance' && qTrgmParam != null) {
-      const qVec = await embedSearchQuery(q);
-      if (qVec != null && qVec.length === 1536) {
-        const vecIdx = values.length + 1;
-        values.push(vectorToPgLiteral(qVec));
-        joinSql = 'LEFT JOIN case_embeddings e ON e.case_id = c.id';
-        orderBy = `ORDER BY (
+    if (vecIdx !== null) {
+      return {
+        joinSql: 'LEFT JOIN case_embeddings e ON e.case_id = c.id',
+        orderBy: `ORDER BY (
           CASE
             WHEN e.embedding IS NOT NULL THEN
-              (0.5 * (1 - (e.embedding <=> $${vecIdx}::vector))
-               + 0.5 * COALESCE(GREATEST(similarity(c.company_name, $${qTrgmParam}), similarity(c.summary, $${qTrgmParam}), similarity(c.search_tags, $${qTrgmParam})), 0))
-            ELSE
-              COALESCE(GREATEST(similarity(c.company_name, $${qTrgmParam}), similarity(c.summary, $${qTrgmParam}), similarity(c.search_tags, $${qTrgmParam})), 0)
+              (0.5 * (1 - (e.embedding <=> $${vecIdx}::vector)) + 0.5 * ${trgm})
+            ELSE ${trgm}
           END
-        ) DESC NULLS LAST, c.updated_at DESC`;
-      } else {
-        orderBy = `ORDER BY COALESCE(GREATEST(similarity(c.company_name, $${qTrgmParam}), similarity(c.summary, $${qTrgmParam}), similarity(c.search_tags, $${qTrgmParam})), 0) DESC NULLS LAST, c.updated_at DESC`;
-      }
-    } else {
-      orderBy = `ORDER BY c.updated_at DESC`;
+        ) DESC NULLS LAST, c.updated_at DESC`,
+      };
     }
+
+    return {
+      joinSql: '',
+      orderBy: `ORDER BY ${trgm} DESC NULLS LAST, c.updated_at DESC`,
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // list()
+  // ---------------------------------------------------------------------------
+
+  async list(params: ListCasesParams): Promise<ListCasesResult> {
+    const offset = (params.page - 1) * params.limit;
+    const q = params.q?.trim() || null;
+    const sortMode: ListCasesSort = params.sort ?? (q ? 'relevance' : 'updated_at');
+
+    const { whereSql, values, qTrgmParam } = this.#buildWhereClause(params);
+    const filterValuesLen = values.length; // values used by WHERE (for COUNT query)
+
+    // Optionally fetch query vector for hybrid ranking
+    let vecIdx: number | null = null;
+    let joinSql = '';
+    if (q && sortMode === 'relevance' && qTrgmParam !== null) {
+      const qVec = await embedSearchQuery(q);
+      if (qVec != null && qVec.length === 1536) {
+        vecIdx = values.length + 1;
+        values.push(vectorToPgLiteral(qVec));
+      }
+    }
+
+    const { orderBy, joinSql: dynamicJoin } = this.#buildOrderBy({
+      sortMode, q, qTrgmParam, vecIdx,
+    });
+    joinSql = dynamicJoin;
 
     values.push(params.limit, offset);
     const limIdx = values.length - 1;
@@ -566,24 +612,18 @@ export class PgCasesRepository implements CasesRepository {
       LIMIT $${limIdx} OFFSET $${offIdx}
     `;
 
-    const countSql = `
-      SELECT COUNT(*)::bigint AS c
-      FROM cases c
-      WHERE ${whereSql}
-    `;
+    const countSql = `SELECT COUNT(*)::bigint AS c FROM cases c WHERE ${whereSql}`;
 
     const [listRes, countRes] = await Promise.all([
       this.pool.query<CaseRow>(listSql, values),
-      this.pool.query<{ c: string }>(countSql, values.slice(0, baseLen)),
+      this.pool.query<{ c: string }>(countSql, values.slice(0, filterValuesLen)),
     ]);
-
-    const total = Number(countRes.rows[0]?.c ?? 0);
 
     return {
       items: listRes.rows.map(rowToItem),
       page: params.page,
       pageSize: params.limit,
-      total,
+      total: Number(countRes.rows[0]?.c ?? 0),
     };
   }
 
@@ -652,6 +692,28 @@ export class PgCasesRepository implements CasesRepository {
     const row = res.rows[0];
     if (!row) return null;
     return this.#detailFromPublishedRow(row);
+  }
+
+  async getByIds(ids: string[]): Promise<CaseDetail[]> {
+    if (ids.length === 0) return [];
+    const res = await this.pool.query<CaseRow>(
+      `
+      SELECT id, slug::text AS slug, company_name, summary, country_code, industry_key, closed_year,
+             business_model_key, founded_year, total_funding_usd, primary_failure_reason_key, key_lessons
+      FROM cases
+      WHERE id = ANY($1::uuid[]) AND status = 'published'
+      `,
+      [ids],
+    );
+    // Preserve input order and enrich in parallel
+    const rowMap = new Map(res.rows.map((r) => [r.id, r]));
+    const details = await Promise.all(
+      ids
+        .map((id) => rowMap.get(id))
+        .filter((r): r is CaseRow => r !== undefined)
+        .map((r) => this.#detailFromPublishedRow(r)),
+    );
+    return details;
   }
 
   async getPublishedBySlug(slug: string): Promise<CaseDetail | null> {

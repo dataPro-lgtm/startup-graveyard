@@ -1,6 +1,8 @@
-const DEFAULT_MODEL = 'text-embedding-3-small';
+import { config } from '../config/index.js';
+
 const CACHE_TTL_MS = 60_000;
 const CACHE_MAX = 128;
+const EXPECTED_DIM = 1536;
 
 type CacheEntry = { at: number; vec: number[] };
 const queryCache = new Map<string, CacheEntry>();
@@ -25,82 +27,66 @@ export function vectorToPgLiteral(vec: number[]): string {
   return `[${vec.map((x) => (Number.isFinite(x) ? x : 0)).join(',')}]`;
 }
 
-/** 用于检索的 query 向量；无 key 或失败时返回 null（调用方回退 trgm）。 */
+/** Query embedding for search; returns null on failure (callers fall back to trgm). */
 export async function embedSearchQuery(text: string): Promise<number[] | null> {
   const trimmed = text.trim();
   if (!trimmed) return null;
-  const apiKey = process.env.OPENAI_API_KEY?.trim();
-  if (!apiKey) return null;
+  if (!config.hasOpenAI) return null;
 
-  const model = process.env.OPENAI_EMBEDDING_MODEL?.trim() || DEFAULT_MODEL;
+  const model = config.openai.embeddingModel;
   const ck = cacheKey(model, trimmed);
   const hit = queryCache.get(ck);
   if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.vec;
 
   try {
-    const res = await fetch('https://api.openai.com/v1/embeddings', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ model, input: trimmed }),
-      signal: AbortSignal.timeout(25_000),
-    });
-    if (!res.ok) {
-      const errBody = await res.text().catch(() => '');
-      console.warn(
-        `[openaiEmbed] embeddings HTTP ${res.status} ${errBody.slice(0, 200)}`,
-      );
-      return null;
-    }
-    const json: unknown = await res.json();
-    const emb = extractEmbedding(json);
+    const emb = await fetchEmbedding(trimmed, model);
     if (!emb) return null;
     pruneCache();
     queryCache.set(ck, { at: Date.now(), vec: emb });
     return emb;
   } catch (e) {
-    console.warn(
-      `[openaiEmbed] ${e instanceof Error ? e.message : String(e)}`,
-    );
+    console.warn(`[openaiEmbed] ${e instanceof Error ? e.message : String(e)}`);
     return null;
   }
 }
 
-/** 写入 case_embeddings；失败抛错供 ingestion 标记 failed。 */
+/** Document embedding for indexing; throws on failure so ingestion can mark job failed. */
 export async function embedCaseDocument(
   companyName: string,
   summary: string,
 ): Promise<number[]> {
-  const apiKey = process.env.OPENAI_API_KEY?.trim();
-  if (!apiKey) {
-    throw new Error('OPENAI_API_KEY 未设置');
-  }
-  const model = process.env.OPENAI_EMBEDDING_MODEL?.trim() || DEFAULT_MODEL;
+  if (!config.hasOpenAI) throw new Error('OPENAI_API_KEY not set');
+
   const input = `${companyName.trim()}\n\n${summary.trim()}`.slice(0, 30_000);
-  const res = await fetch('https://api.openai.com/v1/embeddings', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ model, input }),
-    signal: AbortSignal.timeout(60_000),
-  });
-  if (!res.ok) {
-    const errBody = await res.text().catch(() => '');
-    throw new Error(`OpenAI embeddings ${res.status}: ${errBody.slice(0, 400)}`);
-  }
-  const json: unknown = await res.json();
-  const emb = extractEmbedding(json);
-  if (!emb) throw new Error('OpenAI 响应中无 embedding 数组');
-  if (emb.length !== 1536) {
+  const emb = await fetchEmbedding(input, config.openai.embeddingModel);
+  if (!emb) throw new Error('No embedding array in OpenAI response');
+  if (emb.length !== EXPECTED_DIM) {
     throw new Error(
-      `embedding 维度 ${emb.length}，库表要求 1536；请使用 text-embedding-3-small 或设 OPENAI_EMBEDDING_MODEL`,
+      `Embedding dimension ${emb.length}, table requires ${EXPECTED_DIM}; use text-embedding-3-small or set OPENAI_EMBEDDING_MODEL`,
     );
   }
   return emb;
+}
+
+async function fetchEmbedding(input: string, model: string): Promise<number[] | null> {
+  const res = await fetch(`${config.openai.baseUrl}/v1/embeddings`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.openai.apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ model, input }),
+    signal: AbortSignal.timeout(25_000),
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    console.warn(`[openaiEmbed] HTTP ${res.status} ${body.slice(0, 200)}`);
+    return null;
+  }
+
+  const json: unknown = await res.json();
+  return extractEmbedding(json);
 }
 
 function extractEmbedding(json: unknown): number[] | null {
@@ -113,10 +99,8 @@ function extractEmbedding(json: unknown): number[] | null {
   if (!Array.isArray(emb)) return null;
   const nums = emb.map((x) => Number(x));
   if (nums.some((n) => !Number.isFinite(n))) return null;
-  if (nums.length !== 1536) {
-    console.warn(
-      `[openaiEmbed] query embedding dim ${nums.length}, expected 1536; hybrid 排序可能异常`,
-    );
+  if (nums.length !== EXPECTED_DIM) {
+    console.warn(`[openaiEmbed] query embedding dim ${nums.length}, expected ${EXPECTED_DIM}`);
   }
   return nums;
 }

@@ -12,7 +12,22 @@
       "types": "./dist/taxonomy.d.ts",
       "import": "./dist/taxonomy.js",
       "default": "./dist/taxonomy.js"
+    },
+    "./schemas/cases": {
+      "types": "./dist/schemas/cases.d.ts",
+      "import": "./dist/schemas/cases.js",
+      "default": "./dist/schemas/cases.js"
+    },
+    "./schemas/copilot": {
+      "types": "./dist/schemas/copilot.d.ts",
+      "import": "./dist/schemas/copilot.js",
+      "default": "./dist/schemas/copilot.js"
     }
   },
-  "files": ["dist"]
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "zod": "^3.24.2"
+  }
 }

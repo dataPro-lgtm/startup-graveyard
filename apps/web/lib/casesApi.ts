@@ -1,69 +1,17 @@
-import { z } from 'zod';
 import { API_BASE_URL } from './api';
+import {
+  caseListItemSchema,
+  caseDetailSchema,
+  listCasesResponseSchema,
+  similarCasesResponseSchema,
+  type CaseListItem,
+  type CaseDetail,
+  type ListCasesResult,
+  type TimelineEvent,
+} from '@sg/shared/schemas/cases';
 
-const caseItemSchema = z.object({
-  id: z.string().uuid(),
-  slug: z.string(),
-  companyName: z.string(),
-  industry: z.string(),
-  country: z.string().nullable(),
-  closedYear: z.number().nullable(),
-  summary: z.string(),
-  businessModelKey: z.string().nullable(),
-  foundedYear: z.number().nullable(),
-  totalFundingUsd: z.number().nullable(),
-  primaryFailureReasonKey: z.string().nullable(),
-});
-
-const evidenceSourceSchema = z.object({
-  id: z.string().uuid(),
-  sourceType: z.string(),
-  title: z.string(),
-  url: z.string(),
-  publisher: z.string().nullable(),
-  publishedAt: z.string().nullable(),
-  credibilityLevel: z.string(),
-  excerpt: z.string().nullable(),
-});
-
-const failureFactorSchema = z.object({
-  id: z.string().uuid(),
-  level1Key: z.string(),
-  level2Key: z.string(),
-  level3Key: z.string().nullable(),
-  weight: z.number(),
-  explanation: z.string().nullable(),
-});
-
-const timelineEventSchema = z.object({
-  id: z.string().uuid(),
-  eventDate: z.string(),
-  eventType: z.string(),
-  title: z.string(),
-  description: z.string().nullable(),
-  amountUsd: z.number().nullable(),
-  sortOrder: z.number().int(),
-});
-
-export type TimelineEvent = z.infer<typeof timelineEventSchema>;
-
-const caseDetailSchema = caseItemSchema.extend({
-  keyLessons: z.string().nullable(),
-  evidenceSources: z.array(evidenceSourceSchema),
-  failureFactors: z.array(failureFactorSchema),
-  timelineEvents: z.array(timelineEventSchema).default([]),
-});
-
-const listResponseSchema = z.object({
-  items: z.array(caseItemSchema),
-  page: z.number(),
-  pageSize: z.number(),
-  total: z.number(),
-});
-
-export type CaseListItem = z.infer<typeof caseItemSchema>;
-export type CaseDetail = z.infer<typeof caseDetailSchema>;
-export type ListCasesResult = z.infer<typeof listResponseSchema>;
+// Re-export types for consumers
+export type { CaseListItem, CaseDetail, ListCasesResult, TimelineEvent };
 
 export function caseListHref(item: Pick<CaseListItem, 'id' | 'slug'>): string {
   const s = item.slug.trim();
@@ -91,16 +39,12 @@ export function buildCasesQueryString(p: CasesSearchParams): string {
   if (p.country) sp.set('country', p.country);
   if (p.closedYear) sp.set('closedYear', p.closedYear);
   if (p.businessModelKey) sp.set('businessModelKey', p.businessModelKey);
-  if (p.primaryFailureReasonKey) {
-    sp.set('primaryFailureReasonKey', p.primaryFailureReasonKey);
-  }
+  if (p.primaryFailureReasonKey) sp.set('primaryFailureReasonKey', p.primaryFailureReasonKey);
   const hasQ = Boolean(p.q?.trim());
   if (p.sort === 'updated_at' && hasQ) sp.set('sort', 'updated_at');
   if (p.sort === 'relevance' && !hasQ) sp.set('sort', 'relevance');
-  const page = p.page ?? '1';
-  const limit = p.limit ?? '20';
-  if (page !== '1') sp.set('page', page);
-  if (limit !== '20') sp.set('limit', limit);
+  if (p.page && p.page !== '1') sp.set('page', p.page);
+  if (p.limit && p.limit !== '20') sp.set('limit', p.limit);
   return sp.toString();
 }
 
@@ -117,12 +61,8 @@ export async function fetchCasesList(
   if (params.industry) sp.set('industry', params.industry);
   if (params.country) sp.set('country', params.country);
   if (params.closedYear) sp.set('closedYear', params.closedYear);
-  if (params.businessModelKey) {
-    sp.set('businessModelKey', params.businessModelKey);
-  }
-  if (params.primaryFailureReasonKey) {
-    sp.set('primaryFailureReasonKey', params.primaryFailureReasonKey);
-  }
+  if (params.businessModelKey) sp.set('businessModelKey', params.businessModelKey);
+  if (params.primaryFailureReasonKey) sp.set('primaryFailureReasonKey', params.primaryFailureReasonKey);
   if (params.sort) sp.set('sort', params.sort);
   sp.set('page', params.page ?? '1');
   sp.set('limit', params.limit ?? '20');
@@ -131,7 +71,7 @@ export async function fetchCasesList(
     const res = await fetch(url, { cache: 'no-store' });
     if (!res.ok) return null;
     const json: unknown = await res.json();
-    const parsed = listResponseSchema.safeParse(json);
+    const parsed = listCasesResponseSchema.safeParse(json);
     return parsed.success ? parsed.data : null;
   } catch {
     return null;
@@ -167,10 +107,6 @@ export async function fetchCaseBySlug(slug: string): Promise<CaseDetail | null> 
   }
 }
 
-const similarResponseSchema = z.object({
-  items: z.array(caseItemSchema),
-});
-
 export async function fetchSimilarCases(
   id: string,
   limit = 6,
@@ -180,9 +116,12 @@ export async function fetchSimilarCases(
     const res = await fetch(url, { cache: 'no-store' });
     if (!res.ok) return [];
     const json: unknown = await res.json();
-    const parsed = similarResponseSchema.safeParse(json);
+    const parsed = similarCasesResponseSchema.safeParse(json);
     return parsed.success ? parsed.data.items : [];
   } catch {
     return [];
   }
 }
+
+// Keep schema exports for any code that currently imports them from here
+export { caseListItemSchema, caseDetailSchema };
