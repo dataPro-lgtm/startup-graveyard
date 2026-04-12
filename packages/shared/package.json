@@ -22,6 +22,11 @@
       "types": "./dist/schemas/copilot.d.ts",
       "import": "./dist/schemas/copilot.js",
       "default": "./dist/schemas/copilot.js"
+    },
+    "./schemas/auth": {
+      "types": "./dist/schemas/auth.d.ts",
+      "import": "./dist/schemas/auth.js",
+      "default": "./dist/schemas/auth.js"
     }
   },
   "files": [

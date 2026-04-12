@@ -1,4 +1,6 @@
 import type { Metadata, Viewport } from 'next';
+import { AuthProvider } from './components/AuthProvider';
+import { UserNav } from './components/UserNav';
 
 const SITE_NAME = 'Startup Graveyard · 创业坟场';
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://startup-graveyard.io';
@@ -48,41 +50,50 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           color: '#f5f7fb',
         }}
       >
-        <header
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 20,
-            padding: '12px 20px',
-            borderBottom: '1px solid #1d2746',
-            fontSize: 13,
-          }}
-        >
-          {/* Logo */}
-          <a
-            href="/"
+        <AuthProvider>
+          <header
             style={{
-              color: '#f5f7fb',
-              textDecoration: 'none',
-              fontWeight: 700,
-              fontSize: 15,
-              marginRight: 'auto',
-              letterSpacing: '-0.01em',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 20,
+              padding: '12px 20px',
+              borderBottom: '1px solid #1d2746',
+              fontSize: 13,
             }}
           >
-            ⚰️ 创业坟场
-          </a>
-          <a href="/" style={{ color: '#9fb3ff', textDecoration: 'none' }}>
-            案例库
-          </a>
-          <a href="/copilot" style={{ color: '#5b7cff', textDecoration: 'none', fontWeight: 600 }}>
-            AI Copilot
-          </a>
-          <a href="/admin/reviews" style={{ color: '#9fb3ff', textDecoration: 'none' }}>
-            运营台
-          </a>
-        </header>
-        {children}
+            {/* Logo */}
+            <a
+              href="/"
+              style={{
+                color: '#f5f7fb',
+                textDecoration: 'none',
+                fontWeight: 700,
+                fontSize: 15,
+                marginRight: 'auto',
+                letterSpacing: '-0.01em',
+              }}
+            >
+              ⚰️ 创业坟场
+            </a>
+            <a href="/" style={{ color: '#9fb3ff', textDecoration: 'none' }}>
+              案例库
+            </a>
+            <a
+              href="/copilot"
+              style={{ color: '#5b7cff', textDecoration: 'none', fontWeight: 600 }}
+            >
+              AI Copilot
+            </a>
+            <a href="/admin/dashboard" style={{ color: '#9fb3ff', textDecoration: 'none' }}>
+              Dashboard
+            </a>
+            <a href="/admin/reviews" style={{ color: '#9fb3ff', textDecoration: 'none' }}>
+              运营台
+            </a>
+            <UserNav />
+          </header>
+          {children}
+        </AuthProvider>
       </body>
     </html>
   );

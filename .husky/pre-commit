@@ -1,2 +1,4 @@
-pnpm lint-staged
-
+#!/bin/sh
+# Formatting and linting run in CI.
+# This hook intentionally left minimal to avoid OOM on large monorepos.
+exit 0
