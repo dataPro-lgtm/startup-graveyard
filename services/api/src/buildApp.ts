@@ -36,6 +36,7 @@ import {
 } from './repositories/reviewsRepository.js';
 import { registerAdminRoutes } from './plugins/adminRoutes.js';
 import { healthRoutes } from './routes/health.js';
+import { authRoutes } from './routes/public/auth.js';
 import { caseRoutes } from './routes/public/cases.js';
 import { copilotRoutes } from './routes/public/copilot.js';
 import { metaRoutes } from './routes/public/meta.js';
@@ -97,6 +98,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
   await server.register(swaggerUi, { routePrefix: '/docs' });
 
   await server.register(healthRoutes, { prefix: '/health' });
+  await server.register(authRoutes, { prefix: '/v1/auth' });
   await server.register(caseRoutes, { prefix: '/v1/cases' });
   await server.register(metaRoutes, { prefix: '/v1/meta' });
   await server.register(copilotRoutes, { prefix: '/v1/copilot' });
