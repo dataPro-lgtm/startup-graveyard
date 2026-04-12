@@ -563,4 +563,158 @@ suite('postgres integration', () => {
     );
     expect(Number(chunkCountRes.rows[0]?.count ?? 0)).toBeGreaterThanOrEqual(3);
   });
+
+  it('runs copilot eval suite and persists regression batches against postgres', async () => {
+    const db = pool;
+    if (!db) throw new Error('postgres integration test pool not initialized');
+
+    await db.query(
+      `
+      INSERT INTO cases (
+        id, slug, company_name, summary, country_code, industry_key,
+        status, primary_failure_reason_key
+      )
+      VALUES
+        (
+          '71111111-1111-4111-8111-111111111111',
+          'airlift',
+          'Airlift',
+          'Airlift expanded too fast, burned cash, and struggled to align unit economics.',
+          'PK',
+          'mobility',
+          'published',
+          'premature_scaling'
+        ),
+        (
+          '72222222-2222-4222-8222-222222222222',
+          'quickride-pk',
+          'QuickRide',
+          'QuickRide mirrored Airlift with subsidy-heavy growth and weak retention.',
+          'PK',
+          'mobility',
+          'published',
+          'premature_scaling'
+        )
+      `,
+    );
+
+    await db.query(
+      `
+      INSERT INTO copilot_eval_cases (
+        id, slug, title, question, pinned_case_slugs, expected_case_slugs,
+        expected_grounded, expected_fallback_reason, status
+      )
+      VALUES
+        (
+          '7e111111-1111-4111-8111-111111111111',
+          'airlift-why-failed',
+          'Airlift root cause recall',
+          'Airlift 为什么会失败？',
+          ARRAY['airlift']::citext[],
+          ARRAY['airlift']::citext[],
+          NULL,
+          NULL,
+          'active'
+        ),
+        (
+          '7e222222-2222-4222-8222-222222222222',
+          'pakistan-mobility-compare',
+          'Pakistan mobility cluster comparison',
+          '比较 Airlift 和 QuickRide 的失败共性。',
+          ARRAY['airlift', 'quickride-pk']::citext[],
+          ARRAY['airlift', 'quickride-pk']::citext[],
+          NULL,
+          NULL,
+          'active'
+        ),
+        (
+          '7e333333-3333-4333-8333-333333333333',
+          'no-relevant-cases-fallback',
+          'No relevant case fallback',
+          'zzzzqxjvnotarealstartuppattern 为什么会失败？',
+          ARRAY[]::citext[],
+          ARRAY[]::citext[],
+          false,
+          'no_relevant_cases',
+          'active'
+        )
+      `,
+    );
+
+    const triggerRes = await app!.inject({
+      method: 'POST',
+      url: '/v1/admin/scheduler/trigger',
+      headers: {
+        'content-type': 'application/json',
+        'x-admin-key': ADMIN_KEY,
+      },
+      payload: {
+        sourceName: 'run_copilot_eval_suite',
+        payload: { topK: 5 },
+      },
+    });
+    expect(triggerRes.statusCode).toBe(200);
+    expect(JSON.parse(triggerRes.body)).toMatchObject({ ok: true });
+
+    const batchRes = await db.query<{
+      prompt_version: string;
+      total_cases: string | number;
+      passed_cases: string | number;
+      grounded_cases: string | number;
+      fallback_cases: string | number;
+    }>(
+      `
+      SELECT prompt_version, total_cases, passed_cases, grounded_cases, fallback_cases
+      FROM copilot_eval_batches
+      ORDER BY created_at DESC
+      LIMIT 1
+      `,
+    );
+    expect(batchRes.rows[0]).toMatchObject({
+      prompt_version: '2026-04-13.v1',
+    });
+    expect(Number(batchRes.rows[0]?.total_cases ?? -1)).toBe(3);
+    expect(Number(batchRes.rows[0]?.passed_cases ?? -1)).toBe(3);
+    expect(Number(batchRes.rows[0]?.grounded_cases ?? -1)).toBe(0);
+    expect(Number(batchRes.rows[0]?.fallback_cases ?? -1)).toBe(3);
+
+    const resultsRes = await db.query<{
+      question: string;
+      actual_citation_slugs: string[] | null;
+      passed: boolean;
+      fallback_reason: string | null;
+    }>(
+      `
+      SELECT question, actual_citation_slugs, passed, fallback_reason
+      FROM copilot_eval_results
+      ORDER BY created_at ASC
+      `,
+    );
+    expect(resultsRes.rows).toHaveLength(3);
+    expect(resultsRes.rows.every((row) => row.passed)).toBe(true);
+    expect(resultsRes.rows.find((row) => row.question.includes('Airlift 和 QuickRide'))).toMatchObject({
+      actual_citation_slugs: expect.arrayContaining(['airlift', 'quickride-pk']),
+      fallback_reason: 'provider_unavailable',
+    });
+
+    const statsRes = await app!.inject({
+      method: 'GET',
+      url: '/v1/admin/stats',
+      headers: { 'x-admin-key': ADMIN_KEY },
+    });
+    expect(statsRes.statusCode).toBe(200);
+    expect(JSON.parse(statsRes.body)).toMatchObject({
+      copilot: {
+        evals: {
+          overview: {
+            activeCases: 3,
+            totalBatches: 1,
+            latestPromptVersion: '2026-04-13.v1',
+            latestPassRate: 1,
+          },
+          latestFailures: [],
+        },
+      },
+    });
+  });
 });

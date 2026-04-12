@@ -1,12 +1,18 @@
 import type { Pool } from 'pg';
 import { z } from 'zod';
 import { embedCaseDocument, vectorToPgLiteral } from '../ai/openaiEmbed.js';
+import { generateCopilotAnswer } from '../copilot/generateAnswer.js';
 import { captureSourceSnapshot } from './sourceSnapshot.js';
 import { rebuildCaseSearchIndex } from './caseIndexing.js';
 import { extractCaseSignals } from './extractCaseSignals.js';
 import { backfillCaseTaxonomy } from './taxonomyBackfill.js';
 import type { AdminCaseAttachmentsRepository } from '../repositories/adminCaseAttachmentsRepository.js';
 import type { AdminWriteRepository } from '../repositories/adminWriteRepository.js';
+import type { CasesRepository } from '../repositories/casesRepository.js';
+import type {
+  CopilotEvalBatchResultItem,
+  CopilotEvalsRepository,
+} from '../repositories/copilotEvalsRepository.js';
 import type { SourceSnapshotsRepository } from '../repositories/sourceSnapshotsRepository.js';
 import type { IngestionJobsRepository } from '../repositories/ingestionJobsRepository.js';
 import { createDraftCaseBodySchema } from '../schemas/adminCases.js';
@@ -18,10 +24,12 @@ export type IngestionRunInput = {
 };
 
 export type IngestionRunContext = {
+  casesRepo?: CasesRepository;
   adminWrite?: AdminWriteRepository;
   adminAttachments?: AdminCaseAttachmentsRepository;
   sourceSnapshots?: SourceSnapshotsRepository;
   ingestionJobs?: IngestionJobsRepository;
+  copilotEvals?: CopilotEvalsRepository;
   pool?: Pool;
 };
 
@@ -31,6 +39,15 @@ const ERR_MAX = 4000;
 
 function clip(s: string): string {
   return s.length <= ERR_MAX ? s : s.slice(0, ERR_MAX);
+}
+
+function clipPreview(s: string, max = 320): string {
+  return s.length <= max ? s : `${s.slice(0, max)}…`;
+}
+
+function mean(values: number[]): number {
+  if (values.length === 0) return 0;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
 /**
@@ -44,6 +61,7 @@ function clip(s: string): string {
  * - **rebuild_case_search_index**：从 case/evidence/factors/timeline/lessons 重建 `case_chunks` 与 `case_embeddings`。
  * - **backfill_case_search_index**：批量回填缺 chunk 或缺 embedding 的已发布案例。
  * - **backfill_case_taxonomy**：批量归一化历史 taxonomy key，并为受影响的 published case 排入重建索引任务。
+ * - **run_copilot_eval_suite**：回放内置 Copilot eval dataset，写入批次结果与失败样本。
  * - **upsert_embedding_stub**：`payload.caseId`（uuid）；需 `ctx.pool`。若设置 `OPENAI_API_KEY` 则用
  *   `company_name`+`summary` 调 OpenAI 写入真实向量；否则用确定性 sin 向量（演示）。
  */
@@ -421,6 +439,148 @@ export async function runIngestionJob(
         `backfill_case_taxonomy: scanned=${result.scannedCases} cases=${result.casesUpdated}` +
         ` factors=${result.factorsUpdated} timeline=${result.timelineUpdated}` +
         ` reindexQueued=${reindexQueued}`,
+    };
+  }
+
+  if (sourceName === 'run_copilot_eval_suite') {
+    if (!ctx?.casesRepo || !ctx?.copilotEvals) {
+      return {
+        ok: false,
+        error: 'run_copilot_eval_suite：服务端未注入完整上下文（casesRepo/copilotEvals）',
+      };
+    }
+
+    const limitRaw = payload.limit;
+    const topKRaw = payload.topK;
+    const onlyCaseSlugsRaw = payload.onlyCaseSlugs;
+    const limit =
+      typeof limitRaw === 'number' && Number.isInteger(limitRaw) && limitRaw > 0
+        ? Math.min(limitRaw, 50)
+        : 20;
+    const topK =
+      typeof topKRaw === 'number' && Number.isInteger(topKRaw) && topKRaw > 0
+        ? Math.min(topKRaw, 10)
+        : 5;
+    const onlyCaseSlugs =
+      Array.isArray(onlyCaseSlugsRaw) && onlyCaseSlugsRaw.every((item) => typeof item === 'string')
+        ? onlyCaseSlugsRaw.map((item) => item.trim()).filter(Boolean)
+        : undefined;
+
+    const evalCases = await ctx.copilotEvals.listActiveCases({
+      limit,
+      slugs: onlyCaseSlugs,
+    });
+    if (evalCases.length === 0) {
+      return { ok: true, detail: 'run_copilot_eval_suite：no active eval cases' };
+    }
+
+    const results: CopilotEvalBatchResultItem[] = [];
+    let groundedCases = 0;
+    let fallbackCases = 0;
+    let passedCases = 0;
+    let totalTokens = 0;
+    let totalEstimatedCostUsd = 0;
+    const recallValues: number[] = [];
+    const precisionValues: number[] = [];
+    let promptVersion = 'unknown';
+    let provider: string | null = null;
+    let model: string | null = null;
+
+    for (const evalCase of evalCases) {
+      const pinnedCaseIds: string[] = [];
+      for (const slug of evalCase.pinnedCaseSlugs) {
+        const pinnedCase = await ctx.casesRepo.getPublishedBySlug(slug);
+        if (pinnedCase) pinnedCaseIds.push(pinnedCase.id);
+      }
+
+      const answer = await generateCopilotAnswer({
+        casesRepo: ctx.casesRepo,
+        question: evalCase.question,
+        topK,
+        pinnedCaseIds,
+      });
+
+      promptVersion = answer.run.promptVersion;
+      provider = answer.run.provider ?? provider;
+      model = answer.run.model ?? model;
+      groundedCases += answer.grounded ? 1 : 0;
+      fallbackCases += answer.run.fallbackReason ? 1 : 0;
+      totalTokens += answer.run.totalTokens ?? 0;
+      totalEstimatedCostUsd += answer.run.estimatedCostUsd ?? 0;
+
+      const actualCitationSlugs = answer.citations.map((item) => item.slug);
+      const expectedSet = new Set(evalCase.expectedCaseSlugs.map((item) => item.toLowerCase()));
+      const matchedExpectedCount = actualCitationSlugs.filter((slug) =>
+        expectedSet.has(slug.toLowerCase()),
+      ).length;
+      const expectedCaseCount = evalCase.expectedCaseSlugs.length;
+      const citationRecall =
+        expectedCaseCount > 0 ? matchedExpectedCount / expectedCaseCount : null;
+      const citationPrecision =
+        actualCitationSlugs.length > 0 ? matchedExpectedCount / actualCitationSlugs.length : null;
+      if (citationRecall != null) recallValues.push(citationRecall);
+      if (citationPrecision != null) precisionValues.push(citationPrecision);
+
+      const groundedOk =
+        evalCase.expectedGrounded == null ? true : evalCase.expectedGrounded === answer.grounded;
+      const fallbackOk =
+        evalCase.expectedFallbackReason == null
+          ? true
+          : evalCase.expectedFallbackReason === answer.run.fallbackReason;
+      const citationsOk =
+        expectedCaseCount === 0
+          ? actualCitationSlugs.length === 0
+          : matchedExpectedCount === expectedCaseCount;
+      const passed = groundedOk && fallbackOk && citationsOk;
+      if (passed) passedCases++;
+
+      results.push({
+        evalCaseId: evalCase.id,
+        question: evalCase.question,
+        answerPreview: clipPreview(answer.answer),
+        grounded: answer.grounded,
+        fallbackReason: answer.run.fallbackReason,
+        expectedCaseSlugs: evalCase.expectedCaseSlugs,
+        actualCitationSlugs,
+        matchedExpectedCount,
+        expectedCaseCount,
+        citationRecall,
+        citationPrecision,
+        passed,
+        responseMs: answer.run.responseMs,
+        totalTokens: answer.run.totalTokens,
+        estimatedCostUsd: answer.run.estimatedCostUsd,
+        promptVersion: answer.run.promptVersion,
+      });
+    }
+
+    const avgCitationRecall = recallValues.length > 0 ? mean(recallValues) : null;
+    const avgCitationPrecision = precisionValues.length > 0 ? mean(precisionValues) : null;
+    const avgResponseMs = Math.round(mean(results.map((item) => item.responseMs)));
+    const recorded = await ctx.copilotEvals.recordBatch({
+      triggerType: input.triggerType,
+      promptVersion,
+      provider,
+      model,
+      totalCases: evalCases.length,
+      passedCases,
+      groundedCases,
+      fallbackCases,
+      avgCitationRecall,
+      avgCitationPrecision,
+      avgResponseMs,
+      totalTokens,
+      totalEstimatedCostUsd,
+      results,
+    });
+
+    return {
+      ok: true,
+      detail:
+        `run_copilot_eval_suite: batchId=${recorded.batchId} total=${evalCases.length}` +
+        ` passed=${passedCases} grounded=${groundedCases} fallback=${fallbackCases}` +
+        ` avgRecall=${avgCitationRecall == null ? 'n/a' : avgCitationRecall.toFixed(2)}` +
+        ` avgPrecision=${avgCitationPrecision == null ? 'n/a' : avgCitationPrecision.toFixed(2)}`,
     };
   }
 

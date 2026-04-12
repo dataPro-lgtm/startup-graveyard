@@ -184,4 +184,50 @@ describe('admin ingestion pipeline (mock DB)', () => {
       title: 'Snapshot Only',
     });
   });
+
+  it('run_copilot_eval_suite stores a replay batch and exposes it in admin stats', async () => {
+    const triggerRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/scheduler/trigger',
+      headers: {
+        ...headers,
+        'content-type': 'application/json',
+      },
+      payload: {
+        sourceName: 'run_copilot_eval_suite',
+        payload: { topK: 5 },
+      },
+    });
+    expect(triggerRes.statusCode).toBe(200);
+    expect(JSON.parse(triggerRes.body)).toMatchObject({
+      ok: true,
+    });
+
+    const statsRes = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/stats',
+      headers,
+    });
+    expect(statsRes.statusCode).toBe(200);
+    expect(JSON.parse(statsRes.body)).toMatchObject({
+      copilot: {
+        evals: {
+          overview: {
+            activeCases: 3,
+            totalBatches: 1,
+            latestPromptVersion: '2026-04-13.v1',
+            latestPassRate: 1,
+          },
+          recentBatches: [
+            expect.objectContaining({
+              promptVersion: '2026-04-13.v1',
+              totalCases: 3,
+              passedCases: 3,
+            }),
+          ],
+          latestFailures: [],
+        },
+      },
+    });
+  });
 });

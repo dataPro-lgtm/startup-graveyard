@@ -55,6 +55,7 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
   const maxReason = Math.max(...stats.byFailureReason.map((r) => r.count), 1);
   const maxPromptRuns = Math.max(...stats.copilot.byPromptVersion.map((r) => r.runs), 1);
   const maxFallbackReason = Math.max(...stats.copilot.byFallbackReason.map((r) => r.count), 1);
+  const maxEvalBatchCases = Math.max(...stats.copilot.evals.recentBatches.map((r) => r.totalCases), 1);
   const groundedRate =
     stats.copilot.overview.totalRuns > 0
       ? stats.copilot.overview.groundedRuns / stats.copilot.overview.totalRuns
@@ -129,6 +130,22 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
           sub={`均值 ${stats.copilot.overview.avgResponseMs} ms · ${stats.copilot.overview.avgTotalTokens} tok`}
           color="#f59e0b"
         />
+        <KpiCard
+          label="Eval Dataset"
+          value={String(stats.copilot.evals.overview.activeCases)}
+          sub={`${stats.copilot.evals.overview.totalBatches} 个回放批次`}
+          color="#22c55e"
+        />
+        <KpiCard
+          label="Latest Eval"
+          value={formatPercent(stats.copilot.evals.overview.latestPassRate)}
+          sub={
+            stats.copilot.evals.overview.latestPromptVersion
+              ? `prompt ${stats.copilot.evals.overview.latestPromptVersion}`
+              : '尚未运行回放'
+          }
+          color="#14b8a6"
+        />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20 }}>
@@ -164,6 +181,70 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
                 color="#f87171"
               />
             ))
+          )}
+        </ChartCard>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 20 }}>
+        <ChartCard title="Copilot Eval 回放批次">
+          {stats.copilot.evals.recentBatches.length === 0 ? (
+            <EmptyState text="还没有运行 Copilot eval suite。可通过 scheduler trigger 或 nightly job 生成第一批回放数据。" />
+          ) : (
+            <div style={{ display: 'grid', gap: 12 }}>
+              {stats.copilot.evals.recentBatches.map((row) => (
+                <BarRow
+                  key={row.batchId}
+                  label={`${row.promptVersion} · ${new Date(row.createdAt).toLocaleDateString('zh-CN')}`}
+                  value={row.totalCases}
+                  max={maxEvalBatchCases}
+                  color="#14b8a6"
+                  sub={`${row.passedCases}/${row.totalCases} pass · ${formatPercent(row.passRate)} · recall ${formatPercent(row.avgCitationRecall)}`}
+                />
+              ))}
+            </div>
+          )}
+        </ChartCard>
+
+        <ChartCard title="最新回放失败样本">
+          {stats.copilot.evals.latestFailures.length === 0 ? (
+            <EmptyState text="最近一次回放没有失败样本，或尚未运行 eval suite。" compact />
+          ) : (
+            <div style={{ display: 'grid', gap: 12 }}>
+              {stats.copilot.evals.latestFailures.map((item) => (
+                <div
+                  key={`${item.batchId}:${item.evalCaseSlug}`}
+                  style={{
+                    borderRadius: 12,
+                    border: '1px solid #1d2746',
+                    background: '#0d1426',
+                    padding: '12px 14px',
+                    display: 'grid',
+                    gap: 6,
+                  }}
+                >
+                  <div style={{ color: '#f5f7fb', fontSize: 13, fontWeight: 600 }}>
+                    {item.evalCaseTitle}
+                  </div>
+                  <div style={{ color: '#c8d0e5', fontSize: 12 }}>{item.question}</div>
+                  <div style={{ color: '#6b7ca8', fontSize: 12 }}>
+                    期望：{item.expectedCaseSlugs.join(', ') || '无引用'} ｜ 实际：
+                    {item.actualCitationSlugs.join(', ') || '无引用'}
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', fontSize: 12 }}>
+                    <span style={{ color: '#9fb3ff' }}>prompt {item.promptVersion}</span>
+                    <span style={{ color: '#f87171' }}>
+                      recall {formatPercent(item.citationRecall)}
+                    </span>
+                    <span style={{ color: '#f59e0b' }}>
+                      precision {formatPercent(item.citationPrecision)}
+                    </span>
+                    {item.fallbackReason ? (
+                      <span style={{ color: '#f87171' }}>fallback: {item.fallbackReason}</span>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
         </ChartCard>
       </div>

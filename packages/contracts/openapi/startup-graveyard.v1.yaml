@@ -577,9 +577,116 @@ components:
         totalTokens: { type: integer, minimum: 0, nullable: true }
         estimatedCostUsd: { type: number, minimum: 0, nullable: true }
         createdAt: { type: string }
+    CopilotEvalOverview:
+      type: object
+      required:
+        [
+          activeCases,
+          totalBatches,
+          lastRunAt,
+          latestPromptVersion,
+          latestPassRate,
+          latestAvgCitationRecall,
+          latestAvgCitationPrecision,
+        ]
+      properties:
+        activeCases: { type: integer, minimum: 0 }
+        totalBatches: { type: integer, minimum: 0 }
+        lastRunAt: { type: string, nullable: true }
+        latestPromptVersion: { type: string, nullable: true }
+        latestPassRate: { type: number, minimum: 0, maximum: 1, nullable: true }
+        latestAvgCitationRecall: { type: number, minimum: 0, maximum: 1, nullable: true }
+        latestAvgCitationPrecision: { type: number, minimum: 0, maximum: 1, nullable: true }
+    CopilotEvalBatch:
+      type: object
+      required:
+        [
+          batchId,
+          triggerType,
+          promptVersion,
+          totalCases,
+          passedCases,
+          groundedCases,
+          fallbackCases,
+          passRate,
+          avgCitationRecall,
+          avgCitationPrecision,
+          avgResponseMs,
+          totalTokens,
+          totalEstimatedCostUsd,
+          createdAt,
+        ]
+      properties:
+        batchId: { type: string, format: uuid }
+        triggerType: { type: string }
+        promptVersion: { type: string }
+        totalCases: { type: integer, minimum: 0 }
+        passedCases: { type: integer, minimum: 0 }
+        groundedCases: { type: integer, minimum: 0 }
+        fallbackCases: { type: integer, minimum: 0 }
+        passRate: { type: number, minimum: 0, maximum: 1, nullable: true }
+        avgCitationRecall: { type: number, minimum: 0, maximum: 1, nullable: true }
+        avgCitationPrecision: { type: number, minimum: 0, maximum: 1, nullable: true }
+        avgResponseMs: { type: integer, minimum: 0 }
+        totalTokens: { type: integer, minimum: 0 }
+        totalEstimatedCostUsd: { type: number, minimum: 0 }
+        createdAt: { type: string }
+    CopilotEvalFailure:
+      type: object
+      required:
+        [
+          batchId,
+          evalCaseSlug,
+          evalCaseTitle,
+          question,
+          promptVersion,
+          grounded,
+          fallbackReason,
+          expectedCaseSlugs,
+          actualCitationSlugs,
+          citationRecall,
+          citationPrecision,
+          answerPreview,
+          createdAt,
+        ]
+      properties:
+        batchId: { type: string, format: uuid }
+        evalCaseSlug: { type: string }
+        evalCaseTitle: { type: string }
+        question: { type: string }
+        promptVersion: { type: string }
+        grounded: { type: boolean }
+        fallbackReason:
+          allOf:
+            - $ref: '#/components/schemas/CopilotFallbackReason'
+          nullable: true
+        expectedCaseSlugs:
+          type: array
+          items: { type: string }
+        actualCitationSlugs:
+          type: array
+          items: { type: string }
+        citationRecall: { type: number, minimum: 0, maximum: 1, nullable: true }
+        citationPrecision: { type: number, minimum: 0, maximum: 1, nullable: true }
+        answerPreview: { type: string }
+        createdAt: { type: string }
+    CopilotEvalAdminMetrics:
+      type: object
+      required: [overview, recentBatches, latestFailures]
+      properties:
+        overview:
+          $ref: '#/components/schemas/CopilotEvalOverview'
+        recentBatches:
+          type: array
+          items:
+            $ref: '#/components/schemas/CopilotEvalBatch'
+        latestFailures:
+          type: array
+          items:
+            $ref: '#/components/schemas/CopilotEvalFailure'
     CopilotAdminMetrics:
       type: object
-      required: [overview, feedbackEval, byPromptVersion, byFallbackReason, recentFlags]
+      required: [overview, feedbackEval, byPromptVersion, byFallbackReason, recentFlags, evals]
       properties:
         overview:
           $ref: '#/components/schemas/CopilotOverviewStats'
@@ -597,6 +704,8 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/CopilotFlaggedRun'
+        evals:
+          $ref: '#/components/schemas/CopilotEvalAdminMetrics'
     AdminStatsResponse:
       type: object
       required:
@@ -1615,8 +1724,8 @@ paths:
       summary: >-
         Claim next queued job (SKIP LOCKED), run processor (echo / fetch_title /
         create_draft / pipeline_url_draft / backfill_case_taxonomy /
-        upsert_embedding_stub / noop), then succeeded or failed; audit
-        job_succeeded or job_failed
+        run_copilot_eval_suite / upsert_embedding_stub / noop), then succeeded
+        or failed; audit job_succeeded or job_failed
       security:
         - AdminKey: []
       responses:
@@ -1654,7 +1763,8 @@ paths:
       summary: >-
         Trigger a scheduled job immediately by job name or source name
         (for example pipeline_url_draft / extract_case_signals /
-        backfill_case_search_index / backfill_case_taxonomy)
+        backfill_case_search_index / backfill_case_taxonomy /
+        run_copilot_eval_suite)
       security:
         - AdminKey: []
       requestBody:

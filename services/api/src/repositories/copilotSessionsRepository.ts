@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient, QueryResultRow } from 'pg';
-import type { CopilotAdminMetrics } from '@sg/shared/schemas/adminStats';
+import type { CopilotRunAdminMetrics } from '@sg/shared/schemas/adminStats';
 import type {
   CopilotCitation,
   CopilotFallbackReason,
@@ -85,7 +85,7 @@ export interface CopilotSessionsRepository {
   listSessions(visitorId: string, limit: number): Promise<CopilotSessionSummary[]>;
   getSession(visitorId: string, sessionId: string): Promise<CopilotSessionDetail | null>;
   saveAnswerTurn(input: SaveCopilotAnswerTurnInput): Promise<SaveCopilotAnswerTurnResult | null>;
-  getAdminMetrics(): Promise<CopilotAdminMetrics>;
+  getAdminMetrics(): Promise<CopilotRunAdminMetrics>;
   addPinnedCase(
     visitorId: string,
     sessionId: string,
@@ -276,7 +276,7 @@ function toRate(numerator: number, denominator: number): number | null {
   return Number((numerator / denominator).toFixed(4));
 }
 
-function emptyAdminMetrics(): CopilotAdminMetrics {
+function emptyAdminMetrics(): CopilotRunAdminMetrics {
   return {
     overview: {
       totalRuns: 0,
@@ -300,7 +300,7 @@ function emptyAdminMetrics(): CopilotAdminMetrics {
   };
 }
 
-function summarizeAdminRuns(runs: AdminRunRecord[]): CopilotAdminMetrics {
+function summarizeAdminRuns(runs: AdminRunRecord[]): CopilotRunAdminMetrics {
   if (runs.length === 0) return emptyAdminMetrics();
 
   const totalRuns = runs.length;
@@ -596,7 +596,7 @@ export class MockCopilotSessionsRepository implements CopilotSessionsRepository 
     };
   }
 
-  async getAdminMetrics(): Promise<CopilotAdminMetrics> {
+  async getAdminMetrics(): Promise<CopilotRunAdminMetrics> {
     const runs: AdminRunRecord[] = [];
     const sessions = [...this.sessions];
     for (const session of sessions) {
@@ -952,7 +952,7 @@ export class PgCopilotSessionsRepository implements CopilotSessionsRepository {
     });
   }
 
-  async getAdminMetrics(): Promise<CopilotAdminMetrics> {
+  async getAdminMetrics(): Promise<CopilotRunAdminMetrics> {
     const [overviewRes, promptRes, fallbackRes, flaggedRes] = await Promise.all([
       this.pool.query<CopilotOverviewRow>(
         `

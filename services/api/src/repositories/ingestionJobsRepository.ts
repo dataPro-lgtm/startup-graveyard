@@ -3,6 +3,8 @@ import type { Pool, QueryResultRow } from 'pg';
 import { runIngestionJob } from '../ingestion/runIngestionJob.js';
 import type { AdminCaseAttachmentsRepository } from './adminCaseAttachmentsRepository.js';
 import type { AdminWriteRepository } from './adminWriteRepository.js';
+import type { CasesRepository } from './casesRepository.js';
+import type { CopilotEvalsRepository } from './copilotEvalsRepository.js';
 import type { EnqueueIngestionJobBody } from '../schemas/ingestionJobs.js';
 import type { SourceSnapshotsRepository } from './sourceSnapshotsRepository.js';
 import { withTransaction } from '../db/withTransaction.js';
@@ -83,9 +85,11 @@ export class MockIngestionJobsRepository implements IngestionJobsRepository {
   private readonly jobs: IngestionJobItem[] = [];
 
   constructor(
+    private readonly casesRepo?: CasesRepository,
     private readonly adminWrite?: AdminWriteRepository,
     private readonly adminAttachments?: AdminCaseAttachmentsRepository,
     private readonly sourceSnapshots?: SourceSnapshotsRepository,
+    private readonly copilotEvals?: CopilotEvalsRepository,
   ) {}
 
   async listRecent(params: ListIngestionJobsParams): Promise<IngestionJobItem[]> {
@@ -142,10 +146,12 @@ export class MockIngestionJobsRepository implements IngestionJobsRepository {
         payload: cur.payload,
       },
       {
+        casesRepo: this.casesRepo,
         adminWrite: this.adminWrite,
         adminAttachments: this.adminAttachments,
         sourceSnapshots: this.sourceSnapshots,
         ingestionJobs: this,
+        copilotEvals: this.copilotEvals,
       },
     );
 
@@ -216,9 +222,11 @@ export class MockIngestionJobsRepository implements IngestionJobsRepository {
 export class PgIngestionJobsRepository implements IngestionJobsRepository {
   constructor(
     private readonly pool: Pool,
+    private readonly casesRepo?: CasesRepository,
     private readonly adminWrite?: AdminWriteRepository,
     private readonly adminAttachments?: AdminCaseAttachmentsRepository,
     private readonly sourceSnapshots?: SourceSnapshotsRepository,
+    private readonly copilotEvals?: CopilotEvalsRepository,
   ) {}
 
   async listRecent(params: ListIngestionJobsParams): Promise<IngestionJobItem[]> {
@@ -310,10 +318,12 @@ export class PgIngestionJobsRepository implements IngestionJobsRepository {
         payload: mapPayload(claimed.payload),
       },
       {
+        casesRepo: this.casesRepo,
         adminWrite: this.adminWrite,
         adminAttachments: this.adminAttachments,
         sourceSnapshots: this.sourceSnapshots,
         ingestionJobs: this,
+        copilotEvals: this.copilotEvals,
         pool: this.pool,
       },
     );
