@@ -348,10 +348,14 @@ components:
         slug: { type: string }
         companyName: { type: string }
         relevantText: { type: string }
+        pinned: { type: boolean }
     CopilotAnswerResponse:
       type: object
-      required: [answer, citations, grounded]
+      required: [sessionId, userMessageId, assistantMessageId, answer, citations, grounded]
       properties:
+        sessionId: { type: string, format: uuid }
+        userMessageId: { type: string, format: uuid }
+        assistantMessageId: { type: string, format: uuid }
         answer: { type: string }
         citations:
           type: array
@@ -359,6 +363,70 @@ components:
             $ref: '#/components/schemas/CopilotCitation'
         model: { type: string }
         grounded: { type: boolean }
+    CopilotSessionSummary:
+      type: object
+      required: [id, title, messageCount, pinnedCaseCount, updatedAt, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        messageCount: { type: integer, minimum: 0 }
+        pinnedCaseCount: { type: integer, minimum: 0 }
+        lastQuestion: { type: string, nullable: true }
+        updatedAt: { type: string }
+        createdAt: { type: string }
+    CopilotMessage:
+      type: object
+      required: [id, role, content, citations, grounded, model, feedbackVote, feedbackNote, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        role:
+          type: string
+          enum: [user, assistant]
+        content: { type: string }
+        citations:
+          type: array
+          items:
+            $ref: '#/components/schemas/CopilotCitation'
+        grounded: { type: boolean, nullable: true }
+        model: { type: string, nullable: true }
+        feedbackVote:
+          type: string
+          nullable: true
+          enum: [up, down]
+        feedbackNote: { type: string, nullable: true }
+        createdAt: { type: string }
+    CopilotSessionDetail:
+      type: object
+      required: [session, pinnedCases, messages]
+      properties:
+        session:
+          $ref: '#/components/schemas/CopilotSessionSummary'
+        pinnedCases:
+          type: array
+          items:
+            $ref: '#/components/schemas/CaseListItem'
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/CopilotMessage'
+    CopilotSessionsListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CopilotSessionSummary'
+    CopilotFeedbackResponse:
+      type: object
+      required: [ok, messageId, vote, note]
+      properties:
+        ok: { type: boolean, enum: [true] }
+        messageId: { type: string, format: uuid }
+        vote:
+          type: string
+          enum: [up, down]
+        note: { type: string, nullable: true }
     AdminStatsResponse:
       type: object
       required:
@@ -697,17 +765,23 @@ paths:
           description: User not found
   /v1/copilot/answer:
     post:
-      summary: Grounded failure-intelligence answer over the published case corpus
+      summary: Grounded failure-intelligence answer within a persisted research session
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [question]
+              required: [visitorId, question]
               properties:
+                visitorId: { type: string, minLength: 8, maxLength: 100 }
+                sessionId: { type: string, format: uuid }
                 question: { type: string, minLength: 2, maxLength: 1000 }
                 topK: { type: integer, minimum: 1, maximum: 10, default: 5 }
+                pinnedCaseIds:
+                  type: array
+                  maxItems: 8
+                  items: { type: string, format: uuid }
       responses:
         '200':
           description: Answer with citations and groundedness flag
@@ -717,6 +791,148 @@ paths:
                 $ref: '#/components/schemas/CopilotAnswerResponse'
         '400':
           description: Invalid body
+        '404':
+          description: Session not found
+  /v1/copilot/sessions:
+    get:
+      summary: List recent Copilot research sessions for a visitor
+      parameters:
+        - in: query
+          name: visitorId
+          required: true
+          schema: { type: string, minLength: 8, maxLength: 100 }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 30, default: 12 }
+      responses:
+        '200':
+          description: Recent Copilot sessions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CopilotSessionsListResponse'
+    post:
+      summary: Create a new empty Copilot research session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [visitorId]
+              properties:
+                visitorId: { type: string, minLength: 8, maxLength: 100 }
+                title: { type: string, minLength: 1, maxLength: 120 }
+      responses:
+        '200':
+          description: Empty research session detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CopilotSessionDetail'
+  /v1/copilot/sessions/{sessionId}:
+    get:
+      summary: Load a Copilot session with pinned cases and message history
+      parameters:
+        - in: path
+          name: sessionId
+          required: true
+          schema: { type: string, format: uuid }
+        - in: query
+          name: visitorId
+          required: true
+          schema: { type: string, minLength: 8, maxLength: 100 }
+      responses:
+        '200':
+          description: Copilot session detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CopilotSessionDetail'
+        '404':
+          description: Session not found
+  /v1/copilot/sessions/{sessionId}/pins:
+    post:
+      summary: Pin a published case into the active Copilot session context
+      parameters:
+        - in: path
+          name: sessionId
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [visitorId, caseId]
+              properties:
+                visitorId: { type: string, minLength: 8, maxLength: 100 }
+                caseId: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Updated Copilot session detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CopilotSessionDetail'
+        '404':
+          description: Session or case not found
+  /v1/copilot/sessions/{sessionId}/pins/{caseId}:
+    delete:
+      summary: Remove a pinned case from the active Copilot session
+      parameters:
+        - in: path
+          name: sessionId
+          required: true
+          schema: { type: string, format: uuid }
+        - in: path
+          name: caseId
+          required: true
+          schema: { type: string, format: uuid }
+        - in: query
+          name: visitorId
+          required: true
+          schema: { type: string, minLength: 8, maxLength: 100 }
+      responses:
+        '200':
+          description: Updated Copilot session detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CopilotSessionDetail'
+        '404':
+          description: Session not found
+  /v1/copilot/messages/{messageId}/feedback:
+    post:
+      summary: Save user feedback on a Copilot assistant message
+      parameters:
+        - in: path
+          name: messageId
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [visitorId, vote]
+              properties:
+                visitorId: { type: string, minLength: 8, maxLength: 100 }
+                vote:
+                  type: string
+                  enum: [up, down]
+                note: { type: string, minLength: 1, maxLength: 500 }
+      responses:
+        '200':
+          description: Saved feedback payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CopilotFeedbackResponse'
+        '404':
+          description: Message not found
   /v1/payments/checkout:
     post:
       summary: Create a Stripe checkout session for Pro subscription

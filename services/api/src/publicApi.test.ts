@@ -124,6 +124,115 @@ describe('public API (mock DB)', () => {
     );
   });
 
+  it('Copilot sessions support persisted threads, pinned context, and feedback', async () => {
+    const visitorId = 'visitor-test-001';
+
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/v1/copilot/sessions',
+      payload: { visitorId },
+    });
+    expect(createRes.statusCode).toBe(200);
+    const created = JSON.parse(createRes.body) as {
+      session: { id: string; messageCount: number };
+      pinnedCases: unknown[];
+      messages: unknown[];
+    };
+    expect(created.session.messageCount).toBe(0);
+    expect(created.pinnedCases).toHaveLength(0);
+    expect(created.messages).toHaveLength(0);
+
+    const answerRes = await app.inject({
+      method: 'POST',
+      url: '/v1/copilot/answer',
+      payload: {
+        visitorId,
+        sessionId: created.session.id,
+        question: 'Airlift 为什么会失败？',
+        topK: 3,
+      },
+    });
+    expect(answerRes.statusCode).toBe(200);
+    const answered = JSON.parse(answerRes.body) as {
+      sessionId: string;
+      assistantMessageId: string;
+      citations: Array<{ caseId: string; companyName: string; pinned?: boolean }>;
+    };
+    expect(answered.sessionId).toBe(created.session.id);
+    expect(answered.citations.length).toBeGreaterThan(0);
+    expect(answered.citations[0]?.companyName).toBe('Airlift');
+
+    const listRes = await app.inject({
+      method: 'GET',
+      url: `/v1/copilot/sessions?visitorId=${encodeURIComponent(visitorId)}&limit=10`,
+    });
+    expect(listRes.statusCode).toBe(200);
+    const listed = JSON.parse(listRes.body) as {
+      items: Array<{ id: string; messageCount: number; lastQuestion: string | null }>;
+    };
+    expect(listed.items).toHaveLength(1);
+    expect(listed.items[0]).toMatchObject({
+      id: created.session.id,
+      messageCount: 2,
+      lastQuestion: 'Airlift 为什么会失败？',
+    });
+
+    const pinRes = await app.inject({
+      method: 'POST',
+      url: `/v1/copilot/sessions/${encodeURIComponent(created.session.id)}/pins`,
+      payload: { visitorId, caseId: answered.citations[0]!.caseId },
+    });
+    expect(pinRes.statusCode).toBe(200);
+    const pinned = JSON.parse(pinRes.body) as {
+      pinnedCases: Array<{ id: string; companyName: string }>;
+    };
+    expect(pinned.pinnedCases).toHaveLength(1);
+    expect(pinned.pinnedCases[0]?.companyName).toBe('Airlift');
+
+    const feedbackRes = await app.inject({
+      method: 'POST',
+      url: `/v1/copilot/messages/${encodeURIComponent(answered.assistantMessageId)}/feedback`,
+      payload: { visitorId, vote: 'up' },
+    });
+    expect(feedbackRes.statusCode).toBe(200);
+    expect(JSON.parse(feedbackRes.body)).toMatchObject({
+      ok: true,
+      vote: 'up',
+      messageId: answered.assistantMessageId,
+    });
+
+    const followupRes = await app.inject({
+      method: 'POST',
+      url: '/v1/copilot/answer',
+      payload: {
+        visitorId,
+        sessionId: created.session.id,
+        question: '继续展开这个案例的失败路径。',
+        topK: 1,
+      },
+    });
+    expect(followupRes.statusCode).toBe(200);
+    const followup = JSON.parse(followupRes.body) as {
+      citations: Array<{ caseId: string; pinned?: boolean }>;
+    };
+    expect(followup.citations.some((item) => item.caseId === answered.citations[0]!.caseId)).toBe(true);
+    expect(followup.citations.some((item) => item.pinned === true)).toBe(true);
+
+    const detailRes = await app.inject({
+      method: 'GET',
+      url: `/v1/copilot/sessions/${encodeURIComponent(created.session.id)}?visitorId=${encodeURIComponent(visitorId)}`,
+    });
+    expect(detailRes.statusCode).toBe(200);
+    const detail = JSON.parse(detailRes.body) as {
+      session: { messageCount: number };
+      pinnedCases: Array<{ id: string }>;
+      messages: Array<{ role: string; feedbackVote: string | null }>;
+    };
+    expect(detail.session.messageCount).toBe(4);
+    expect(detail.pinnedCases).toHaveLength(1);
+    expect(detail.messages.filter((item) => item.role === 'assistant')[0]?.feedbackVote).toBe('up');
+  });
+
   it('GET /v1/admin/audit is disabled when ADMIN_API_KEY is unset', async () => {
     const res = await app.inject({ method: 'GET', url: '/v1/admin/audit?limit=5' });
     expect(res.statusCode).toBe(503);

@@ -20,6 +20,11 @@ import {
   PgCasesRepository,
 } from './repositories/casesRepository.js';
 import {
+  type CopilotSessionsRepository,
+  MockCopilotSessionsRepository,
+  PgCopilotSessionsRepository,
+} from './repositories/copilotSessionsRepository.js';
+import {
   type AuditRepository,
   MockAuditRepository,
   PgAuditRepository,
@@ -64,6 +69,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
   let adminAttachmentsRepo: AdminCaseAttachmentsRepository;
   let ingestionJobsRepo: IngestionJobsRepository;
   let sourceSnapshotsRepo: SourceSnapshotsRepository;
+  let copilotSessionsRepo: CopilotSessionsRepository;
   const queueApprovedCaseIndex = async (caseId: string) => {
     await ingestionJobsRepo.enqueue({
       sourceName: 'rebuild_case_search_index',
@@ -80,6 +86,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
     adminWriteRepo = new PgAdminWriteRepository(pgPool);
     adminAttachmentsRepo = new PgAdminCaseAttachmentsRepository(pgPool);
     sourceSnapshotsRepo = new PgSourceSnapshotsRepository(pgPool);
+    copilotSessionsRepo = new PgCopilotSessionsRepository(pgPool);
     ingestionJobsRepo = new PgIngestionJobsRepository(
       pgPool,
       adminWriteRepo,
@@ -96,6 +103,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
     adminWriteRepo = new MockAdminWriteRepository(mc, mr);
     adminAttachmentsRepo = new MockAdminCaseAttachmentsRepository(casesRepo);
     sourceSnapshotsRepo = new MockSourceSnapshotsRepository();
+    copilotSessionsRepo = new MockCopilotSessionsRepository();
     ingestionJobsRepo = new MockIngestionJobsRepository(
       adminWriteRepo,
       adminAttachmentsRepo,
@@ -109,6 +117,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
   server.decorate('adminAttachmentsRepo', adminAttachmentsRepo as AdminCaseAttachmentsRepository);
   server.decorate('ingestionJobsRepo', ingestionJobsRepo as IngestionJobsRepository);
   server.decorate('sourceSnapshotsRepo', sourceSnapshotsRepo as SourceSnapshotsRepository);
+  server.decorate('copilotSessionsRepo', copilotSessionsRepo as CopilotSessionsRepository);
   const auditRepo = pgPool ? new PgAuditRepository(pgPool) : new MockAuditRepository();
   server.decorate('auditRepo', auditRepo as AuditRepository);
   if (!pgPool) {

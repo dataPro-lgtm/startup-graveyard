@@ -39,8 +39,8 @@
 ### P1 检索与 Copilot
 
 - 当前主要是 PostgreSQL + pgvector 混合排序，OpenSearch hybrid/facet/explain 尚未落地。
-- Copilot 还是单轮 grounded answer，缺少 session、上下文 pin、反馈回路、评测集、成本追踪。
-- 契约与实现存在漂移：OpenAPI 还未完整覆盖 auth/payments/copilot/admin stats/scheduler 等实际接口。
+- Copilot 已支持 session、上下文 pin 与回答反馈，但仍缺评测集、成本追踪、prompt 管理与更系统的质量回归。
+- 契约漂移已经明显收敛，但 OpenAPI 对 auth/payments/admin stats/scheduler 等实际接口仍未完全覆盖。
 
 ### P1 产品能力
 
@@ -165,3 +165,9 @@
 - 新增 `/v1/meta/research-overview`，把首页 summary、热门行业、热门国家、热门失败主因和倒闭时间线收口成研究型聚合接口。
 - Web 新增 `/research` 页面，提供预设专题入口、趋势聚合面板、最新案例流，并可一键带着问题跳转到 Copilot。
 - 首页与顶层导航已接入 Research Hub，产品入口从“单纯搜索列表”升级为“搜索 + 研究”双入口。
+
+已完成 M2 第二段（Copilot research workspace）：
+
+- Copilot 新增持久化 session、消息历史、上下文 pin 和回答反馈，问答从“单轮回答”升级成“可连续研究”的工作线程。
+- API 新增 `/v1/copilot/sessions`、`/pins`、`/messages/:messageId/feedback` 等接口，OpenAPI 与 shared schema 已同步覆盖。
+- Web Copilot 页面升级成多会话研究工作台，支持保留线程、固定关键案例、连续追问与标记回答质量。

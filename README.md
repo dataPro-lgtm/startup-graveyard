@@ -258,7 +258,7 @@ pnpm --filter @sg/api test:pg
 ## 当前限制
 
 - 仍是 alpha，数据规模和研究工作流还不够深
-- Copilot 还缺 session、反馈回路、评测体系
+- Copilot 已有 session、上下文 pin 与反馈回路，但评测体系和成本追踪还没补齐
 - 商业化能力还停留在早期 Stripe 集成
 - 平台化能力还没有上独立 worker / Redis / 对象存储 / OTel
 
