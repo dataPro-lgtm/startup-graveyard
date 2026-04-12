@@ -39,7 +39,7 @@
 ### P1 检索与 Copilot
 
 - 当前主要是 PostgreSQL + pgvector 混合排序，OpenSearch hybrid/facet/explain 尚未落地。
-- Copilot 已支持 session、上下文 pin、回答反馈，以及 run-level prompt version / token-cost 追踪和后台回归视图，但仍缺可回放评测集、自动 prompt 回归、answer grading 与更系统的质量回归。
+- Copilot 已支持 session、上下文 pin、回答反馈，以及 run-level prompt version / token-cost 追踪、可回放评测集、batch regression 和后台回归视图，但仍缺 answer grading、自动告警与更系统的质量回归。
 - 契约漂移已经明显收敛，但 OpenAPI 对 auth/payments/admin stats/scheduler 等实际接口仍未完全覆盖。
 
 ### P1 产品能力
@@ -50,7 +50,7 @@
 
 ### P2 平台化与运营
 
-- 没有 OTel trace、自动告警、nightly prompt regression 与 runbook。
+- 没有 OTel trace、自动告警、CI 级 prompt replay 与 runbook。
 - 没有 Redis、对象存储、worker 独立部署、Temporal durable workflow。
 - 没有数据回填、夜间回归、搜索评测、内容质量报表。
 
@@ -184,6 +184,19 @@
 - Admin `/v1/admin/stats` 现在会返回 Copilot telemetry 聚合，包括 runs、grounded/fallback、feedback eval、prompt version 对比、fallback 原因和 recent flagged runs。
 - Copilot repo 补了 mock / PostgreSQL 两套 `getAdminMetrics()`，后台 dashboard 在 mock 和真实库模式下都能展示研究助手运营数据。
 - Admin dashboard 新增 Copilot KPI、prompt version regression 视图和 recent flagged runs 列表，运营能直接看到哪个 prompt 版本、哪类 fallback、哪些回答最需要修正。
+
+已完成 M3 第一段（commercial foundation / watchlist）：
+
+- 用户模型已经从简单的 `free/pro` 扩展成 `free/pro/team + billingStatus + billingInterval + currentPeriodEnd + cancelAtPeriodEnd`，并且 shared 层新增了统一 entitlement helper。
+- Stripe 不再只是 checkout：现在支持 customer 绑定、billing portal、`checkout.session.completed` / `customer.subscription.*` 生命周期同步，以及账户页账单状态展示。
+- 产品里已经出现第一个真正被付费权益驱动的能力：个人 watchlist。Free 用户会被 entitlement gate 拦住，Pro/Team 可保存案例并在账户页查看自己的研究清单。
+- OpenAPI、shared schema、mock route tests 已同步覆盖新的 profile / billing / watchlist 契约，后续实现 saved views 和导出可以沿着这套 entitlement 层继续扩展。
+
+已完成 M2 第五段（replayable eval dataset / nightly regression baseline）：
+
+- 新增 `copilot_eval_cases / copilot_eval_batches / copilot_eval_results`，把 Copilot 回放样本、批次摘要和失败样本持久化。
+- 新增 `run_copilot_eval_suite` ingestion handler，会回放内置 eval dataset，复用线上 Copilot answer engine，计算 citation recall / precision / pass rate，并把结果写入 batch。
+- `scheduled_jobs` 增加 `nightly_copilot_eval_suite`，Admin dashboard 也新增 recent eval batches / latest failures 面板，运营能直接看到最新 prompt regression 是否回退。
 
 已完成 M3 第一段（commercial foundation / watchlist）：
 

@@ -59,12 +59,65 @@ export const copilotFlaggedRunSchema = z.object({
   createdAt: z.string(),
 });
 
-export const copilotAdminMetricsSchema = z.object({
+export const copilotRunAdminMetricsSchema = z.object({
   overview: copilotOverviewStatsSchema,
   feedbackEval: copilotFeedbackEvalSchema,
   byPromptVersion: z.array(copilotPromptVersionStatsSchema),
   byFallbackReason: z.array(copilotFallbackReasonCountSchema),
   recentFlags: z.array(copilotFlaggedRunSchema),
+});
+
+export const copilotEvalOverviewSchema = z.object({
+  activeCases: nonnegativeInteger,
+  totalBatches: nonnegativeInteger,
+  lastRunAt: z.string().nullable(),
+  latestPromptVersion: z.string().nullable(),
+  latestPassRate: z.number().min(0).max(1).nullable(),
+  latestAvgCitationRecall: z.number().min(0).max(1).nullable(),
+  latestAvgCitationPrecision: z.number().min(0).max(1).nullable(),
+});
+
+export const copilotEvalBatchSchema = z.object({
+  batchId: z.string().uuid(),
+  triggerType: z.string(),
+  promptVersion: z.string(),
+  totalCases: nonnegativeInteger,
+  passedCases: nonnegativeInteger,
+  groundedCases: nonnegativeInteger,
+  fallbackCases: nonnegativeInteger,
+  passRate: z.number().min(0).max(1).nullable(),
+  avgCitationRecall: z.number().min(0).max(1).nullable(),
+  avgCitationPrecision: z.number().min(0).max(1).nullable(),
+  avgResponseMs: nonnegativeInteger,
+  totalTokens: nonnegativeInteger,
+  totalEstimatedCostUsd: nonnegativeNumber,
+  createdAt: z.string(),
+});
+
+export const copilotEvalFailureSchema = z.object({
+  batchId: z.string().uuid(),
+  evalCaseSlug: z.string(),
+  evalCaseTitle: z.string(),
+  question: z.string(),
+  promptVersion: z.string(),
+  grounded: z.boolean(),
+  fallbackReason: copilotFallbackReasonSchema.nullable(),
+  expectedCaseSlugs: z.array(z.string()),
+  actualCitationSlugs: z.array(z.string()),
+  citationRecall: z.number().min(0).max(1).nullable(),
+  citationPrecision: z.number().min(0).max(1).nullable(),
+  answerPreview: z.string(),
+  createdAt: z.string(),
+});
+
+export const copilotEvalAdminMetricsSchema = z.object({
+  overview: copilotEvalOverviewSchema,
+  recentBatches: z.array(copilotEvalBatchSchema),
+  latestFailures: z.array(copilotEvalFailureSchema),
+});
+
+export const copilotAdminMetricsSchema = copilotRunAdminMetricsSchema.extend({
+  evals: copilotEvalAdminMetricsSchema,
 });
 
 export const adminStatsResponseSchema = z.object({
@@ -120,5 +173,10 @@ export type CopilotOverviewStats = z.infer<typeof copilotOverviewStatsSchema>;
 export type CopilotPromptVersionStats = z.infer<typeof copilotPromptVersionStatsSchema>;
 export type CopilotFallbackReasonCount = z.infer<typeof copilotFallbackReasonCountSchema>;
 export type CopilotFlaggedRun = z.infer<typeof copilotFlaggedRunSchema>;
+export type CopilotRunAdminMetrics = z.infer<typeof copilotRunAdminMetricsSchema>;
+export type CopilotEvalOverview = z.infer<typeof copilotEvalOverviewSchema>;
+export type CopilotEvalBatch = z.infer<typeof copilotEvalBatchSchema>;
+export type CopilotEvalFailure = z.infer<typeof copilotEvalFailureSchema>;
+export type CopilotEvalAdminMetrics = z.infer<typeof copilotEvalAdminMetricsSchema>;
 export type CopilotAdminMetrics = z.infer<typeof copilotAdminMetricsSchema>;
 export type AdminStatsResponse = z.infer<typeof adminStatsResponseSchema>;

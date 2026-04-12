@@ -2,10 +2,6 @@ import { loadRootEnv } from './env/loadEnv.js';
 import { validateRuntimeEnv } from './env/runtime.js';
 import { buildApp } from './buildApp.js';
 import { getPool } from './db/pool.js';
-import { PgAdminCaseAttachmentsRepository } from './repositories/adminCaseAttachmentsRepository.js';
-import { PgIngestionJobsRepository } from './repositories/ingestionJobsRepository.js';
-import { PgAdminWriteRepository } from './repositories/adminWriteRepository.js';
-import { PgSourceSnapshotsRepository } from './repositories/sourceSnapshotsRepository.js';
 import { startScheduler } from './ingestion/scheduler.js';
 import { startIngestionWorker } from './ingestion/worker.js';
 import { config } from './config/index.js';
@@ -17,21 +13,11 @@ const server = await buildApp();
 
 const pool = getPool();
 if (pool) {
-  const adminWriteRepo = new PgAdminWriteRepository(pool);
-  const adminAttachmentsRepo = new PgAdminCaseAttachmentsRepository(pool);
-  const sourceSnapshotsRepo = new PgSourceSnapshotsRepository(pool);
-  const ingestionRepo = new PgIngestionJobsRepository(
-    pool,
-    adminWriteRepo,
-    adminAttachmentsRepo,
-    sourceSnapshotsRepo,
-  );
-
-  const stopScheduler = startScheduler(pool, ingestionRepo, {
+  const stopScheduler = startScheduler(pool, server.ingestionJobsRepo, {
     info: (msg) => server.log.info(msg),
     error: (msg, err) => server.log.error(err, msg),
   });
-  const stopWorker = startIngestionWorker(ingestionRepo, {
+  const stopWorker = startIngestionWorker(server.ingestionJobsRepo, {
     info: (msg) => server.log.info(msg),
     error: (msg, err) => server.log.error(err, msg),
   });

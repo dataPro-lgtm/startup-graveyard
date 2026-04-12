@@ -54,10 +54,12 @@ export async function adminSchedulerRoutes(app: FastifyInstance) {
       { sourceName: resolvedSource, triggerType: 'manual', payload: resolvedPayload },
       {
         pool: pool ?? undefined,
+        casesRepo: app.casesRepo,
         adminWrite: app.adminWriteRepo,
         adminAttachments: app.adminAttachmentsRepo,
         sourceSnapshots: app.sourceSnapshotsRepo,
         ingestionJobs: app.ingestionJobsRepo,
+        copilotEvals: app.copilotEvalsRepo,
       },
     );
     return reply.send(result);

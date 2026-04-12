@@ -10,9 +10,7 @@
  * - POST   /v1/copilot/messages/:messageId/feedback
  */
 import type { FastifyInstance } from 'fastify';
-import { COPILOT_PROMPT_VERSION, COPILOT_SYSTEM_PROMPT } from '../../ai/copilotPrompt.js';
-import { embedSearchQuery } from '../../ai/openaiEmbed.js';
-import { getProvider } from '../../ai/llm.js';
+import { generateCopilotAnswer } from '../../copilot/generateAnswer.js';
 import {
   copilotAnswerBodySchema,
   copilotAnswerResponseSchema,
@@ -28,90 +26,7 @@ import {
   copilotVisitorIdSchema,
 } from '../../schemas/copilot.js';
 
-type CaseDetail = Awaited<ReturnType<FastifyInstance['casesRepo']['getById']>>;
-type NonNullCaseDetail = NonNullable<CaseDetail>;
 type SessionDetail = Awaited<ReturnType<FastifyInstance['copilotSessionsRepo']['getSession']>>;
-
-function clip(s: string, max: number): string {
-  return s.length <= max ? s : `${s.slice(0, max)}…`;
-}
-
-function buildContextSnippet(c: NonNullCaseDetail, pinned = false): string {
-  const parts: string[] = [
-    `${pinned ? '[Pinned] ' : ''}公司：${c.companyName}（${c.industry}，${c.closedYear ?? '年份不详'}年倒闭）`,
-    `摘要：${clip(c.summary, 400)}`,
-  ];
-  if (c.primaryFailureReasonKey) {
-    parts.push(`主要失败原因：${c.primaryFailureReasonKey}`);
-  }
-  const factors = c.failureFactors.slice(0, 3);
-  if (factors.length > 0) {
-    parts.push(
-      '失败因子：' +
-        factors
-          .map(
-            (f) =>
-              `${f.level1Key}→${f.level2Key}${f.explanation ? `（${clip(f.explanation, 120)}）` : ''}`,
-          )
-          .join('；'),
-    );
-  }
-  if (c.keyLessons) {
-    parts.push(`关键教训：${clip(c.keyLessons, 220)}`);
-  }
-  return parts.join('\n');
-}
-
-function buildConversationHistory(session: Exclude<SessionDetail, null>): string {
-  return session.messages
-    .slice(-6)
-    .map((message) => {
-      const role = message.role === 'user' ? '用户' : '助手';
-      return `${role}：${clip(message.content, message.role === 'user' ? 280 : 420)}`;
-    })
-    .join('\n');
-}
-
-function buildFallbackAnswer(question: string, cases: NonNullCaseDetail[]): string {
-  if (cases.length === 0) {
-    return `关于"${question}"，当前知识库中暂未找到高度相关的失败案例。请尝试调整关键词，或先固定几个你想比较的案例后继续提问。`;
-  }
-  const reasons = [...new Set(cases.map((c) => c.primaryFailureReasonKey).filter(Boolean))].slice(
-    0,
-    3,
-  );
-
-  return (
-    `关于"${question}"，以下是当前研究会话里最相关的 ${cases.length} 个案例：\n\n` +
-    cases
-      .slice(0, 5)
-      .map(
-        (c, i) =>
-          `${i + 1}. **${c.companyName}**（${c.industry}，${c.closedYear ?? '?'} 年）\n   ${clip(c.summary, 200)}`,
-      )
-      .join('\n\n') +
-    (reasons.length > 0 ? `\n\n高频失败主因：${reasons.join('、')}。` : '') +
-    `\n\n（注：当前为规则摘要模式，未调用 LLM。配置 OPENAI_API_KEY 可获得更深度的分析。）`
-  );
-}
-
-async function fetchCaseDetails(
-  casesRepo: FastifyInstance['casesRepo'],
-  ids: string[],
-): Promise<NonNullCaseDetail[]> {
-  if (ids.length === 0) return [];
-  return casesRepo.getByIds(ids);
-}
-
-function buildCitations(cases: NonNullCaseDetail[], pinnedCaseIds: Set<string>) {
-  return cases.map((d) => ({
-    caseId: d.id,
-    slug: d.slug,
-    companyName: d.companyName,
-    relevantText: clip(d.summary, 250),
-    pinned: pinnedCaseIds.has(d.id),
-  }));
-}
 
 async function toSessionResponse(app: FastifyInstance, detail: Exclude<SessionDetail, null>) {
   const pinnedCases = await app.casesRepo.getByIds(detail.pinnedCaseIds);
@@ -258,105 +173,30 @@ export async function copilotRoutes(app: FastifyInstance) {
     }
 
     const pinnedCaseIds = existingSession?.pinnedCaseIds ?? initialPinnedCaseIds ?? [];
-
-    try {
-      const qVec = await embedSearchQuery(question);
-      void qVec;
-    } catch {
-      // silent degradation to full-text
-    }
-
-    const listResult = await app.casesRepo.list({
-      q: question,
-      page: 1,
-      limit: topK,
-      sort: 'relevance',
+    const generated = await generateCopilotAnswer({
+      casesRepo: app.casesRepo,
+      question,
+      topK,
+      pinnedCaseIds,
+      history: existingSession?.messages.map((message) => ({
+        role: message.role,
+        content: message.content,
+      })),
+      onProviderError: (error) => {
+        app.log.warn({ err: error }, 'LLM call failed, falling back to rule-based');
+      },
     });
-
-    const candidateIds = [
-      ...new Set([...pinnedCaseIds, ...listResult.items.map((item) => item.id)]),
-    ];
-    const details = await fetchCaseDetails(app.casesRepo, candidateIds);
-    const pinnedIdSet = new Set(pinnedCaseIds);
-    const citations = buildCitations(details, pinnedIdSet);
-    const answerStartedAt = Date.now();
-
-    let answer: string;
-    let grounded: boolean;
-    let model: string | undefined;
-    let providerName: string | null = null;
-    let fallbackReason: 'no_relevant_cases' | 'provider_unavailable' | 'provider_error' | null =
-      null;
-    let promptTokens: number | null = null;
-    let completionTokens: number | null = null;
-    let totalTokens: number | null = null;
-    let estimatedCostUsd: number | null = null;
-
-    if (details.length === 0) {
-      answer = buildFallbackAnswer(question, []);
-      grounded = false;
-      fallbackReason = 'no_relevant_cases';
-    } else {
-      const provider = getProvider();
-      if (!provider) {
-        answer = buildFallbackAnswer(question, details);
-        grounded = false;
-        fallbackReason = 'provider_unavailable';
-      } else {
-        providerName = provider.vendor;
-        const contextBlocks = details
-          .map((detail) => buildContextSnippet(detail, pinnedIdSet.has(detail.id)))
-          .join('\n\n---\n\n');
-        const history = existingSession ? buildConversationHistory(existingSession) : '';
-        const userMessage = [
-          history ? `会话历史：\n${history}` : '',
-          `当前问题：${question}`,
-          `知识库案例：\n\n${contextBlocks}`,
-        ]
-          .filter(Boolean)
-          .join('\n\n');
-
-        try {
-          const completion = await provider.chat(COPILOT_SYSTEM_PROMPT, userMessage);
-          answer = completion.text;
-          grounded = true;
-          model = provider.name;
-          promptTokens = completion.usage.promptTokens;
-          completionTokens = completion.usage.completionTokens;
-          totalTokens = completion.usage.totalTokens;
-          estimatedCostUsd = completion.usage.estimatedCostUsd;
-        } catch (e) {
-          app.log.warn({ err: e }, 'LLM call failed, falling back to rule-based');
-          answer = buildFallbackAnswer(question, details);
-          grounded = false;
-          fallbackReason = 'provider_error';
-        }
-      }
-    }
 
     const saved = await app.copilotSessionsRepo.saveAnswerTurn({
       visitorId,
       sessionId,
       question,
-      answer,
-      citations,
-      grounded,
-      model,
+      answer: generated.answer,
+      citations: generated.citations,
+      grounded: generated.grounded,
+      model: generated.model,
       initialPinnedCaseIds,
-      run: {
-        provider: providerName,
-        model: model ?? null,
-        promptVersion: COPILOT_PROMPT_VERSION,
-        responseMs: Date.now() - answerStartedAt,
-        promptTokens,
-        completionTokens,
-        totalTokens,
-        estimatedCostUsd,
-        retrievedCaseCount: details.length,
-        pinnedCaseCount: pinnedCaseIds.length,
-        citationCount: citations.length,
-        fallbackReason,
-      },
+      run: generated.run,
     });
     if (!saved) return reply.code(404).send({ error: 'session_not_found' });
 
@@ -364,10 +204,10 @@ export async function copilotRoutes(app: FastifyInstance) {
       sessionId: saved.session.session.id,
       userMessageId: saved.userMessageId,
       assistantMessageId: saved.assistantMessageId,
-      answer,
-      citations,
-      model,
-      grounded,
+      answer: generated.answer,
+      citations: generated.citations,
+      model: generated.model,
+      grounded: generated.grounded,
     });
   });
 }

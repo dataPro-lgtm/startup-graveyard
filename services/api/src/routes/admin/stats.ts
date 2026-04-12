@@ -21,22 +21,33 @@ export async function adminStatsRoutes(app: FastifyInstance) {
   app.get('/', async (_request, reply) => {
     const pool = getPool();
     if (!pool) {
+      const [copilotRunStats, copilotEvalStats] = await Promise.all([
+        app.copilotSessionsRepo.getAdminMetrics(),
+        app.copilotEvalsRepo.getAdminMetrics(),
+      ]);
       return reply.send(
         adminStatsResponseSchema.parse({
           ...emptyContentStats(),
-          copilot: await app.copilotSessionsRepo.getAdminMetrics(),
+          copilot: {
+            ...copilotRunStats,
+            evals: copilotEvalStats,
+          },
         }),
       );
     }
     try {
-      const [contentStats, copilotStats] = await Promise.all([
+      const [contentStats, copilotRunStats, copilotEvalStats] = await Promise.all([
         fetchContentStats(pool),
         app.copilotSessionsRepo.getAdminMetrics(),
+        app.copilotEvalsRepo.getAdminMetrics(),
       ]);
       return reply.send(
         adminStatsResponseSchema.parse({
           ...contentStats,
-          copilot: copilotStats,
+          copilot: {
+            ...copilotRunStats,
+            evals: copilotEvalStats,
+          },
         }),
       );
     } catch (err) {

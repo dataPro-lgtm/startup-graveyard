@@ -20,15 +20,16 @@ import {
   PgCasesRepository,
 } from './repositories/casesRepository.js';
 import {
+  type CopilotEvalsRepository,
+  MockCopilotEvalsRepository,
+  PgCopilotEvalsRepository,
+} from './repositories/copilotEvalsRepository.js';
+import {
   type CopilotSessionsRepository,
   MockCopilotSessionsRepository,
   PgCopilotSessionsRepository,
 } from './repositories/copilotSessionsRepository.js';
-import {
-  type AuditRepository,
-  MockAuditRepository,
-  PgAuditRepository,
-} from './repositories/auditRepository.js';
+import { type AuditRepository, MockAuditRepository, PgAuditRepository } from './repositories/auditRepository.js';
 import {
   type IngestionJobsRepository,
   MockIngestionJobsRepository,
@@ -81,6 +82,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
   let ingestionJobsRepo: IngestionJobsRepository;
   let sourceSnapshotsRepo: SourceSnapshotsRepository;
   let copilotSessionsRepo: CopilotSessionsRepository;
+  let copilotEvalsRepo: CopilotEvalsRepository;
   let usersRepo: UsersRepository;
   let watchlistsRepo: WatchlistsRepository;
   const queueApprovedCaseIndex = async (caseId: string) => {
@@ -100,13 +102,16 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
     adminAttachmentsRepo = new PgAdminCaseAttachmentsRepository(pgPool);
     sourceSnapshotsRepo = new PgSourceSnapshotsRepository(pgPool);
     copilotSessionsRepo = new PgCopilotSessionsRepository(pgPool);
+    copilotEvalsRepo = new PgCopilotEvalsRepository(pgPool);
     usersRepo = new PgUsersRepository(pgPool);
     watchlistsRepo = new PgWatchlistsRepository(pgPool);
     ingestionJobsRepo = new PgIngestionJobsRepository(
       pgPool,
+      casesRepo,
       adminWriteRepo,
       adminAttachmentsRepo,
       sourceSnapshotsRepo,
+      copilotEvalsRepo,
     );
   } else {
     const mc = new MockCasesRepository();
@@ -119,12 +124,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
     adminAttachmentsRepo = new MockAdminCaseAttachmentsRepository(casesRepo);
     sourceSnapshotsRepo = new MockSourceSnapshotsRepository();
     copilotSessionsRepo = new MockCopilotSessionsRepository();
+    copilotEvalsRepo = new MockCopilotEvalsRepository();
     usersRepo = new MockUsersRepository();
     watchlistsRepo = new MockWatchlistsRepository(casesRepo);
     ingestionJobsRepo = new MockIngestionJobsRepository(
+      casesRepo,
       adminWriteRepo,
       adminAttachmentsRepo,
       sourceSnapshotsRepo,
+      copilotEvalsRepo,
     );
   }
 
@@ -135,6 +143,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
   server.decorate('ingestionJobsRepo', ingestionJobsRepo as IngestionJobsRepository);
   server.decorate('sourceSnapshotsRepo', sourceSnapshotsRepo as SourceSnapshotsRepository);
   server.decorate('copilotSessionsRepo', copilotSessionsRepo as CopilotSessionsRepository);
+  server.decorate('copilotEvalsRepo', copilotEvalsRepo as CopilotEvalsRepository);
   server.decorate('usersRepo', usersRepo as UsersRepository);
   server.decorate('watchlistsRepo', watchlistsRepo as WatchlistsRepository);
   const auditRepo = pgPool ? new PgAuditRepository(pgPool) : new MockAuditRepository();
