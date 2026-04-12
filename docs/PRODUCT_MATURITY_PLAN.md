@@ -44,9 +44,9 @@
 
 ### P1 产品能力
 
-- Topic/专题研究页、趋势看板和个人 watchlist 已经上线，但保存筛选、导出报告、团队协作仍未落地。
+- Topic/专题研究页、趋势看板、个人 watchlist、saved views、基础 Markdown 导出和 Team Workspace 协作基础已经上线，但更完整的报告交付、seat 级权益和订阅运营仍未落地。
 - 首页仍偏“案例站”，离“研究入口 / 决策面板”还有距离。
-- Free / Pro / Team 的权益边界已经有了基础模型，但只有 watchlist 完成了真正的付费 gating；saved views、导出、Team workspace 还没跟上。
+- Free / Pro / Team 的权益边界已经有了基础模型，但商业化能力目前只覆盖到 watchlist + saved views + Markdown export + Team Workspace foundation；更完整的导出、seat entitlement 和订阅运营闭环还没跟上。
 
 ### P2 平台化与运营
 
@@ -197,3 +197,20 @@
 - Stripe 不再只是 checkout：现在支持 customer 绑定、billing portal、`checkout.session.completed` / `customer.subscription.*` 生命周期同步，以及账户页账单状态展示。
 - 产品里已经出现第一个真正被付费权益驱动的能力：个人 watchlist。Free 用户会被 entitlement gate 拦住，Pro/Team 可保存案例并在账户页查看自己的研究清单。
 - OpenAPI、shared schema、mock route tests 已同步覆盖新的 profile / billing / watchlist 契约，后续实现 saved views 和导出可以沿着这套 entitlement 层继续扩展。
+
+已完成 M3 第二段（saved views / personal paid workflow）：
+
+- 首页现在支持把当前筛选直接保存成个人研究视图，用户不再只能靠 URL 或浏览器书签回到同一组研究上下文。
+- API、shared schema、数据库模型已经补齐 `saved views` 的 list / create / rename / delete 闭环，并复用现有 entitlement gating、账户体系和账单升级入口。
+- 账户页现在除了 watchlist，还会沉淀第二层个人研究资产 Saved Views，这让 M3 从“只有商业化基础设施”升级成“有真实可感知的个人付费工作流”。
+
+已完成 M3 第二段补充（Markdown export foundation）：
+
+- Pro / Team 用户现在可以把当前筛选或已保存视图导出成 Markdown research brief，包含筛选摘要、样本快照和案例列表。
+- 导出逻辑已经进入正式 API 契约与前端工作流，而不是停留在后台手工复制粘贴阶段；后续 PDF、分享页和客户交付会沿用这套 report generator 继续演进。
+
+已完成 M3 第三段（team workspace foundation）：
+
+- Team 用户现在可以在账户页创建团队工作区，邀请成员，并查看成员、待接受邀请、共享 Saved Views 和共享案例。
+- 公开 API、shared schema、数据库模型已经补齐 `team_workspaces / members / invites / shared_saved_views / shared_cases`，mock / PostgreSQL 两套仓库都支持同一套协作闭环。
+- 案例详情页与 Saved Views 列表已经接入“共享到 Team Workspace”入口，这让 M3 从个人研究资产沉淀，升级成了基础团队协作资产层。

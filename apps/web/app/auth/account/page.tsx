@@ -6,6 +6,8 @@ import Link from 'next/link';
 import { PLAN_LABELS, PLAN_SUMMARIES } from '@sg/shared/billing';
 import { industryLabel, primaryFailureReasonLabel } from '@sg/shared/taxonomy';
 import { useAuth } from '@/app/components/AuthProvider';
+import { SavedViewsManager } from '@/app/components/SavedViewsManager';
+import { TeamWorkspacePanel } from '@/app/components/TeamWorkspacePanel';
 import { API_BASE_URL } from '@/lib/api';
 import { getAccessToken, isApiError } from '@/lib/authApi';
 import { caseListHref } from '@/lib/casesApi';
@@ -304,9 +306,9 @@ export default function AccountPage() {
             sub="PDF / 分享材料 / 客户交付"
           />
           <MetricCard
-            label="API Access"
-            value={user.entitlements.canUseApiAccess ? '可用' : '未开放'}
-            sub="结构化研究与内部集成"
+            label="团队工作区"
+            value={user.entitlements.canUseTeamWorkspace ? '可创建' : '邀请加入'}
+            sub="成员 / 共享视图 / 共享案例"
           />
         </div>
       </section>
@@ -385,6 +387,8 @@ export default function AccountPage() {
         </div>
       </section>
 
+      <TeamWorkspacePanel />
+
       <section
         style={{
           background: '#10172b',
@@ -399,7 +403,7 @@ export default function AccountPage() {
           </p>
           <h2 style={{ margin: '0 0 8px', fontSize: 22 }}>已保存案例</h2>
           <p style={{ margin: 0, color: '#c8d0e5', lineHeight: 1.7 }}>
-            这里会沉淀你长期跟踪的失败模式样本。下一阶段会继续接 saved filters、export 和团队共享。
+            这里会沉淀你长期跟踪的失败模式样本，和下方的 Saved Views 一起构成个人研究资产层。
           </p>
         </div>
 
@@ -487,6 +491,10 @@ export default function AccountPage() {
             ))}
           </div>
         ) : null}
+      </section>
+
+      <section style={{ marginTop: 24 }}>
+        <SavedViewsManager mode="full" />
       </section>
     </main>
   );

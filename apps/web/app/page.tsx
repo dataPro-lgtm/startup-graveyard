@@ -11,6 +11,21 @@ import { fetchHomeSummary, fetchTaxonomy } from '@/lib/metaApi';
 import { RESEARCH_PRESETS } from '@/lib/researchPresets';
 import { countryLabel, industryLabel } from '@sg/shared/taxonomy';
 import { pickSearchParam } from '@/lib/searchParams';
+import type { SavedViewFilters } from '@sg/shared/schemas/savedViews';
+import { SavedViewsManager } from './components/SavedViewsManager';
+
+function buildSuggestedViewName(params: SavedViewFilters): string {
+  const parts: string[] = [];
+  if (params.q) parts.push(params.q);
+  if (params.industry) parts.push(industryLabel(params.industry));
+  if (params.country) parts.push(countryLabel(params.country));
+  if (params.closedYear) parts.push(`${params.closedYear}`);
+  if (params.businessModelKey) parts.push(params.businessModelKey.replaceAll('_', ' '));
+  if (params.primaryFailureReasonKey) {
+    parts.push(params.primaryFailureReasonKey.replaceAll('_', ' '));
+  }
+  return parts.length > 0 ? parts.slice(0, 3).join(' · ') : '全部案例';
+}
 
 export default async function HomePage({
   searchParams,
@@ -96,6 +111,16 @@ export default async function HomePage({
     homeSummary?.failurePatterns ??
     new Set((data?.items ?? []).map((it) => it.primaryFailureReasonKey).filter(Boolean)).size;
   const featuredResearchPresets = RESEARCH_PRESETS.slice(0, 3);
+  const savedViewFilters: SavedViewFilters = {
+    q: params.q,
+    industry: params.industry,
+    country: params.country,
+    closedYear: params.closedYear,
+    businessModelKey: params.businessModelKey,
+    primaryFailureReasonKey: params.primaryFailureReasonKey,
+    sort: params.sort === 'relevance' || params.sort === 'updated_at' ? params.sort : undefined,
+  };
+  const suggestedViewName = buildSuggestedViewName(savedViewFilters);
 
   return (
     <main style={{ maxWidth: 1120, margin: '0 auto', padding: '48px 24px 80px' }}>
@@ -499,6 +524,14 @@ export default async function HomePage({
             </Link>
           </div>
         </form>
+      </section>
+
+      <section style={{ marginBottom: 28 }}>
+        <SavedViewsManager
+          mode="compact"
+          currentFilters={savedViewFilters}
+          suggestedName={suggestedViewName}
+        />
       </section>
 
       {loadError ? (

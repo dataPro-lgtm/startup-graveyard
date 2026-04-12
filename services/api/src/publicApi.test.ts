@@ -362,6 +362,465 @@ describe('public API (mock DB)', () => {
     });
   });
 
+  it('saved views unlock with Pro and support create, dedupe, rename, delete', async () => {
+    const email = `saved-views-${Date.now()}@example.com`;
+    const registerRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        email,
+        password: 'password123',
+        displayName: 'Saved Views User',
+      },
+    });
+    expect(registerRes.statusCode).toBe(201);
+    const registered = JSON.parse(registerRes.body) as {
+      user: {
+        id: string;
+        entitlements: { canUseSavedSearches: boolean; savedSearchLimit: number };
+      };
+      accessToken: string;
+    };
+    expect(registered.user.entitlements.canUseSavedSearches).toBe(false);
+    expect(registered.user.entitlements.savedSearchLimit).toBe(0);
+
+    const listRes = await app.inject({
+      method: 'GET',
+      url: '/v1/saved-views/me',
+      headers: { authorization: `Bearer ${registered.accessToken}` },
+    });
+    expect(listRes.statusCode).toBe(200);
+    expect(JSON.parse(listRes.body)).toMatchObject({
+      summary: {
+        canUseSavedViews: false,
+        savedViewLimit: 0,
+      },
+      items: [],
+    });
+
+    const blockedCreateRes = await app.inject({
+      method: 'POST',
+      url: '/v1/saved-views/items',
+      headers: {
+        authorization: `Bearer ${registered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        name: 'Marketplace collapse',
+        filters: { businessModelKey: 'marketplace' },
+      },
+    });
+    expect(blockedCreateRes.statusCode).toBe(403);
+    expect(JSON.parse(blockedCreateRes.body)).toMatchObject({
+      error: 'entitlement_required',
+    });
+
+    await app.usersRepo.updateBillingAccount(registered.user.id, {
+      subscription: 'pro',
+      billingStatus: 'active',
+      billingInterval: 'month',
+    });
+
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/v1/saved-views/items',
+      headers: {
+        authorization: `Bearer ${registered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        name: 'Marketplace collapse',
+        filters: {
+          businessModelKey: 'marketplace',
+          primaryFailureReasonKey: 'premature_scaling',
+        },
+      },
+    });
+    expect(createRes.statusCode).toBe(200);
+    const created = JSON.parse(createRes.body) as {
+      created: boolean;
+      item: { id: string; caseCount: number; name: string; queryString: string };
+      summary: { savedViewCount: number; canUseSavedViews: boolean };
+    };
+    expect(created).toMatchObject({
+      created: true,
+      item: {
+        name: 'Marketplace collapse',
+        queryString: 'businessModelKey=marketplace&primaryFailureReasonKey=premature_scaling',
+      },
+      summary: {
+        savedViewCount: 1,
+        canUseSavedViews: true,
+      },
+    });
+    expect(created.item.caseCount).toBeGreaterThan(0);
+
+    const duplicateRes = await app.inject({
+      method: 'POST',
+      url: '/v1/saved-views/items',
+      headers: {
+        authorization: `Bearer ${registered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        name: 'Duplicate name ignored',
+        filters: {
+          businessModelKey: 'marketplace',
+          primaryFailureReasonKey: 'premature_scaling',
+        },
+      },
+    });
+    expect(duplicateRes.statusCode).toBe(200);
+    expect(JSON.parse(duplicateRes.body)).toMatchObject({
+      ok: true,
+      created: false,
+      item: {
+        id: created.item.id,
+      },
+      summary: {
+        savedViewCount: 1,
+      },
+    });
+
+    const renameRes = await app.inject({
+      method: 'PATCH',
+      url: `/v1/saved-views/items/${created.item.id}`,
+      headers: {
+        authorization: `Bearer ${registered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        name: 'Marketplace burn',
+      },
+    });
+    expect(renameRes.statusCode).toBe(200);
+    expect(JSON.parse(renameRes.body)).toMatchObject({
+      ok: true,
+      item: {
+        id: created.item.id,
+        name: 'Marketplace burn',
+      },
+    });
+
+    const refreshedListRes = await app.inject({
+      method: 'GET',
+      url: '/v1/saved-views/me',
+      headers: { authorization: `Bearer ${registered.accessToken}` },
+    });
+    expect(refreshedListRes.statusCode).toBe(200);
+    expect(JSON.parse(refreshedListRes.body)).toMatchObject({
+      summary: {
+        canUseSavedViews: true,
+        savedViewCount: 1,
+      },
+      items: [
+        {
+          id: created.item.id,
+          name: 'Marketplace burn',
+        },
+      ],
+    });
+
+    const deleteRes = await app.inject({
+      method: 'DELETE',
+      url: `/v1/saved-views/items/${created.item.id}`,
+      headers: { authorization: `Bearer ${registered.accessToken}` },
+    });
+    expect(deleteRes.statusCode).toBe(200);
+    expect(JSON.parse(deleteRes.body)).toMatchObject({
+      ok: true,
+      savedViewId: created.item.id,
+      summary: {
+        savedViewCount: 0,
+      },
+    });
+  });
+
+  it('report exports unlock with Pro and return markdown research briefs', async () => {
+    const email = `report-export-${Date.now()}@example.com`;
+    const registerRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        email,
+        password: 'password123',
+        displayName: 'Report Export User',
+      },
+    });
+    expect(registerRes.statusCode).toBe(201);
+    const registered = JSON.parse(registerRes.body) as {
+      user: { id: string };
+      accessToken: string;
+    };
+
+    const blockedRes = await app.inject({
+      method: 'POST',
+      url: '/v1/reports/exports/markdown',
+      headers: {
+        authorization: `Bearer ${registered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        name: 'Marketplace memo',
+        filters: { businessModelKey: 'marketplace' },
+      },
+    });
+    expect(blockedRes.statusCode).toBe(403);
+    expect(JSON.parse(blockedRes.body)).toMatchObject({
+      error: 'entitlement_required',
+    });
+
+    await app.usersRepo.updateBillingAccount(registered.user.id, {
+      subscription: 'pro',
+      billingStatus: 'active',
+      billingInterval: 'month',
+    });
+
+    const exportRes = await app.inject({
+      method: 'POST',
+      url: '/v1/reports/exports/markdown',
+      headers: {
+        authorization: `Bearer ${registered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        name: 'Marketplace memo',
+        filters: { businessModelKey: 'marketplace' },
+      },
+    });
+    expect(exportRes.statusCode).toBe(200);
+    const exported = JSON.parse(exportRes.body) as {
+      filename: string;
+      mimeType: string;
+      caseCount: number;
+      sampleSize: number;
+      content: string;
+    };
+    expect(exported.filename).toBe('marketplace-memo.md');
+    expect(exported.mimeType).toBe('text/markdown');
+    expect(exported.caseCount).toBeGreaterThan(0);
+    expect(exported.sampleSize).toBeGreaterThan(0);
+    expect(exported.content).toContain('# Marketplace memo');
+    expect(exported.content).toContain('## Snapshot');
+    expect(exported.content).toContain('## Matching Cases');
+    expect(exported.content).toContain('Airlift');
+  });
+
+  it('team workspace supports create, invite, accept, and asset sharing flows', async () => {
+    const ownerEmail = `team-owner-${Date.now()}@example.com`;
+    const memberEmail = `team-member-${Date.now()}@example.com`;
+
+    const [ownerRegisterRes, memberRegisterRes] = await Promise.all([
+      app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: ownerEmail,
+          password: 'password123',
+          displayName: 'Team Owner',
+        },
+      }),
+      app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: memberEmail,
+          password: 'password123',
+          displayName: 'Team Member',
+        },
+      }),
+    ]);
+    expect(ownerRegisterRes.statusCode).toBe(201);
+    expect(memberRegisterRes.statusCode).toBe(201);
+
+    const ownerRegistered = JSON.parse(ownerRegisterRes.body) as {
+      user: { id: string };
+      accessToken: string;
+    };
+    const memberRegistered = JSON.parse(memberRegisterRes.body) as {
+      user: { id: string };
+      accessToken: string;
+    };
+
+    await app.usersRepo.updateBillingAccount(ownerRegistered.user.id, {
+      subscription: 'team',
+      billingStatus: 'active',
+      billingInterval: 'month',
+    });
+
+    const createWorkspaceRes = await app.inject({
+      method: 'POST',
+      url: '/v1/team-workspace',
+      headers: {
+        authorization: `Bearer ${ownerRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: { name: 'Mobility Failure Desk' },
+    });
+    expect(createWorkspaceRes.statusCode).toBe(200);
+    expect(JSON.parse(createWorkspaceRes.body)).toMatchObject({
+      ok: true,
+      workspace: {
+        name: 'Mobility Failure Desk',
+        role: 'owner',
+        memberCount: 1,
+      },
+    });
+
+    const createSavedViewRes = await app.inject({
+      method: 'POST',
+      url: '/v1/saved-views/items',
+      headers: {
+        authorization: `Bearer ${ownerRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        name: 'Marketplace failures',
+        filters: { businessModelKey: 'marketplace' },
+      },
+    });
+    expect(createSavedViewRes.statusCode).toBe(200);
+    const savedView = JSON.parse(createSavedViewRes.body) as {
+      item: { id: string };
+    };
+
+    const listCasesRes = await app.inject({
+      method: 'GET',
+      url: '/v1/cases?limit=1',
+    });
+    const firstCaseId = (JSON.parse(listCasesRes.body) as { items: Array<{ id: string }> })
+      .items[0]!.id;
+
+    const shareCaseRes = await app.inject({
+      method: 'POST',
+      url: '/v1/team-workspace/shared-cases',
+      headers: {
+        authorization: `Bearer ${ownerRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: { caseId: firstCaseId },
+    });
+    expect(shareCaseRes.statusCode).toBe(200);
+    expect(JSON.parse(shareCaseRes.body)).toMatchObject({
+      ok: true,
+      added: true,
+      workspace: {
+        sharedCaseCount: 1,
+      },
+    });
+
+    const inviteRes = await app.inject({
+      method: 'POST',
+      url: '/v1/team-workspace/invites',
+      headers: {
+        authorization: `Bearer ${ownerRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        email: memberEmail,
+        role: 'admin',
+      },
+    });
+    expect(inviteRes.statusCode).toBe(200);
+    expect(JSON.parse(inviteRes.body)).toMatchObject({
+      ok: true,
+      workspace: {
+        invites: [{ email: memberEmail, role: 'admin' }],
+      },
+    });
+
+    const memberContextRes = await app.inject({
+      method: 'GET',
+      url: '/v1/team-workspace/me',
+      headers: { authorization: `Bearer ${memberRegistered.accessToken}` },
+    });
+    expect(memberContextRes.statusCode).toBe(200);
+    const memberContext = JSON.parse(memberContextRes.body) as {
+      canCreateWorkspace: boolean;
+      hasWorkspace: boolean;
+      pendingInvites: Array<{ id: string; workspaceName: string }>;
+    };
+    expect(memberContext.hasWorkspace).toBe(false);
+    expect(memberContext.canCreateWorkspace).toBe(false);
+    expect(memberContext.pendingInvites).toHaveLength(1);
+
+    const acceptInviteRes = await app.inject({
+      method: 'POST',
+      url: `/v1/team-workspace/invites/${memberContext.pendingInvites[0]!.id}/accept`,
+      headers: {
+        authorization: `Bearer ${memberRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {},
+    });
+    expect(acceptInviteRes.statusCode).toBe(200);
+    expect(JSON.parse(acceptInviteRes.body)).toMatchObject({
+      ok: true,
+      workspace: {
+        name: 'Mobility Failure Desk',
+        role: 'admin',
+        memberCount: 2,
+      },
+    });
+
+    const shareSavedViewRes = await app.inject({
+      method: 'POST',
+      url: '/v1/team-workspace/shared-saved-views',
+      headers: {
+        authorization: `Bearer ${ownerRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: { savedViewId: savedView.item.id },
+    });
+    expect(shareSavedViewRes.statusCode).toBe(200);
+    expect(JSON.parse(shareSavedViewRes.body)).toMatchObject({
+      ok: true,
+      added: true,
+      workspace: {
+        sharedSavedViewCount: 1,
+      },
+    });
+
+    const ownerContextRes = await app.inject({
+      method: 'GET',
+      url: '/v1/team-workspace/me',
+      headers: { authorization: `Bearer ${ownerRegistered.accessToken}` },
+    });
+    expect(ownerContextRes.statusCode).toBe(200);
+    expect(JSON.parse(ownerContextRes.body)).toMatchObject({
+      hasWorkspace: true,
+      pendingInvites: [],
+      workspace: {
+        memberCount: 2,
+        sharedSavedViewCount: 1,
+        sharedCaseCount: 1,
+      },
+    });
+
+    const memberWorkspaceRes = await app.inject({
+      method: 'GET',
+      url: '/v1/team-workspace/me',
+      headers: { authorization: `Bearer ${memberRegistered.accessToken}` },
+    });
+    expect(memberWorkspaceRes.statusCode).toBe(200);
+    expect(JSON.parse(memberWorkspaceRes.body)).toMatchObject({
+      hasWorkspace: true,
+      workspace: {
+        role: 'admin',
+        members: expect.arrayContaining([
+          expect.objectContaining({ email: ownerEmail, role: 'owner' }),
+          expect.objectContaining({ email: memberEmail, role: 'admin' }),
+        ]),
+        sharedSavedViews: expect.arrayContaining([
+          expect.objectContaining({ id: savedView.item.id }),
+        ]),
+        sharedCases: expect.arrayContaining([
+          expect.objectContaining({ id: firstCaseId }),
+        ]),
+      },
+    });
+  });
+
   it('GET /v1/admin/audit is disabled when ADMIN_API_KEY is unset', async () => {
     const res = await app.inject({ method: 'GET', url: '/v1/admin/audit?limit=5' });
     expect(res.statusCode).toBe(503);
