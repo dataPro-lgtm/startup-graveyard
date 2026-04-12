@@ -122,6 +122,24 @@ describe('admin reviews API (mock DB)', () => {
       status: 'approved',
     });
 
+    const ingestionRes = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/ingestion-jobs?status=queued&limit=20',
+      headers: adminHeaders,
+    });
+    expect(ingestionRes.statusCode).toBe(200);
+    expect(JSON.parse(ingestionRes.body)).toMatchObject({
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          sourceName: 'rebuild_case_search_index',
+          triggerType: 'review_approved',
+          payload: {
+            caseId: created.caseId,
+          },
+        }),
+      ]),
+    });
+
     const publicRes = await app.inject({
       method: 'GET',
       url: '/v1/cases/by-slug/maturity-gate',

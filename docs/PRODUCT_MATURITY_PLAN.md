@@ -129,3 +129,9 @@
 - 新增 `source_snapshots`，抓取 URL 时会保存标题、摘要、内容 hash 与元数据。
 - `pipeline_url_draft` 升级为 `抓取 -> snapshot -> draft -> evidence`。
 - Admin 运营台可直接查看最近抓取的 source snapshots。
+
+已完成 M1 第三段（索引回填）：
+
+- 新增 `rebuild_case_search_index` / `backfill_case_search_index`，会从 case + evidence + failure factors + timeline + lessons 生成 `case_chunks`，并同步回填 `case_embeddings`。
+- 审核通过后会自动排入索引任务，API 进程内 worker 会持续处理队列，不再依赖人工逐条点“处理下一条”。
+- Chunk embedding 默认优先走 OpenAI 批量 embedding，失败时降级为确定性向量，保证索引链路不中断。

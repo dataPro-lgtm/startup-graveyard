@@ -7,6 +7,7 @@ import { PgIngestionJobsRepository } from './repositories/ingestionJobsRepositor
 import { PgAdminWriteRepository } from './repositories/adminWriteRepository.js';
 import { PgSourceSnapshotsRepository } from './repositories/sourceSnapshotsRepository.js';
 import { startScheduler } from './ingestion/scheduler.js';
+import { startIngestionWorker } from './ingestion/worker.js';
 import { config } from './config/index.js';
 
 loadRootEnv();
@@ -30,10 +31,15 @@ if (pool) {
     info: (msg) => server.log.info(msg),
     error: (msg, err) => server.log.error(err, msg),
   });
+  const stopWorker = startIngestionWorker(ingestionRepo, {
+    info: (msg) => server.log.info(msg),
+    error: (msg, err) => server.log.error(err, msg),
+  });
 
   // Graceful shutdown
   const stop = async () => {
     stopScheduler();
+    stopWorker();
     await server.close();
     await pool.end();
   };

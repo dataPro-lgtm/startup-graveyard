@@ -64,10 +64,19 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
   let adminAttachmentsRepo: AdminCaseAttachmentsRepository;
   let ingestionJobsRepo: IngestionJobsRepository;
   let sourceSnapshotsRepo: SourceSnapshotsRepository;
+  const queueApprovedCaseIndex = async (caseId: string) => {
+    await ingestionJobsRepo.enqueue({
+      sourceName: 'rebuild_case_search_index',
+      triggerType: 'review_approved',
+      payload: { caseId },
+    });
+  };
 
   if (pgPool) {
     casesRepo = new PgCasesRepository(pgPool);
-    reviewsRepo = new PgReviewsRepository(pgPool);
+    reviewsRepo = new PgReviewsRepository(pgPool, async ({ caseId }) => {
+      await queueApprovedCaseIndex(caseId);
+    });
     adminWriteRepo = new PgAdminWriteRepository(pgPool);
     adminAttachmentsRepo = new PgAdminCaseAttachmentsRepository(pgPool);
     sourceSnapshotsRepo = new PgSourceSnapshotsRepository(pgPool);
@@ -79,7 +88,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
     );
   } else {
     const mc = new MockCasesRepository();
-    const mr = new MockReviewsRepository(mc);
+    const mr = new MockReviewsRepository(mc, async ({ caseId }) => {
+      await queueApprovedCaseIndex(caseId);
+    });
     casesRepo = mc;
     reviewsRepo = mr;
     adminWriteRepo = new MockAdminWriteRepository(mc, mr);

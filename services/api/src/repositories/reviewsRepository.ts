@@ -74,6 +74,11 @@ export type RejectReviewResult = {
   status: 'rejected';
 };
 
+export type ReviewApprovedHook = (input: {
+  reviewId: string;
+  caseId: string;
+}) => Promise<void>;
+
 export interface ReviewsRepository {
   list(params: ListReviewsParams): Promise<ListReviewsResult>;
   approve(id: string): Promise<ApproveReviewSuccessResult | ApproveReviewBlockedResult | null>;
@@ -113,6 +118,18 @@ function buildPublishReadiness(
 
 function snapshotToReadiness(snapshot: AdminCaseReviewSnapshot | null): ReviewPublishReadiness {
   return buildPublishReadiness(snapshot?.evidenceCount ?? 0, snapshot?.failureFactorCount ?? 0);
+}
+
+async function runApprovedHook(
+  hook: ReviewApprovedHook | undefined,
+  input: { reviewId: string; caseId: string },
+): Promise<void> {
+  if (!hook) return;
+  try {
+    await hook(input);
+  } catch {
+    // 索引任务排队失败不能回滚已完成的 publish；后续可由 backfill job 补齐。
+  }
 }
 
 function rowToItem(row: ReviewRow): ReviewListItem {
@@ -169,7 +186,10 @@ export class MockReviewsRepository implements ReviewsRepository {
     },
   ];
 
-  constructor(private readonly cases: MockCasesRepository) {}
+  constructor(
+    private readonly cases: MockCasesRepository,
+    private readonly onApproved?: ReviewApprovedHook,
+  ) {}
 
   private toItem(item: ReviewRecord): ReviewListItem {
     const snapshot = this.cases.adminGetReviewSnapshot(item.caseId);
@@ -215,13 +235,15 @@ export class MockReviewsRepository implements ReviewsRepository {
       approvedAt,
     };
     this.cases.adminSetStatus(r.caseId, 'published');
-    return {
+    const out: ApproveReviewSuccessResult = {
       ok: true,
       reviewId: id,
       caseId: r.caseId,
       status: 'approved',
       approvedAt,
     };
+    await runApprovedHook(this.onApproved, { reviewId: id, caseId: r.caseId });
+    return out;
   }
 
   async requestChanges(id: string, decisionNote: string): Promise<RequestChangesReviewResult | null> {
@@ -292,7 +314,10 @@ export class MockReviewsRepository implements ReviewsRepository {
 }
 
 export class PgReviewsRepository implements ReviewsRepository {
-  constructor(private readonly pool: Pool) {}
+  constructor(
+    private readonly pool: Pool,
+    private readonly onApproved?: ReviewApprovedHook,
+  ) {}
 
   async list(params: ListReviewsParams): Promise<ListReviewsResult> {
     const offset = (params.page - 1) * params.limit;
@@ -345,7 +370,8 @@ export class PgReviewsRepository implements ReviewsRepository {
   }
 
   async approve(id: string): Promise<ApproveReviewSuccessResult | ApproveReviewBlockedResult | null> {
-    return withTransaction(this.pool, async (client) => {
+    const out: ApproveReviewSuccessResult | ApproveReviewBlockedResult | null =
+      await withTransaction(this.pool, async (client) => {
       const locked = await client.query<{ case_id: string }>(
         `
         SELECT case_id
@@ -361,7 +387,13 @@ export class PgReviewsRepository implements ReviewsRepository {
       const publishReadiness = await getCasePublishReadiness(client, caseId);
       if (!publishReadiness) return null;
       if (!publishReadiness.ready) {
-        return { ok: false, error: 'publish_requirements_not_met', caseId, publishReadiness };
+        const blocked: ApproveReviewBlockedResult = {
+          ok: false,
+          error: 'publish_requirements_not_met',
+          caseId,
+          publishReadiness,
+        };
+        return blocked;
       }
 
       const upd = await client.query<{ case_id: string; approved_at: Date }>(
@@ -399,14 +431,19 @@ export class PgReviewsRepository implements ReviewsRepository {
         ],
       );
 
-      return {
+      const approved: ApproveReviewSuccessResult = {
         ok: true,
         reviewId: id,
         caseId: row.case_id,
-        status: 'approved' as const,
+        status: 'approved',
         approvedAt: row.approved_at.toISOString(),
       };
+      return approved;
     });
+    if (out && out.ok) {
+      await runApprovedHook(this.onApproved, { reviewId: out.reviewId, caseId: out.caseId });
+    }
+    return out;
   }
 
   async requestChanges(id: string, decisionNote: string): Promise<RequestChangesReviewResult | null> {

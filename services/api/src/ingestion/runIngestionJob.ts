@@ -2,6 +2,7 @@ import type { Pool } from 'pg';
 import { z } from 'zod';
 import { embedCaseDocument, vectorToPgLiteral } from '../ai/openaiEmbed.js';
 import { captureSourceSnapshot } from './sourceSnapshot.js';
+import { rebuildCaseSearchIndex } from './caseIndexing.js';
 import type { AdminCaseAttachmentsRepository } from '../repositories/adminCaseAttachmentsRepository.js';
 import type { AdminWriteRepository } from '../repositories/adminWriteRepository.js';
 import type { SourceSnapshotsRepository } from '../repositories/sourceSnapshotsRepository.js';
@@ -35,6 +36,8 @@ function clip(s: string): string {
  * - **create_draft**：`payload` 符合 `CreateDraftCaseBody`（与 POST /v1/admin/cases 相同字段），需 `ctx.adminWrite`。
  * - **capture_source_snapshot**：抓取 URL，保存 source snapshot。
  * - **pipeline_url_draft**：抓取 URL -> 保存 snapshot -> 生成 draft -> 自动附一条 evidence。
+ * - **rebuild_case_search_index**：从 case/evidence/factors/timeline/lessons 重建 `case_chunks` 与 `case_embeddings`。
+ * - **backfill_case_search_index**：批量回填缺 chunk 或缺 embedding 的已发布案例。
  * - **upsert_embedding_stub**：`payload.caseId`（uuid）；需 `ctx.pool`。若设置 `OPENAI_API_KEY` 则用
  *   `company_name`+`summary` 调 OpenAI 写入真实向量；否则用确定性 sin 向量（演示）。
  */
@@ -214,50 +217,99 @@ export async function runIngestionJob(
       return { ok: false, error: 'upsert_embedding_stub：case 不存在' };
     }
 
-    const useOpenAI = Boolean(process.env.OPENAI_API_KEY?.trim());
-    if (useOpenAI) {
-      try {
-        const vec = await embedCaseDocument(c.company_name, c.summary);
-        await ctx.pool.query(
-          `
-          INSERT INTO case_embeddings (case_id, embedding)
-          VALUES ($1::uuid, $2::vector(1536))
-          ON CONFLICT (case_id) DO UPDATE SET
-            embedding = EXCLUDED.embedding,
-            updated_at = NOW()
-          `,
-          [caseId, vectorToPgLiteral(vec)],
-        );
-        return {
-          ok: true,
-          detail: `case_embeddings upserted (openai) caseId=${caseId}`,
-        };
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        return { ok: false, error: clip(`upsert_embedding_stub：${msg}`) };
-      }
+    try {
+      const vec = await embedCaseDocument(c.company_name, c.summary);
+      await ctx.pool.query(
+        `
+        INSERT INTO case_embeddings (case_id, embedding)
+        VALUES ($1::uuid, $2::vector(1536))
+        ON CONFLICT (case_id) DO UPDATE SET
+          embedding = EXCLUDED.embedding,
+          updated_at = NOW()
+        `,
+        [caseId, vectorToPgLiteral(vec)],
+      );
+      return {
+        ok: true,
+        detail: `case_embeddings upserted (openai) caseId=${caseId}`,
+      };
+    } catch {
+      await ctx.pool.query(
+        `
+        INSERT INTO case_embeddings (case_id, embedding)
+        SELECT $1::uuid, (
+          SELECT array_agg(
+            sin((i + abs(hashtext($1::text)))::float8 / 123.0)
+            ORDER BY i
+          )
+          FROM generate_series(1, 1536) AS i
+        )::vector(1536)
+        ON CONFLICT (case_id) DO UPDATE SET
+          embedding = EXCLUDED.embedding,
+          updated_at = NOW()
+        `,
+        [caseId],
+      );
+      return {
+        ok: true,
+        detail: `case_embeddings upserted (stub) caseId=${caseId}`,
+      };
     }
+  }
 
-    await ctx.pool.query(
-      `
-      INSERT INTO case_embeddings (case_id, embedding)
-      SELECT $1::uuid, (
-        SELECT array_agg(
-          sin((i + abs(hashtext($1::text)))::float8 / 123.0)
-          ORDER BY i
-        )
-        FROM generate_series(1, 1536) AS i
-      )::vector(1536)
-      ON CONFLICT (case_id) DO UPDATE SET
-        embedding = EXCLUDED.embedding,
-        updated_at = NOW()
-      `,
-      [caseId],
-    );
+  if (sourceName === 'rebuild_case_search_index') {
+    if (!ctx?.pool) {
+      return { ok: false, error: 'rebuild_case_search_index：需要 PostgreSQL' };
+    }
+    const rawId = payload.caseId;
+    if (typeof rawId !== 'string' || !rawId.trim()) {
+      return { ok: false, error: 'rebuild_case_search_index：需要 payload.caseId（uuid）' };
+    }
+    const idParsed = z.string().uuid().safeParse(rawId.trim());
+    if (!idParsed.success) {
+      return { ok: false, error: 'rebuild_case_search_index：caseId 不是合法 uuid' };
+    }
+    const result = await rebuildCaseSearchIndex(ctx.pool, idParsed.data);
+    if (!result.ok) {
+      return { ok: false, error: 'rebuild_case_search_index：case 不存在' };
+    }
     return {
       ok: true,
-      detail: `case_embeddings upserted (stub) caseId=${caseId}`,
+      detail: `caseId=${result.caseId} chunkCount=${result.chunkCount} chunks=${result.chunkEmbeddingProvider} case=${result.caseEmbeddingProvider}`,
     };
+  }
+
+  if (sourceName === 'backfill_case_search_index') {
+    if (!ctx?.pool) {
+      return { ok: false, error: 'backfill_case_search_index：需要 PostgreSQL' };
+    }
+    const limitRaw = payload.limit;
+    const limit =
+      typeof limitRaw === 'number' && Number.isInteger(limitRaw) && limitRaw > 0
+        ? Math.min(limitRaw, 100)
+        : 25;
+    const { rows } = await ctx.pool.query<{ id: string }>(
+      `
+      SELECT c.id
+      FROM cases c
+      WHERE c.status = 'published'
+        AND (
+          NOT EXISTS (SELECT 1 FROM case_embeddings e WHERE e.case_id = c.id)
+          OR NOT EXISTS (SELECT 1 FROM case_chunks ch WHERE ch.case_id = c.id)
+        )
+      ORDER BY c.published_at NULLS LAST, c.updated_at DESC
+      LIMIT $1
+      `,
+      [limit],
+    );
+    let done = 0;
+    let failed = 0;
+    for (const row of rows) {
+      const result = await rebuildCaseSearchIndex(ctx.pool, row.id);
+      if (result.ok) done++;
+      else failed++;
+    }
+    return { ok: true, detail: `backfill_case_search_index: done=${done} failed=${failed}` };
   }
 
   // ── auto_embed_new ──────────────────────────────────────────────────────────
