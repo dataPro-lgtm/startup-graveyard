@@ -50,12 +50,23 @@ function formatCompactUsd(value: number | null): string {
 }
 
 function DashboardContent({ stats }: { stats: AdminStats }) {
+  const teamStats = stats.commercial.teamWorkspaces;
   const maxIndustry = Math.max(...stats.byIndustry.map((r) => r.count), 1);
   const maxYear = Math.max(...stats.byYear.map((r) => r.count), 1);
   const maxReason = Math.max(...stats.byFailureReason.map((r) => r.count), 1);
   const maxPromptRuns = Math.max(...stats.copilot.byPromptVersion.map((r) => r.runs), 1);
   const maxFallbackReason = Math.max(...stats.copilot.byFallbackReason.map((r) => r.count), 1);
-  const maxEvalBatchCases = Math.max(...stats.copilot.evals.recentBatches.map((r) => r.totalCases), 1);
+  const maxEvalBatchCases = Math.max(
+    ...stats.copilot.evals.recentBatches.map((r) => r.totalCases),
+    1,
+  );
+  const maxTeamMetric = Math.max(
+    teamStats.totalSeatCapacity,
+    teamStats.reservedSeats,
+    teamStats.pendingInvites,
+    teamStats.inheritedMembers,
+    1,
+  );
   const groundedRate =
     stats.copilot.overview.totalRuns > 0
       ? stats.copilot.overview.groundedRuns / stats.copilot.overview.totalRuns
@@ -107,6 +118,30 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
         }}
       >
         <KpiCard
+          label="Team Workspaces"
+          value={String(teamStats.totalWorkspaces)}
+          sub={`活跃 ${teamStats.activeWorkspaces} 个`}
+          color="#22c55e"
+        />
+        <KpiCard
+          label="Seat 利用率"
+          value={formatPercent(teamStats.seatUtilizationRate)}
+          sub={`${teamStats.reservedSeats}/${teamStats.totalSeatCapacity} 已占用`}
+          color="#38bdf8"
+        />
+        <KpiCard
+          label="待处理邀请"
+          value={String(teamStats.pendingInvites)}
+          sub={`继承团队权限成员 ${teamStats.inheritedMembers}`}
+          color="#f59e0b"
+        />
+        <KpiCard
+          label="风险工作区"
+          value={String(teamStats.atRiskWorkspaces)}
+          sub={`满席 ${teamStats.fullWorkspaces} 个`}
+          color="#f87171"
+        />
+        <KpiCard
           label="Copilot 运行数"
           value={String(stats.copilot.overview.totalRuns)}
           sub={`${stats.copilot.overview.totalSessions} 个研究线程`}
@@ -149,6 +184,43 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20 }}>
+        <ChartCard title="Team Workspace 运营状态">
+          {teamStats.totalWorkspaces === 0 ? (
+            <EmptyState text="当前还没有 Team Workspace 数据。团队套餐开通并创建工作区后，这里会出现 seat 与风险概览。" />
+          ) : (
+            <div style={{ display: 'grid', gap: 12 }}>
+              <BarRow
+                label="已使用 seats"
+                value={teamStats.seatsUsed}
+                max={maxTeamMetric}
+                color="#22c55e"
+                sub={`总容量 ${teamStats.totalSeatCapacity}`}
+              />
+              <BarRow
+                label="预留 seats"
+                value={teamStats.reservedSeats}
+                max={maxTeamMetric}
+                color="#38bdf8"
+                sub={`待接受邀请 ${teamStats.pendingInvites}`}
+              />
+              <BarRow
+                label="继承 Team 权限成员"
+                value={teamStats.inheritedMembers}
+                max={maxTeamMetric}
+                color="#f59e0b"
+                sub={`活跃工作区 ${teamStats.activeWorkspaces}`}
+              />
+              <BarRow
+                label="风险 / 满席工作区"
+                value={teamStats.atRiskWorkspaces}
+                max={Math.max(teamStats.totalWorkspaces, 1)}
+                color="#f87171"
+                sub={`满席 ${teamStats.fullWorkspaces} 个`}
+              />
+            </div>
+          )}
+        </ChartCard>
+
         <ChartCard title="Prompt 版本回归视图">
           {stats.copilot.byPromptVersion.length === 0 ? (
             <EmptyState text="还没有 Copilot run 数据。先在 /copilot 发起会话后，这里才会出现 prompt 版本、反馈和成本对比。" />

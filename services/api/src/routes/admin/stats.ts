@@ -21,13 +21,17 @@ export async function adminStatsRoutes(app: FastifyInstance) {
   app.get('/', async (_request, reply) => {
     const pool = getPool();
     if (!pool) {
-      const [copilotRunStats, copilotEvalStats] = await Promise.all([
+      const [copilotRunStats, copilotEvalStats, teamWorkspaceStats] = await Promise.all([
         app.copilotSessionsRepo.getAdminMetrics(),
         app.copilotEvalsRepo.getAdminMetrics(),
+        app.teamWorkspacesRepo.getAdminMetrics(),
       ]);
       return reply.send(
         adminStatsResponseSchema.parse({
           ...emptyContentStats(),
+          commercial: {
+            teamWorkspaces: teamWorkspaceStats,
+          },
           copilot: {
             ...copilotRunStats,
             evals: copilotEvalStats,
@@ -36,14 +40,19 @@ export async function adminStatsRoutes(app: FastifyInstance) {
       );
     }
     try {
-      const [contentStats, copilotRunStats, copilotEvalStats] = await Promise.all([
-        fetchContentStats(pool),
-        app.copilotSessionsRepo.getAdminMetrics(),
-        app.copilotEvalsRepo.getAdminMetrics(),
-      ]);
+      const [contentStats, copilotRunStats, copilotEvalStats, teamWorkspaceStats] =
+        await Promise.all([
+          fetchContentStats(pool),
+          app.copilotSessionsRepo.getAdminMetrics(),
+          app.copilotEvalsRepo.getAdminMetrics(),
+          app.teamWorkspacesRepo.getAdminMetrics(),
+        ]);
       return reply.send(
         adminStatsResponseSchema.parse({
           ...contentStats,
+          commercial: {
+            teamWorkspaces: teamWorkspaceStats,
+          },
           copilot: {
             ...copilotRunStats,
             evals: copilotEvalStats,

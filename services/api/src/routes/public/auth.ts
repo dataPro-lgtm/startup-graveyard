@@ -1,12 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { loginBodySchema, registerBodySchema, refreshBodySchema } from '@sg/shared/schemas/auth';
 import { verifyAccessToken } from '../../auth/tokens.js';
-
-function extractBearer(authHeader: string | undefined): string | null {
-  if (!authHeader) return null;
-  const m = /^Bearer\s+(.+)$/i.exec(authHeader.trim());
-  return m?.[1] ?? null;
-}
+import { extractBearer, resolveEffectiveUser } from './authedUser.js';
 
 export async function authRoutes(app: FastifyInstance) {
   // ── POST /v1/auth/register ───────────────────────────────────────────────
@@ -28,7 +23,10 @@ export async function authRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: result.code });
     }
 
-    return reply.code(201).send(result);
+    return reply.code(201).send({
+      ...result,
+      user: await resolveEffectiveUser(app, result.user),
+    });
   });
 
   // ── POST /v1/auth/login ──────────────────────────────────────────────────
@@ -44,7 +42,10 @@ export async function authRoutes(app: FastifyInstance) {
       return reply.code(401).send({ error: 'invalid_credentials' });
     }
 
-    return reply.send(result);
+    return reply.send({
+      ...result,
+      user: await resolveEffectiveUser(app, result.user),
+    });
   });
 
   // ── POST /v1/auth/refresh ────────────────────────────────────────────────
@@ -57,7 +58,10 @@ export async function authRoutes(app: FastifyInstance) {
       return reply.code(401).send({ error: result.code });
     }
 
-    return reply.send(result);
+    return reply.send({
+      ...result,
+      user: await resolveEffectiveUser(app, result.user),
+    });
   });
 
   // ── POST /v1/auth/logout ─────────────────────────────────────────────────
@@ -83,6 +87,6 @@ export async function authRoutes(app: FastifyInstance) {
     const user = await app.usersRepo.getById(payload.sub);
     if (!user) return reply.code(404).send({ error: 'user_not_found' });
 
-    return reply.send(user);
+    return reply.send(await resolveEffectiveUser(app, user));
   });
 }

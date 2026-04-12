@@ -787,6 +787,90 @@ describe('public API (mock DB)', () => {
       },
     });
 
+    const memberMeRes = await app.inject({
+      method: 'GET',
+      url: '/v1/auth/me',
+      headers: { authorization: `Bearer ${memberRegistered.accessToken}` },
+    });
+    expect(memberMeRes.statusCode).toBe(200);
+    expect(JSON.parse(memberMeRes.body)).toMatchObject({
+      subscription: 'free',
+      effectiveSubscription: 'team',
+      effectiveBillingStatus: 'active',
+      workspaceAccess: {
+        source: 'team_workspace',
+        workspaceName: 'Mobility Failure Desk',
+        workspaceRole: 'admin',
+        inheritedFromUserId: ownerRegistered.user.id,
+      },
+      entitlements: {
+        canUseWatchlist: true,
+        canUseSavedSearches: true,
+        canExportReports: true,
+        canUseTeamWorkspace: true,
+      },
+    });
+
+    const memberWatchlistRes = await app.inject({
+      method: 'POST',
+      url: '/v1/watchlist/items',
+      headers: {
+        authorization: `Bearer ${memberRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: { caseId: firstCaseId },
+    });
+    expect(memberWatchlistRes.statusCode).toBe(200);
+    expect(JSON.parse(memberWatchlistRes.body)).toMatchObject({
+      ok: true,
+      summary: {
+        subscription: 'team',
+        billingStatus: 'active',
+        canUseWatchlist: true,
+      },
+    });
+
+    const memberSavedViewRes = await app.inject({
+      method: 'POST',
+      url: '/v1/saved-views/items',
+      headers: {
+        authorization: `Bearer ${memberRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        name: 'Inherited Team View',
+        filters: { businessModelKey: 'saas' },
+      },
+    });
+    expect(memberSavedViewRes.statusCode).toBe(200);
+    expect(JSON.parse(memberSavedViewRes.body)).toMatchObject({
+      ok: true,
+      created: true,
+      summary: {
+        subscription: 'team',
+        billingStatus: 'active',
+        canUseSavedViews: true,
+      },
+    });
+
+    const memberReportRes = await app.inject({
+      method: 'POST',
+      url: '/v1/reports/exports/markdown',
+      headers: {
+        authorization: `Bearer ${memberRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        name: 'Team inherited memo',
+        filters: { businessModelKey: 'saas' },
+      },
+    });
+    expect(memberReportRes.statusCode).toBe(200);
+    expect(JSON.parse(memberReportRes.body)).toMatchObject({
+      ok: true,
+      filename: 'team-inherited-memo.md',
+    });
+
     const shareSavedViewRes = await app.inject({
       method: 'POST',
       url: '/v1/team-workspace/shared-saved-views',
@@ -846,9 +930,7 @@ describe('public API (mock DB)', () => {
         sharedSavedViews: expect.arrayContaining([
           expect.objectContaining({ id: savedView.item.id }),
         ]),
-        sharedCases: expect.arrayContaining([
-          expect.objectContaining({ id: firstCaseId }),
-        ]),
+        sharedCases: expect.arrayContaining([expect.objectContaining({ id: firstCaseId })]),
         billing: expect.objectContaining({
           ownerEmail,
           seatLimit: 5,
@@ -965,10 +1047,7 @@ describe('public API (mock DB)', () => {
           billingStatus: 'active',
           seatLimit: 0,
           canInviteMore: false,
-          warningCodes: expect.arrayContaining([
-            'workspace_plan_inactive',
-            'cancel_at_period_end',
-          ]),
+          warningCodes: expect.arrayContaining(['workspace_plan_inactive', 'cancel_at_period_end']),
         },
       },
     });

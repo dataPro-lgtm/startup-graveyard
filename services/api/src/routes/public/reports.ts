@@ -1,41 +1,16 @@
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { buildSavedViewQueryString, type SavedViewFilters } from '@sg/shared/schemas/savedViews';
 import {
   exportResearchReportBodySchema,
   exportResearchReportResponseSchema,
 } from '../../schemas/reportExports.js';
-import { verifyAccessToken } from '../../auth/tokens.js';
 import {
   businessModelLabel,
   countryLabel,
   industryLabel,
   primaryFailureReasonLabel,
 } from '@sg/shared/taxonomy';
-
-function extractBearer(authHeader: string | undefined): string | null {
-  if (!authHeader) return null;
-  const match = /^Bearer\s+(.+)$/i.exec(authHeader.trim());
-  return match?.[1] ?? null;
-}
-
-async function requireUser(app: FastifyInstance, request: FastifyRequest, reply: FastifyReply) {
-  const token = extractBearer(request.headers.authorization);
-  if (!token) {
-    reply.code(401).send({ error: 'unauthorized' });
-    return null;
-  }
-  const payload = verifyAccessToken(token);
-  if (!payload) {
-    reply.code(401).send({ error: 'invalid_token' });
-    return null;
-  }
-  const user = await app.usersRepo.getById(payload.sub);
-  if (!user) {
-    reply.code(404).send({ error: 'user_not_found' });
-    return null;
-  }
-  return user;
-}
+import { requireEffectiveUser } from './authedUser.js';
 
 function formatUsd(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return 'N/A';
@@ -86,7 +61,7 @@ function appBaseUrl(): string {
 
 export async function reportsRoutes(app: FastifyInstance) {
   app.post('/exports/markdown', async (request, reply) => {
-    const user = await requireUser(app, request, reply);
+    const user = await requireEffectiveUser(app, request, reply);
     if (!user) return reply;
 
     const parsed = exportResearchReportBodySchema.safeParse(request.body ?? {});

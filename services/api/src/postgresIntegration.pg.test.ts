@@ -692,7 +692,9 @@ suite('postgres integration', () => {
     );
     expect(resultsRes.rows).toHaveLength(3);
     expect(resultsRes.rows.every((row) => row.passed)).toBe(true);
-    expect(resultsRes.rows.find((row) => row.question.includes('Airlift 和 QuickRide'))).toMatchObject({
+    expect(
+      resultsRes.rows.find((row) => row.question.includes('Airlift 和 QuickRide')),
+    ).toMatchObject({
       actual_citation_slugs: expect.arrayContaining(['airlift', 'quickride-pk']),
       fallback_reason: 'provider_unavailable',
     });

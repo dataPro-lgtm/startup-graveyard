@@ -8,11 +8,13 @@ export function UserNav() {
   if (loading) return null;
 
   if (user) {
+    const effectivePlan = user.effectiveSubscription;
     return (
       <Link
         href="/auth/account"
         style={{
-          color: user.subscription === 'pro' ? '#fbbf24' : '#9fb3ff',
+          color:
+            effectivePlan === 'pro' ? '#fbbf24' : effectivePlan === 'team' ? '#7dd3fc' : '#9fb3ff',
           textDecoration: 'none',
           fontSize: 13,
           display: 'flex',
@@ -20,7 +22,8 @@ export function UserNav() {
           gap: 6,
         }}
       >
-        {user.subscription === 'pro' && <span>🌟</span>}
+        {effectivePlan === 'pro' && <span>PRO</span>}
+        {effectivePlan === 'team' && <span>TEAM</span>}
         {user.displayName ?? user.email.split('@')[0]}
       </Link>
     );

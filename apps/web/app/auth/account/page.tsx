@@ -77,12 +77,20 @@ export default function AccountPage() {
   const currentPlan = useMemo(() => {
     if (!user) return null;
     return {
+      label: PLAN_LABELS[user.effectiveSubscription],
+      summary: PLAN_SUMMARIES[user.effectiveSubscription],
+    };
+  }, [user]);
+
+  const personalPlan = useMemo(() => {
+    if (!user) return null;
+    return {
       label: PLAN_LABELS[user.subscription],
       summary: PLAN_SUMMARIES[user.subscription],
     };
   }, [user]);
 
-  if (loading || !user || !currentPlan) {
+  if (loading || !user || !currentPlan || !personalPlan) {
     return (
       <main style={{ maxWidth: 980, margin: '80px auto', padding: '0 24px' }}>
         <div style={{ height: 40, background: '#1d2746', borderRadius: 8 }} />
@@ -193,21 +201,31 @@ export default function AccountPage() {
           <p style={{ margin: 0, color: '#c8d0e5', lineHeight: 1.75 }}>
             当前套餐：{currentPlan.label}。{currentPlan.summary}
           </p>
+          {user.workspaceAccess.workspaceId ? (
+            <p style={{ margin: '10px 0 0', color: '#9fb3ff', lineHeight: 1.75, fontSize: 14 }}>
+              {user.workspaceAccess.source === 'team_workspace'
+                ? `当前有效权限来自团队工作区 ${user.workspaceAccess.workspaceName}，你的角色是 ${user.workspaceAccess.workspaceRole}。`
+                : `你已加入团队工作区 ${user.workspaceAccess.workspaceName}，但当前仍按个人套餐生效。`}
+            </p>
+          ) : null}
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 18 }}>
             <Chip
               label={`${currentPlan.label} Plan`}
               color={
-                user.subscription === 'free'
+                user.effectiveSubscription === 'free'
                   ? '#7e8fb3'
-                  : user.subscription === 'team'
+                  : user.effectiveSubscription === 'team'
                     ? '#7dd3fc'
                     : '#fbbf24'
               }
             />
             <Chip
-              label={billingStatusLabel(user.billingStatus)}
-              color={billingStatusColor(user.billingStatus)}
+              label={billingStatusLabel(user.effectiveBillingStatus)}
+              color={billingStatusColor(user.effectiveBillingStatus)}
             />
+            {user.effectiveSubscription !== user.subscription ? (
+              <Chip label={`个人账单 ${personalPlan.label}`} color="#6b7ca8" />
+            ) : null}
             <Chip label={user.role === 'admin' ? '管理员' : '普通用户'} color="#5b7cff" />
           </div>
         </div>
@@ -221,7 +239,7 @@ export default function AccountPage() {
           }}
         >
           <div style={{ fontSize: 12, color: '#9fb3ff', letterSpacing: 1.2, marginBottom: 8 }}>
-            BILLING
+            PERSONAL BILLING
           </div>
           <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>
             {user.displayName ?? user.email}
@@ -307,8 +325,22 @@ export default function AccountPage() {
           />
           <MetricCard
             label="团队工作区"
-            value={user.entitlements.canUseTeamWorkspace ? '可创建' : '邀请加入'}
-            sub="成员 / 共享视图 / 共享案例"
+            value={
+              user.workspaceAccess.workspaceId
+                ? user.workspaceAccess.workspaceRole === 'owner'
+                  ? 'Owner'
+                  : user.workspaceAccess.workspaceRole === 'admin'
+                    ? 'Admin'
+                    : 'Member'
+                : user.entitlements.canUseTeamWorkspace
+                  ? '可创建'
+                  : '邀请加入'
+            }
+            sub={
+              user.workspaceAccess.workspaceId
+                ? (user.workspaceAccess.workspaceName ?? '团队协作中')
+                : '成员 / 共享视图 / 共享案例'
+            }
           />
         </div>
       </section>
@@ -334,7 +366,7 @@ export default function AccountPage() {
               商业化不是“加一个支付按钮”，而是让研究资产、导出交付和持续追踪真正沉淀到账号里。
             </p>
           </div>
-          {user.subscription === 'free' ? (
+          {user.effectiveSubscription === 'free' ? (
             <button
               onClick={handleUpgrade}
               disabled={checkoutLoading || stripeUnavailable}

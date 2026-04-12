@@ -96,7 +96,5 @@ export function resolveTeamWorkspaceSeatLimit(input: {
   subscription: SubscriptionTier;
   billingStatus: BillingStatus;
 }): number {
-  return input.subscription === 'team' && isPaidEntitlementActive(input)
-    ? TEAM_PLAN_SEAT_LIMIT
-    : 0;
+  return input.subscription === 'team' && isPaidEntitlementActive(input) ? TEAM_PLAN_SEAT_LIMIT : 0;
 }

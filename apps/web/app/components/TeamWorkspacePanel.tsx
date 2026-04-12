@@ -215,7 +215,8 @@ export function TeamWorkspacePanel() {
           </p>
           <h2 style={{ margin: '0 0 8px', fontSize: 22 }}>团队研究协作层</h2>
           <p style={{ margin: 0, color: '#c8d0e5', lineHeight: 1.7 }}>
-            把个人研究资产升级成团队共享资产。先打通“成员、邀请、共享案例、共享 Saved Views”四条主链。
+            把个人研究资产升级成团队共享资产。先打通“成员、邀请、共享案例、共享 Saved
+            Views”四条主链。
           </p>
         </div>
         {workspace ? (
@@ -302,7 +303,8 @@ export function TeamWorkspacePanel() {
             color: '#9fb3ff',
           }}
         >
-          当前账户还没有团队工作区权限，也没有待接受邀请。升级到 Team 后可创建工作区；被邀请成员也可以直接在这里接受邀请。
+          当前账户还没有团队工作区权限，也没有待接受邀请。升级到 Team
+          后可创建工作区；被邀请成员也可以直接在这里接受邀请。
         </div>
       ) : null}
 
@@ -331,9 +333,9 @@ export function TeamWorkspacePanel() {
                   <br />
                   剩余可邀请：{workspace.billing.seatsRemaining}
                   {workspace.billing.currentPeriodEnd
-                    ? ` · 周期结束 ${new Date(workspace.billing.currentPeriodEnd).toLocaleDateString(
-                        'zh-CN',
-                      )}`
+                    ? ` · 周期结束 ${new Date(
+                        workspace.billing.currentPeriodEnd,
+                      ).toLocaleDateString('zh-CN')}`
                     : ''}
                 </div>
               </div>
@@ -438,10 +440,7 @@ export function TeamWorkspacePanel() {
             {workspace.sharedSavedViews.map((item) => (
               <div key={item.id} style={rowStyle}>
                 <div style={{ minWidth: 0 }}>
-                  <Link
-                    href={casesListPath(item.filters as CasesSearchParams)}
-                    style={linkStyle}
-                  >
+                  <Link href={casesListPath(item.filters as CasesSearchParams)} style={linkStyle}>
                     {item.name}
                   </Link>
                   <div style={{ color: '#8a96b0', fontSize: 13, marginTop: 6 }}>

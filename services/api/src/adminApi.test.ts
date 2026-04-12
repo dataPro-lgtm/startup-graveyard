@@ -69,6 +69,52 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
   });
 
   it('GET /v1/admin/stats includes copilot telemetry and feedback eval summary', async () => {
+    const ownerEmail = `admin-stats-owner-${Date.now()}@example.com`;
+    const ownerRegisterRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        email: ownerEmail,
+        password: 'password123',
+        displayName: 'Admin Stats Owner',
+      },
+    });
+    expect(ownerRegisterRes.statusCode).toBe(201);
+    const ownerRegistered = JSON.parse(ownerRegisterRes.body) as {
+      user: { id: string };
+      accessToken: string;
+    };
+    await app.usersRepo.updateBillingAccount(ownerRegistered.user.id, {
+      subscription: 'team',
+      billingStatus: 'active',
+      billingInterval: 'month',
+    });
+
+    const createWorkspaceRes = await app.inject({
+      method: 'POST',
+      url: '/v1/team-workspace',
+      headers: {
+        authorization: `Bearer ${ownerRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: { name: 'Admin Metrics Workspace' },
+    });
+    expect(createWorkspaceRes.statusCode).toBe(200);
+
+    const inviteRes = await app.inject({
+      method: 'POST',
+      url: '/v1/team-workspace/invites',
+      headers: {
+        authorization: `Bearer ${ownerRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        email: `admin-stats-member-${Date.now()}@example.com`,
+        role: 'member',
+      },
+    });
+    expect(inviteRes.statusCode).toBe(200);
+
     const answerRes = await app.inject({
       method: 'POST',
       url: '/v1/copilot/answer',
@@ -99,6 +145,16 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toMatchObject({
+      commercial: {
+        teamWorkspaces: {
+          totalWorkspaces: 1,
+          activeWorkspaces: 1,
+          pendingInvites: 1,
+          seatsUsed: 1,
+          reservedSeats: 2,
+          inheritedMembers: 0,
+        },
+      },
       copilot: {
         overview: {
           totalRuns: 1,

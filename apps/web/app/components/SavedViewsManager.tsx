@@ -148,8 +148,8 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
     if (summary) return summary;
     if (!user) return null;
     return {
-      subscription: user.subscription,
-      billingStatus: user.billingStatus,
+      subscription: user.effectiveSubscription,
+      billingStatus: user.effectiveBillingStatus,
       savedViewCount: items.length,
       savedViewLimit: user.entitlements.savedSearchLimit,
       remainingSlots: Math.max(0, user.entitlements.savedSearchLimit - items.length),
@@ -271,7 +271,9 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
             workspace: res.workspace,
           },
     );
-    setMessage(res.added ? 'Saved View 已共享到团队工作区。' : '这个 Saved View 已经在团队工作区里。');
+    setMessage(
+      res.added ? 'Saved View 已共享到团队工作区。' : '这个 Saved View 已经在团队工作区里。',
+    );
     notifyTeamWorkspaceUpdated();
   }
 
@@ -405,7 +407,8 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
       {fetching ? <p style={{ color: '#8a96b0' }}>正在同步 Saved Views…</p> : null}
       {mode === 'full' && teamWorkspaceContext?.workspace ? (
         <p style={{ color: '#8a96b0', fontSize: 13 }}>
-          当前团队工作区：{teamWorkspaceContext.workspace.name}。你可以把任意 Saved View 共享给团队成员。
+          当前团队工作区：{teamWorkspaceContext.workspace.name}。你可以把任意 Saved View
+          共享给团队成员。
         </p>
       ) : null}
       {message ? <p style={{ color: '#7dffb3' }}>{message}</p> : null}

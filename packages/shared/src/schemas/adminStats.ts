@@ -120,6 +120,23 @@ export const copilotAdminMetricsSchema = copilotRunAdminMetricsSchema.extend({
   evals: copilotEvalAdminMetricsSchema,
 });
 
+export const teamWorkspaceAdminMetricsSchema = z.object({
+  totalWorkspaces: nonnegativeInteger,
+  activeWorkspaces: nonnegativeInteger,
+  atRiskWorkspaces: nonnegativeInteger,
+  fullWorkspaces: nonnegativeInteger,
+  totalSeatCapacity: nonnegativeInteger,
+  seatsUsed: nonnegativeInteger,
+  reservedSeats: nonnegativeInteger,
+  pendingInvites: nonnegativeInteger,
+  inheritedMembers: nonnegativeInteger,
+  seatUtilizationRate: z.number().min(0).max(1).nullable(),
+});
+
+export const commercialAdminMetricsSchema = z.object({
+  teamWorkspaces: teamWorkspaceAdminMetricsSchema,
+});
+
 export const adminStatsResponseSchema = z.object({
   totalPublished: nonnegativeInteger,
   totalFundingUsd: nonnegativeNumber,
@@ -165,6 +182,7 @@ export const adminStatsResponseSchema = z.object({
     failed: nonnegativeInteger,
     completed: nonnegativeInteger,
   }),
+  commercial: commercialAdminMetricsSchema,
   copilot: copilotAdminMetricsSchema,
 });
 
@@ -179,4 +197,6 @@ export type CopilotEvalBatch = z.infer<typeof copilotEvalBatchSchema>;
 export type CopilotEvalFailure = z.infer<typeof copilotEvalFailureSchema>;
 export type CopilotEvalAdminMetrics = z.infer<typeof copilotEvalAdminMetricsSchema>;
 export type CopilotAdminMetrics = z.infer<typeof copilotAdminMetricsSchema>;
+export type TeamWorkspaceAdminMetrics = z.infer<typeof teamWorkspaceAdminMetricsSchema>;
+export type CommercialAdminMetrics = z.infer<typeof commercialAdminMetricsSchema>;
 export type AdminStatsResponse = z.infer<typeof adminStatsResponseSchema>;

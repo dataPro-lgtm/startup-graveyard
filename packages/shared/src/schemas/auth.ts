@@ -19,6 +19,14 @@ export const refreshBodySchema = z.object({
 export const subscriptionTierSchema = z.enum(SUBSCRIPTION_TIERS);
 export const billingStatusSchema = z.enum(BILLING_STATUSES);
 export const billingIntervalSchema = z.enum(BILLING_INTERVALS);
+export const workspaceAccessSourceSchema = z.enum(['personal', 'team_workspace']);
+export const workspaceAccessRoleSchema = z.enum(['owner', 'admin', 'member']);
+export const workspaceAccessWarningSchema = z.enum([
+  'workspace_plan_inactive',
+  'past_due',
+  'cancel_at_period_end',
+  'seat_limit_reached',
+]);
 
 export const userEntitlementsSchema = z.object({
   watchlistLimit: z.number().int().nonnegative(),
@@ -31,16 +39,31 @@ export const userEntitlementsSchema = z.object({
   canUseApiAccess: z.boolean(),
 });
 
+export const workspaceAccessSchema = z.object({
+  source: workspaceAccessSourceSchema,
+  workspaceId: z.string().uuid().nullable(),
+  workspaceName: z.string().nullable(),
+  workspaceRole: workspaceAccessRoleSchema.nullable(),
+  inheritedFromUserId: z.string().uuid().nullable(),
+  inheritedFromName: z.string().nullable(),
+  effectiveSubscription: subscriptionTierSchema,
+  effectiveBillingStatus: billingStatusSchema,
+  warningCodes: z.array(workspaceAccessWarningSchema),
+});
+
 export const userSchema = z.object({
   id: z.string().uuid(),
   email: z.string().email(),
   displayName: z.string().nullable(),
   subscription: subscriptionTierSchema,
   billingStatus: billingStatusSchema,
+  effectiveSubscription: subscriptionTierSchema,
+  effectiveBillingStatus: billingStatusSchema,
   billingInterval: billingIntervalSchema.nullable(),
   currentPeriodEnd: z.string().nullable(),
   cancelAtPeriodEnd: z.boolean(),
   entitlements: userEntitlementsSchema,
+  workspaceAccess: workspaceAccessSchema,
   role: z.enum(['user', 'admin']),
   createdAt: z.string(),
 });
@@ -59,3 +82,4 @@ export type LoginBody = z.infer<typeof loginBodySchema>;
 export type AuthResponse = z.infer<typeof authResponseSchema>;
 export type UserProfile = z.infer<typeof userSchema>;
 export type UserEntitlements = z.infer<typeof userEntitlementsSchema>;
+export type WorkspaceAccess = z.infer<typeof workspaceAccessSchema>;

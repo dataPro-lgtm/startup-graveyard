@@ -1,5 +1,4 @@
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { verifyAccessToken } from '../../auth/tokens.js';
+import type { FastifyInstance } from 'fastify';
 import {
   createTeamWorkspaceBodySchema,
   inviteTeamWorkspaceMemberBodySchema,
@@ -9,35 +8,11 @@ import {
   teamWorkspaceContextResponseSchema,
   teamWorkspaceInviteIdParamsSchema,
 } from '../../schemas/teamWorkspace.js';
-
-function extractBearer(authHeader: string | undefined): string | null {
-  if (!authHeader) return null;
-  const match = /^Bearer\s+(.+)$/i.exec(authHeader.trim());
-  return match?.[1] ?? null;
-}
-
-async function requireUser(app: FastifyInstance, request: FastifyRequest, reply: FastifyReply) {
-  const token = extractBearer(request.headers.authorization);
-  if (!token) {
-    reply.code(401).send({ error: 'unauthorized' });
-    return null;
-  }
-  const payload = verifyAccessToken(token);
-  if (!payload) {
-    reply.code(401).send({ error: 'invalid_token' });
-    return null;
-  }
-  const user = await app.usersRepo.getById(payload.sub);
-  if (!user) {
-    reply.code(404).send({ error: 'user_not_found' });
-    return null;
-  }
-  return user;
-}
+import { requireEffectiveUser } from './authedUser.js';
 
 export async function teamWorkspaceRoutes(app: FastifyInstance) {
   app.get('/me', async (request, reply) => {
-    const user = await requireUser(app, request, reply);
+    const user = await requireEffectiveUser(app, request, reply);
     if (!user) return reply;
     return teamWorkspaceContextResponseSchema.parse(
       await app.teamWorkspacesRepo.getContextForUser(user),
@@ -45,7 +20,7 @@ export async function teamWorkspaceRoutes(app: FastifyInstance) {
   });
 
   app.post('/', async (request, reply) => {
-    const user = await requireUser(app, request, reply);
+    const user = await requireEffectiveUser(app, request, reply);
     if (!user) return reply;
 
     const parsed = createTeamWorkspaceBodySchema.safeParse(request.body ?? {});
@@ -64,7 +39,7 @@ export async function teamWorkspaceRoutes(app: FastifyInstance) {
   });
 
   app.post('/invites', async (request, reply) => {
-    const user = await requireUser(app, request, reply);
+    const user = await requireEffectiveUser(app, request, reply);
     if (!user) return reply;
 
     const parsed = inviteTeamWorkspaceMemberBodySchema.safeParse(request.body ?? {});
@@ -96,7 +71,7 @@ export async function teamWorkspaceRoutes(app: FastifyInstance) {
   });
 
   app.post('/invites/:inviteId/accept', async (request, reply) => {
-    const user = await requireUser(app, request, reply);
+    const user = await requireEffectiveUser(app, request, reply);
     if (!user) return reply;
 
     const parsed = teamWorkspaceInviteIdParamsSchema.safeParse(request.params);
@@ -118,7 +93,7 @@ export async function teamWorkspaceRoutes(app: FastifyInstance) {
   });
 
   app.post('/shared-saved-views', async (request, reply) => {
-    const user = await requireUser(app, request, reply);
+    const user = await requireEffectiveUser(app, request, reply);
     if (!user) return reply;
 
     const parsed = shareSavedViewToWorkspaceBodySchema.safeParse(request.body ?? {});
@@ -141,7 +116,7 @@ export async function teamWorkspaceRoutes(app: FastifyInstance) {
   });
 
   app.post('/shared-cases', async (request, reply) => {
-    const user = await requireUser(app, request, reply);
+    const user = await requireEffectiveUser(app, request, reply);
     if (!user) return reply;
 
     const parsed = shareCaseToWorkspaceBodySchema.safeParse(request.body ?? {});

@@ -339,6 +339,48 @@ components:
         canUseWatchlist: { type: boolean }
         canUseTeamWorkspace: { type: boolean }
         canUseApiAccess: { type: boolean }
+    WorkspaceAccessSource:
+      type: string
+      enum: [personal, team_workspace]
+    WorkspaceAccessRole:
+      type: string
+      enum: [owner, admin, member]
+    WorkspaceAccessWarning:
+      type: string
+      enum: [workspace_plan_inactive, past_due, cancel_at_period_end, seat_limit_reached]
+    WorkspaceAccess:
+      type: object
+      required:
+        [
+          source,
+          workspaceId,
+          workspaceName,
+          workspaceRole,
+          inheritedFromUserId,
+          inheritedFromName,
+          effectiveSubscription,
+          effectiveBillingStatus,
+          warningCodes,
+        ]
+      properties:
+        source:
+          $ref: '#/components/schemas/WorkspaceAccessSource'
+        workspaceId: { type: string, format: uuid, nullable: true }
+        workspaceName: { type: string, nullable: true }
+        workspaceRole:
+          allOf:
+            - $ref: '#/components/schemas/WorkspaceAccessRole'
+          nullable: true
+        inheritedFromUserId: { type: string, format: uuid, nullable: true }
+        inheritedFromName: { type: string, nullable: true }
+        effectiveSubscription:
+          $ref: '#/components/schemas/SubscriptionTier'
+        effectiveBillingStatus:
+          $ref: '#/components/schemas/BillingStatus'
+        warningCodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkspaceAccessWarning'
     UserProfile:
       type: object
       required:
@@ -348,10 +390,13 @@ components:
           displayName,
           subscription,
           billingStatus,
+          effectiveSubscription,
+          effectiveBillingStatus,
           billingInterval,
           currentPeriodEnd,
           cancelAtPeriodEnd,
           entitlements,
+          workspaceAccess,
           role,
           createdAt,
         ]
@@ -365,6 +410,10 @@ components:
         billingStatus:
           type: string
           enum: [inactive, trialing, active, past_due, canceled]
+        effectiveSubscription:
+          $ref: '#/components/schemas/SubscriptionTier'
+        effectiveBillingStatus:
+          $ref: '#/components/schemas/BillingStatus'
         billingInterval:
           type: string
           nullable: true
@@ -373,6 +422,8 @@ components:
         cancelAtPeriodEnd: { type: boolean }
         entitlements:
           $ref: '#/components/schemas/UserEntitlements'
+        workspaceAccess:
+          $ref: '#/components/schemas/WorkspaceAccess'
         role:
           type: string
           enum: [user, admin]
@@ -1077,6 +1128,38 @@ components:
             $ref: '#/components/schemas/CopilotFlaggedRun'
         evals:
           $ref: '#/components/schemas/CopilotEvalAdminMetrics'
+    TeamWorkspaceAdminMetrics:
+      type: object
+      required:
+        [
+          totalWorkspaces,
+          activeWorkspaces,
+          atRiskWorkspaces,
+          fullWorkspaces,
+          totalSeatCapacity,
+          seatsUsed,
+          reservedSeats,
+          pendingInvites,
+          inheritedMembers,
+          seatUtilizationRate,
+        ]
+      properties:
+        totalWorkspaces: { type: integer, minimum: 0 }
+        activeWorkspaces: { type: integer, minimum: 0 }
+        atRiskWorkspaces: { type: integer, minimum: 0 }
+        fullWorkspaces: { type: integer, minimum: 0 }
+        totalSeatCapacity: { type: integer, minimum: 0 }
+        seatsUsed: { type: integer, minimum: 0 }
+        reservedSeats: { type: integer, minimum: 0 }
+        pendingInvites: { type: integer, minimum: 0 }
+        inheritedMembers: { type: integer, minimum: 0 }
+        seatUtilizationRate: { type: number, minimum: 0, maximum: 1, nullable: true }
+    CommercialAdminMetrics:
+      type: object
+      required: [teamWorkspaces]
+      properties:
+        teamWorkspaces:
+          $ref: '#/components/schemas/TeamWorkspaceAdminMetrics'
     AdminStatsResponse:
       type: object
       required:
@@ -1091,6 +1174,7 @@ components:
         - recentlyAdded
         - pendingReviews
         - ingestionStats
+        - commercial
         - copilot
       properties:
         totalPublished: { type: integer, minimum: 0 }
@@ -1149,6 +1233,8 @@ components:
             running: { type: integer, minimum: 0 }
             failed: { type: integer, minimum: 0 }
             completed: { type: integer, minimum: 0 }
+        commercial:
+          $ref: '#/components/schemas/CommercialAdminMetrics'
         copilot:
           $ref: '#/components/schemas/CopilotAdminMetrics'
     SchedulerJob:

@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import type { UserProfile } from '@sg/shared/schemas/auth';
 import {
   buildSavedViewQueryString,
@@ -12,39 +12,14 @@ import {
   type SavedViewFilters,
   type SavedViewSummary,
 } from '../../schemas/savedViews.js';
-import { verifyAccessToken } from '../../auth/tokens.js';
-
-function extractBearer(authHeader: string | undefined): string | null {
-  if (!authHeader) return null;
-  const match = /^Bearer\s+(.+)$/i.exec(authHeader.trim());
-  return match?.[1] ?? null;
-}
-
-async function requireUser(app: FastifyInstance, request: FastifyRequest, reply: FastifyReply) {
-  const token = extractBearer(request.headers.authorization);
-  if (!token) {
-    reply.code(401).send({ error: 'unauthorized' });
-    return null;
-  }
-  const payload = verifyAccessToken(token);
-  if (!payload) {
-    reply.code(401).send({ error: 'invalid_token' });
-    return null;
-  }
-  const user = await app.usersRepo.getById(payload.sub);
-  if (!user) {
-    reply.code(404).send({ error: 'user_not_found' });
-    return null;
-  }
-  return user;
-}
+import { requireEffectiveUser } from './authedUser.js';
 
 function buildSummary(user: UserProfile, savedViewCount: number): SavedViewSummary {
   const savedViewLimit = user.entitlements.savedSearchLimit;
   const remainingSlots = Math.max(0, savedViewLimit - savedViewCount);
   return {
-    subscription: user.subscription,
-    billingStatus: user.billingStatus,
+    subscription: user.effectiveSubscription,
+    billingStatus: user.effectiveBillingStatus,
     savedViewCount,
     savedViewLimit,
     remainingSlots,
@@ -71,7 +46,7 @@ async function resolveCaseCount(app: FastifyInstance, filters: SavedViewFilters)
 
 export async function savedViewsRoutes(app: FastifyInstance) {
   app.get('/me', async (request, reply) => {
-    const user = await requireUser(app, request, reply);
+    const user = await requireEffectiveUser(app, request, reply);
     if (!user) return reply;
 
     const [items, count] = await Promise.all([
@@ -85,7 +60,7 @@ export async function savedViewsRoutes(app: FastifyInstance) {
   });
 
   app.post('/items', async (request, reply) => {
-    const user = await requireUser(app, request, reply);
+    const user = await requireEffectiveUser(app, request, reply);
     if (!user) return reply;
 
     const parsed = createSavedViewBodySchema.safeParse(request.body ?? {});
@@ -135,7 +110,7 @@ export async function savedViewsRoutes(app: FastifyInstance) {
   });
 
   app.patch('/items/:savedViewId', async (request, reply) => {
-    const user = await requireUser(app, request, reply);
+    const user = await requireEffectiveUser(app, request, reply);
     if (!user) return reply;
 
     const params = savedViewIdParamsSchema.safeParse(request.params);
@@ -182,7 +157,7 @@ export async function savedViewsRoutes(app: FastifyInstance) {
   });
 
   app.delete('/items/:savedViewId', async (request, reply) => {
-    const user = await requireUser(app, request, reply);
+    const user = await requireEffectiveUser(app, request, reply);
     if (!user) return reply;
 
     const params = savedViewIdParamsSchema.safeParse(request.params);

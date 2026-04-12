@@ -56,10 +56,7 @@ export type SaveCopilotEvalBatchInput = {
 };
 
 export interface CopilotEvalsRepository {
-  listActiveCases(input?: {
-    limit?: number;
-    slugs?: string[];
-  }): Promise<CopilotEvalCaseItem[]>;
+  listActiveCases(input?: { limit?: number; slugs?: string[] }): Promise<CopilotEvalCaseItem[]>;
   recordBatch(input: SaveCopilotEvalBatchInput): Promise<{ batchId: string; createdAt: string }>;
   getAdminMetrics(): Promise<CopilotEvalAdminMetrics>;
 }
@@ -285,7 +282,10 @@ export class MockCopilotEvalsRepository implements CopilotEvalsRepository {
     }));
   }
 
-  async listActiveCases(input?: { limit?: number; slugs?: string[] }): Promise<CopilotEvalCaseItem[]> {
+  async listActiveCases(input?: {
+    limit?: number;
+    slugs?: string[];
+  }): Promise<CopilotEvalCaseItem[]> {
     const slugSet =
       input?.slugs && input.slugs.length > 0
         ? new Set(input.slugs.map((item) => item.trim().toLowerCase()))
@@ -297,7 +297,9 @@ export class MockCopilotEvalsRepository implements CopilotEvalsRepository {
       .slice(0, limit);
   }
 
-  async recordBatch(input: SaveCopilotEvalBatchInput): Promise<{ batchId: string; createdAt: string }> {
+  async recordBatch(
+    input: SaveCopilotEvalBatchInput,
+  ): Promise<{ batchId: string; createdAt: string }> {
     const batchId = randomUUID();
     const createdAt = new Date().toISOString();
     this.batches.unshift({
@@ -377,7 +379,10 @@ export class MockCopilotEvalsRepository implements CopilotEvalsRepository {
 export class PgCopilotEvalsRepository implements CopilotEvalsRepository {
   constructor(private readonly pool: Pool) {}
 
-  async listActiveCases(input?: { limit?: number; slugs?: string[] }): Promise<CopilotEvalCaseItem[]> {
+  async listActiveCases(input?: {
+    limit?: number;
+    slugs?: string[];
+  }): Promise<CopilotEvalCaseItem[]> {
     const limit = input?.limit ?? 25;
     const slugs =
       input?.slugs && input.slugs.length > 0 ? input.slugs.map((item) => item.trim()) : null;
@@ -397,7 +402,9 @@ export class PgCopilotEvalsRepository implements CopilotEvalsRepository {
     return res.rows.map(mapEvalCaseRow);
   }
 
-  async recordBatch(input: SaveCopilotEvalBatchInput): Promise<{ batchId: string; createdAt: string }> {
+  async recordBatch(
+    input: SaveCopilotEvalBatchInput,
+  ): Promise<{ batchId: string; createdAt: string }> {
     return withTransaction(this.pool, async (client) => {
       const batchRes = await client.query<{ id: string; created_at: Date }>(
         `

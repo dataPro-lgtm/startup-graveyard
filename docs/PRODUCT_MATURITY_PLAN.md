@@ -44,9 +44,9 @@
 
 ### P1 产品能力
 
-- Topic/专题研究页、趋势看板、个人 watchlist、saved views、基础 Markdown 导出和 Team Workspace 协作基础已经上线，但更完整的报告交付、seat 级权益和订阅运营仍未落地。
+- Topic/专题研究页、趋势看板、个人 watchlist、saved views、基础 Markdown 导出、Team Workspace 协作基础，以及 team seat 继承权限和运营指标已经上线，但更完整的报告交付、团队账单生命周期和降级补偿仍未落地。
 - 首页仍偏“案例站”，离“研究入口 / 决策面板”还有距离。
-- Free / Pro / Team 的权益边界已经有了基础模型，但商业化能力目前只覆盖到 watchlist + saved views + Markdown export + Team Workspace foundation；更完整的导出、seat entitlement 和订阅运营闭环还没跟上。
+- Free / Pro / Team 的权益边界已经有了基础模型，商业化能力现在覆盖到 watchlist + saved views + Markdown export + Team Workspace + seat-aware entitlement；剩余短板集中在 PDF/分享交付、workspace 级账单运营和转化分析闭环。
 
 ### P2 平台化与运营
 
@@ -89,7 +89,7 @@
 - M3.1 商业化基础层：明确 Free / Pro / Team 权益边界，补 billing profile、账单状态同步、Portal 与统一 entitlement helper。
 - M3.2 个人付费工作流：上线保存筛选、watchlist、导出报告等真实可感知的个人付费能力。
 - M3.3 团队商业化：团队工作区、共享 watchlist / saved views、成员与权限管理。
-- M3.4 订阅运营闭环：失败补偿、账单告警、到期降级、使用量与转化分析。
+- M3.4 订阅运营闭环：seat-aware entitlement、失败补偿、账单告警、到期降级、使用量与转化分析。
 
 ### M4 生产级平台化（持续）
 
@@ -219,4 +219,10 @@
 
 - Team Workspace 现在会直接暴露 seat limit、reserved seats、billing owner、账单状态、到期取消标记和风险 warning codes，团队运营状态不再是黑箱。
 - 邀请成员已经从“只要点邀请就行”升级成“受 seat limit 和 workspace billing 状态约束”的正式商业化行为；当席位已满或账单已降级时，接口和前端都会给出明确阻断原因。
-- 这为后续的失败补偿、自动账单告警、到期降级和 workspace 级 entitlement 继承打下了基础，但这些更深的订阅运营能力还没有全部实现。
+- 这为后续的失败补偿、自动账单告警和到期降级打下了基础，但这些更深的订阅运营能力还没有全部实现。
+
+已完成 M3 第四段第二部分（workspace entitlement inheritance + ops metrics）：
+
+- 团队成员的有效权限现在不再完全跟随个人套餐，而是会在活跃 Team Workspace 中继承 workspace 级 team entitlement；`/auth/me`、watchlist、saved views 和 Markdown export 都已经切到这套有效权限模型。
+- 用户侧账户页会明确展示“个人账单”和“当前有效权限”的差异，避免成员误以为自己仍然是 Free / Pro；加入但已降级的 workspace 也会显示仍按个人套餐生效。
+- 运营 Dashboard 现在会聚合 Team Workspace 的数量、active workspaces、seat capacity、reserved seats、pending invites、inherited members、seat utilization 和风险工作区，为后续订阅运营和转化分析提供了第一层观测面。

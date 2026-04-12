@@ -650,9 +650,9 @@ export default async function AdminReviewsPage({
             key，并为受影响的已发布案例排入 <code>rebuild_case_search_index</code>；{' '}
             <code>run_copilot_eval_suite</code> → 回放内置 Copilot eval dataset，生成 prompt
             regression batch 与失败样本； <code>upsert_embedding_stub</code> →{' '}
-            <code>payload.caseId</code>（仅 case embedding 演示）；其它 为 noop。审核通过后也会自动排入{' '}
-            <code>rebuild_case_search_index</code>。 长时间 <code>running</code> 可用下方「回收卡住」
-            重置为 <code>queued</code>。
+            <code>payload.caseId</code>（仅 case embedding 演示）；其它 为
+            noop。审核通过后也会自动排入 <code>rebuild_case_search_index</code>。 长时间{' '}
+            <code>running</code> 可用下方「回收卡住」 重置为 <code>queued</code>。
           </span>
         </p>
         <div

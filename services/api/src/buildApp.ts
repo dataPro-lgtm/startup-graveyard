@@ -29,7 +29,11 @@ import {
   MockCopilotSessionsRepository,
   PgCopilotSessionsRepository,
 } from './repositories/copilotSessionsRepository.js';
-import { type AuditRepository, MockAuditRepository, PgAuditRepository } from './repositories/auditRepository.js';
+import {
+  type AuditRepository,
+  MockAuditRepository,
+  PgAuditRepository,
+} from './repositories/auditRepository.js';
 import {
   type IngestionJobsRepository,
   MockIngestionJobsRepository,
