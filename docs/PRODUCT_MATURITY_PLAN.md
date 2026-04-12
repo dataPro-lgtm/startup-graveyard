@@ -135,3 +135,9 @@
 - 新增 `rebuild_case_search_index` / `backfill_case_search_index`，会从 case + evidence + failure factors + timeline + lessons 生成 `case_chunks`，并同步回填 `case_embeddings`。
 - 审核通过后会自动排入索引任务，API 进程内 worker 会持续处理队列，不再依赖人工逐条点“处理下一条”。
 - Chunk embedding 默认优先走 OpenAI 批量 embedding，失败时降级为确定性向量，保证索引链路不中断。
+
+已完成 M1 第四段（轻量结构化抽取）：
+
+- 新增 `extract_case_signals`，会从 source snapshot 自动抽取 primary failure reason、failure factors、timeline events 与 key lessons。
+- `pipeline_url_draft` 现在会自动排入 follow-up extraction job，而不是只停留在“有 snapshot + 有 draft”。
+- Admin case 页面补齐了时间线和分析修正入口，运营可对自动抽取结果做人工兜底。

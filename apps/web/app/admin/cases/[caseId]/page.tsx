@@ -1,7 +1,12 @@
 import type { CSSProperties } from 'react';
 import Link from 'next/link';
 import { pickSearchParam } from '@/lib/searchParams';
-import { addCaseEvidence, addCaseFailureFactor } from '../attachmentActions';
+import {
+  addCaseEvidence,
+  addCaseFailureFactor,
+  addCaseTimelineEvent,
+  updateCaseAnalysis,
+} from '../attachmentActions';
 
 const fieldStyle: CSSProperties = {
   display: 'flex',
@@ -62,6 +67,12 @@ export default async function AdminCaseAttachmentsPage({
       {ok === 'factor' ? (
         <p style={{ color: '#7dffb3', marginBottom: 16 }}>已添加失败因子。</p>
       ) : null}
+      {ok === 'timeline' ? (
+        <p style={{ color: '#7dffb3', marginBottom: 16 }}>已添加时间线事件。</p>
+      ) : null}
+      {ok === 'analysis' ? (
+        <p style={{ color: '#7dffb3', marginBottom: 16 }}>已更新失败主因 / key lessons。</p>
+      ) : null}
       {err === 'config' ? (
         <p style={{ color: '#ff8a8a', marginBottom: 16 }}>Web 未配置 ADMIN_API_KEY。</p>
       ) : null}
@@ -87,6 +98,26 @@ export default async function AdminCaseAttachmentsPage({
       ) : null}
       {err === 'factor_failed' ? (
         <p style={{ color: '#ff8a8a', marginBottom: 16 }}>添加因子请求失败。</p>
+      ) : null}
+      {err === 'timeline_fields' ? (
+        <p style={{ color: '#ff8a8a', marginBottom: 16 }}>时间线：请填写 eventDate、eventType、title。</p>
+      ) : null}
+      {err === 'timeline_validation' ? (
+        <p style={{ color: '#ff8a8a', marginBottom: 16 }}>时间线字段未通过 API 校验。</p>
+      ) : null}
+      {err === 'timeline_failed' ? (
+        <p style={{ color: '#ff8a8a', marginBottom: 16 }}>添加时间线请求失败。</p>
+      ) : null}
+      {err === 'analysis_fields' ? (
+        <p style={{ color: '#ff8a8a', marginBottom: 16 }}>
+          分析字段：请至少填写 primaryFailureReasonKey 或 keyLessons。
+        </p>
+      ) : null}
+      {err === 'analysis_validation' ? (
+        <p style={{ color: '#ff8a8a', marginBottom: 16 }}>分析字段未通过 API 校验。</p>
+      ) : null}
+      {err === 'analysis_failed' ? (
+        <p style={{ color: '#ff8a8a', marginBottom: 16 }}>更新分析请求失败。</p>
       ) : null}
 
       <section style={card}>
@@ -186,6 +217,89 @@ export default async function AdminCaseAttachmentsPage({
             }}
           >
             提交因子
+          </button>
+        </form>
+      </section>
+
+      <section style={card}>
+        <h2 style={{ fontSize: 18, margin: '0 0 14px' }}>时间线事件</h2>
+        <form action={addCaseTimelineEvent.bind(null, caseId)} style={{ display: 'grid', gap: 12 }}>
+          <label style={fieldStyle}>
+            eventDate
+            <input name="eventDate" required placeholder="2024-01-15" style={inputLike} />
+          </label>
+          <label style={fieldStyle}>
+            eventType
+            <input
+              name="eventType"
+              required
+              placeholder="如 funding / shutdown / layoff / regulatory"
+              style={inputLike}
+            />
+          </label>
+          <label style={fieldStyle}>
+            title
+            <input name="title" required style={inputLike} />
+          </label>
+          <label style={fieldStyle}>
+            description（可选）
+            <textarea name="description" rows={3} style={{ ...inputLike, resize: 'vertical' }} />
+          </label>
+          <label style={fieldStyle}>
+            amountUsd（可选）
+            <input name="amountUsd" type="number" min={0} style={inputLike} />
+          </label>
+          <label style={fieldStyle}>
+            sortOrder（默认 0）
+            <input name="sortOrder" type="number" min={0} defaultValue={0} style={inputLike} />
+          </label>
+          <button
+            type="submit"
+            style={{
+              padding: '10px 18px',
+              borderRadius: 10,
+              border: 'none',
+              background: '#7c5cff',
+              color: '#fff',
+              fontWeight: 600,
+              cursor: 'pointer',
+              justifySelf: 'start',
+            }}
+          >
+            提交时间线
+          </button>
+        </form>
+      </section>
+
+      <section style={card}>
+        <h2 style={{ fontSize: 18, margin: '0 0 14px' }}>失败主因 / Key Lessons</h2>
+        <form action={updateCaseAnalysis.bind(null, caseId)} style={{ display: 'grid', gap: 12 }}>
+          <label style={fieldStyle}>
+            primaryFailureReasonKey（可选）
+            <input
+              name="primaryFailureReasonKey"
+              placeholder="如 premature_scaling / product_market_fit"
+              style={inputLike}
+            />
+          </label>
+          <label style={fieldStyle}>
+            keyLessons（可选，多行）
+            <textarea name="keyLessons" rows={5} style={{ ...inputLike, resize: 'vertical' }} />
+          </label>
+          <button
+            type="submit"
+            style={{
+              padding: '10px 18px',
+              borderRadius: 10,
+              border: 'none',
+              background: '#8b6130',
+              color: '#fff',
+              fontWeight: 600,
+              cursor: 'pointer',
+              justifySelf: 'start',
+            }}
+          >
+            更新分析
           </button>
         </form>
       </section>

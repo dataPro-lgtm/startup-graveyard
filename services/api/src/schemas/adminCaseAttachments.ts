@@ -38,6 +38,38 @@ export const addFailureFactorBodySchema = z.object({
 
 export type AddFailureFactorBody = z.infer<typeof addFailureFactorBodySchema>;
 
+export const addTimelineEventBodySchema = z.object({
+  eventDate: z
+    .string()
+    .trim()
+    .max(40)
+    .refine((s) => !Number.isNaN(Date.parse(s)), { message: 'invalid_date' }),
+  eventType: z.string().trim().min(1).max(80),
+  title: z.string().trim().min(1).max(500),
+  description: z.preprocess(emptyToUndef, z.string().trim().max(8000).optional()),
+  amountUsd: z.preprocess(
+    emptyToUndef,
+    z.coerce.number().int().min(0).max(9_000_000_000_000).optional(),
+  ),
+  sortOrder: z.coerce.number().int().min(0).max(10_000).default(0),
+});
+
+export type AddTimelineEventBody = z.infer<typeof addTimelineEventBodySchema>;
+
+export const updateCaseAnalysisBodySchema = z
+  .object({
+    primaryFailureReasonKey: z.preprocess(
+      emptyToUndef,
+      z.string().trim().max(100).optional(),
+    ),
+    keyLessons: z.preprocess(emptyToUndef, z.string().trim().max(12_000).optional()),
+  })
+  .refine((value) => value.primaryFailureReasonKey !== undefined || value.keyLessons !== undefined, {
+    message: 'at_least_one_field_required',
+  });
+
+export type UpdateCaseAnalysisBody = z.infer<typeof updateCaseAnalysisBodySchema>;
+
 export const createdRowResponseSchema = z.object({
   id: z.string().uuid(),
 });

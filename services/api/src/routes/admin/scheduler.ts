@@ -57,6 +57,7 @@ export async function adminSchedulerRoutes(app: FastifyInstance) {
         adminWrite: app.adminWriteRepo,
         adminAttachments: app.adminAttachmentsRepo,
         sourceSnapshots: app.sourceSnapshotsRepo,
+        ingestionJobs: app.ingestionJobsRepo,
       },
     );
     return reply.send(result);

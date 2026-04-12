@@ -24,10 +24,10 @@ describe('admin ingestion pipeline (mock DB)', () => {
     await app.close();
   });
 
-  it('pipeline_url_draft captures a snapshot and creates a draft review with evidence', async () => {
+  it('pipeline_url_draft queues extraction and improves review readiness after follow-up processing', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(
-        '<html><head><title>Acme Collapse | Example News</title></head><body><article><p>Acme shut down after rapid expansion and weak unit economics.</p></article></body></html>',
+        '<html><head><title>Acme Collapse | Example News</title></head><body><article><p>In 2022 Acme raised $50 million to expand.</p><p>In 2024 Acme shut down after rapid expansion, layoffs, weak unit economics, and labor lawsuits.</p></article></body></html>',
         {
           status: 200,
           headers: { 'content-type': 'text/html; charset=utf-8' },
@@ -69,6 +69,21 @@ describe('admin ingestion pipeline (mock DB)', () => {
       },
     });
 
+    const queuedRes = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/ingestion-jobs?status=queued&limit=20',
+      headers,
+    });
+    expect(queuedRes.statusCode).toBe(200);
+    expect(JSON.parse(queuedRes.body)).toMatchObject({
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          sourceName: 'extract_case_signals',
+          triggerType: 'pipeline_followup',
+        }),
+      ]),
+    });
+
     const snapshotsRes = await app.inject({
       method: 'GET',
       url: '/v1/admin/source-snapshots?limit=5',
@@ -85,26 +100,49 @@ describe('admin ingestion pipeline (mock DB)', () => {
       ],
     });
 
+    const extractRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/ingestion-jobs/process-next',
+      headers,
+    });
+    expect(extractRes.statusCode).toBe(200);
+    expect(JSON.parse(extractRes.body)).toMatchObject({
+      ok: true,
+      job: {
+        status: 'succeeded',
+        sourceName: 'extract_case_signals',
+      },
+    });
+
     const reviewsRes = await app.inject({
       method: 'GET',
       url: '/v1/admin/reviews?status=pending&limit=20',
       headers,
     });
     expect(reviewsRes.statusCode).toBe(200);
-    expect(JSON.parse(reviewsRes.body)).toMatchObject({
-      items: expect.arrayContaining([
-        expect.objectContaining({
-          slug: 'acme-collapse',
-          reviewStatus: 'pending',
-          publishReadiness: {
-            ready: false,
-            evidenceCount: 1,
-            failureFactorCount: 0,
-            missing: ['failure_factors'],
-          },
-        }),
-      ]),
+    const reviewsBody = JSON.parse(reviewsRes.body) as {
+      items: Array<{
+        slug: string;
+        reviewStatus: string;
+        publishReadiness: {
+          ready: boolean;
+          evidenceCount: number;
+          failureFactorCount: number;
+          missing: string[];
+        };
+      }>;
+    };
+    const review = reviewsBody.items.find((item) => item.slug === 'acme-collapse');
+    expect(review).toBeDefined();
+    expect(review).toMatchObject({
+      reviewStatus: 'pending',
+      publishReadiness: {
+        ready: true,
+        evidenceCount: 1,
+        missing: [],
+      },
     });
+    expect(review?.publishReadiness.failureFactorCount ?? 0).toBeGreaterThanOrEqual(1);
   });
 
   it('capture_source_snapshot persists a snapshot without creating a case', async () => {

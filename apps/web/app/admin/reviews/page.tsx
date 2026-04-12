@@ -588,8 +588,11 @@ export default async function AdminReviewsPage({
             source snapshot； <code>create_draft</code> → 与「新建草稿」同字段；{' '}
             <code>pipeline_url_draft</code> → <code>url</code> + <code>slug</code> +{' '}
             <code>summary</code> + <code>industryKey</code>，并自动保存 snapshot + 附一条
-            evidence； <code>rebuild_case_search_index</code> → 基于 case/evidence/factors/timeline
-            重建 <code>case_chunks</code> + <code>case_embeddings</code>；{' '}
+            evidence + 排入 <code>extract_case_signals</code>；{' '}
+            <code>extract_case_signals</code> → 从 snapshot 自动抽取 failure factors / timeline /
+            lessons / primary reason； <code>rebuild_case_search_index</code> → 基于
+            case/evidence/factors/timeline 重建 <code>case_chunks</code> +{' '}
+            <code>case_embeddings</code>；{' '}
             <code>backfill_case_search_index</code> → 批量回填缺索引的已发布案例；{' '}
             <code>upsert_embedding_stub</code> → <code>payload.caseId</code>（仅 case embedding
             演示）；其它 为 noop。审核通过后也会自动排入 <code>rebuild_case_search_index</code>。
@@ -705,6 +708,7 @@ export default async function AdminReviewsPage({
 fetch_title → {"url":"https://example.com"}
 capture_source_snapshot → {"url":"https://example.com/post"}
 pipeline_url_draft → {"url":"https://example.com/post","slug":"my-startup","summary":"...","industryKey":"saas"}
+extract_case_signals → {"caseId":"<draft case uuid>","snapshotId":"<snapshot uuid>"}
 rebuild_case_search_index → {"caseId":"<已发布 case 的 uuid>"}
 backfill_case_search_index → {"limit":25}
 upsert_embedding_stub → {"caseId":"<已发布 case 的 uuid>"}`}

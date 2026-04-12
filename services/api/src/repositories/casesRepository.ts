@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Pool, QueryResultRow } from 'pg';
 import type { CreateDraftCaseBody } from '../schemas/adminCases.js';
 import { embedSearchQuery, vectorToPgLiteral } from '../ai/openaiEmbed.js';
-import { getMockExtraEvidence, getMockExtraFactors } from './mockCaseExtras.js';
+import { getMockExtraEvidence, getMockExtraFactors, getMockExtraTimeline } from './mockCaseExtras.js';
 
 export type ListCasesSort = 'relevance' | 'updated_at';
 
@@ -427,7 +427,7 @@ export class MockCasesRepository implements CasesRepository {
         ...(id === AIRLIFT_MOCK_ID ? AIRLIFT_BUILTIN_FACTORS : []),
         ...getMockExtraFactors(id),
       ],
-      timelineEvents: [],
+      timelineEvents: getMockExtraTimeline(id),
     };
   }
 
@@ -506,6 +506,21 @@ export class MockCasesRepository implements CasesRepository {
     const idx = this.rows.findIndex((item) => item.id === caseId);
     if (idx < 0) return false;
     this.rows[idx] = { ...this.rows[idx], status };
+    return true;
+  }
+
+  adminUpdateAnalysis(
+    caseId: string,
+    input: { primaryFailureReasonKey?: string; keyLessons?: string },
+  ): boolean {
+    const idx = this.rows.findIndex((item) => item.id === caseId);
+    if (idx < 0) return false;
+    const cur = this.rows[idx]!;
+    this.rows[idx] = {
+      ...cur,
+      primaryFailureReasonKey: input.primaryFailureReasonKey ?? cur.primaryFailureReasonKey,
+      keyLessons: input.keyLessons ?? cur.keyLessons,
+    };
     return true;
   }
 }

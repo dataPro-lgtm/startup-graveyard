@@ -127,6 +127,7 @@ export class MockIngestionJobsRepository implements IngestionJobsRepository {
     }
     if (idx < 0) return { ok: false, reason: 'empty_queue' };
     const cur = this.jobs[idx]!;
+    const claimedJobId = cur.id;
     const now = new Date().toISOString();
     this.jobs[idx] = {
       ...cur,
@@ -144,27 +145,32 @@ export class MockIngestionJobsRepository implements IngestionJobsRepository {
         adminWrite: this.adminWrite,
         adminAttachments: this.adminAttachments,
         sourceSnapshots: this.sourceSnapshots,
+        ingestionJobs: this,
       },
     );
 
     const doneAt = new Date().toISOString();
-    const base = this.jobs[idx]!;
+    const baseIdx = this.jobs.findIndex((job) => job.id === claimedJobId);
+    if (baseIdx < 0) {
+      throw new Error('mock ingestion job missing after execution');
+    }
+    const base = this.jobs[baseIdx]!;
     if (runResult.ok) {
-      this.jobs[idx] = {
+      this.jobs[baseIdx] = {
         ...base,
         status: 'succeeded',
         finishedAt: doneAt,
         errorMessage: null,
       };
     } else {
-      this.jobs[idx] = {
+      this.jobs[baseIdx] = {
         ...base,
         status: 'failed',
         finishedAt: doneAt,
         errorMessage: runResult.error,
       };
     }
-    return { ok: true, job: this.jobs[idx]! };
+    return { ok: true, job: this.jobs[baseIdx]! };
   }
 
   async reclaimStaleRunning(maxRunningMinutes: number): Promise<{
@@ -307,6 +313,7 @@ export class PgIngestionJobsRepository implements IngestionJobsRepository {
         adminWrite: this.adminWrite,
         adminAttachments: this.adminAttachments,
         sourceSnapshots: this.sourceSnapshots,
+        ingestionJobs: this,
         pool: this.pool,
       },
     );

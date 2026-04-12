@@ -2,8 +2,10 @@ import type { FastifyInstance } from 'fastify';
 import {
   addEvidenceBodySchema,
   addFailureFactorBodySchema,
+  addTimelineEventBodySchema,
   adminCaseIdParamSchema,
   createdRowResponseSchema,
+  updateCaseAnalysisBodySchema,
 } from '../../schemas/adminCaseAttachments.js';
 import {
   createDraftCaseBodySchema,
@@ -53,5 +55,33 @@ export async function adminCaseRoutes(app: FastifyInstance) {
     const out = await app.adminAttachmentsRepo.addFailureFactor(params.data.caseId, body.data);
     if (!out.ok) return reply.notFound('case not found');
     return createdRowResponseSchema.parse({ id: out.id });
+  });
+
+  app.post('/:caseId/timeline-events', async (request, reply) => {
+    const params = adminCaseIdParamSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.badRequest('invalid case id');
+    }
+    const body = addTimelineEventBodySchema.safeParse(request.body ?? {});
+    if (!body.success) {
+      return reply.code(400).send({ error: 'invalid_body', details: body.error.flatten() });
+    }
+    const out = await app.adminAttachmentsRepo.addTimelineEvent(params.data.caseId, body.data);
+    if (!out.ok) return reply.notFound('case not found');
+    return createdRowResponseSchema.parse({ id: out.id });
+  });
+
+  app.patch('/:caseId/analysis', async (request, reply) => {
+    const params = adminCaseIdParamSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.badRequest('invalid case id');
+    }
+    const body = updateCaseAnalysisBodySchema.safeParse(request.body ?? {});
+    if (!body.success) {
+      return reply.code(400).send({ error: 'invalid_body', details: body.error.flatten() });
+    }
+    const out = await app.adminWriteRepo.updateCaseAnalysis(params.data.caseId, body.data);
+    if (!out.ok) return reply.notFound('case not found');
+    return reply.send({ ok: true });
   });
 }

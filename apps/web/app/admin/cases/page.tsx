@@ -35,11 +35,11 @@ export default async function AdminCasesHubPage({
           ← 运营台
         </Link>
       </div>
-      <h1 style={{ fontSize: 28, marginBottom: 8 }}>案例证据 / 失败因子</h1>
+      <h1 style={{ fontSize: 28, marginBottom: 8 }}>案例录入 / 修正</h1>
       <p style={{ color: '#c8d0e5', marginBottom: 24, fontSize: 14 }}>
         输入已存在案例的 UUID，进入录入页：POST{' '}
         <code style={{ color: '#9fb3ff' }}>/v1/admin/cases/:caseId/evidence</code> 与{' '}
-        <code style={{ color: '#9fb3ff' }}>failure-factors</code>。需配置{' '}
+        <code style={{ color: '#9fb3ff' }}>failure-factors</code>，以及时间线 / 分析更新接口。需配置{' '}
         <code style={{ color: '#9fb3ff' }}>ADMIN_API_KEY</code>。
       </p>
 

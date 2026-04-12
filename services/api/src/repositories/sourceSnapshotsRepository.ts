@@ -34,9 +34,14 @@ export type ListSourceSnapshotsParams = {
   sourceName?: string;
 };
 
+export type SourceSnapshotRecord = SourceSnapshotItem & {
+  snapshotText: string;
+};
+
 export interface SourceSnapshotsRepository {
   save(input: SaveSourceSnapshotInput): Promise<SourceSnapshotItem>;
   listRecent(params: ListSourceSnapshotsParams): Promise<SourceSnapshotItem[]>;
+  getById(id: string): Promise<SourceSnapshotRecord | null>;
 }
 
 type SnapshotRow = QueryResultRow & {
@@ -49,6 +54,7 @@ type SnapshotRow = QueryResultRow & {
   title: string | null;
   excerpt: string | null;
   content_sha256: string;
+  snapshot_text: string;
   metadata: unknown;
   fetched_at: Date;
   created_at: Date;
@@ -75,6 +81,13 @@ function rowToItem(row: SnapshotRow): SourceSnapshotItem {
     metadata: mapMetadata(row.metadata),
     fetchedAt: row.fetched_at.toISOString(),
     createdAt: row.created_at.toISOString(),
+  };
+}
+
+function rowToRecord(row: SnapshotRow): SourceSnapshotRecord {
+  return {
+    ...rowToItem(row),
+    snapshotText: row.snapshot_text,
   };
 }
 
@@ -109,6 +122,10 @@ export class MockSourceSnapshotsRepository implements SourceSnapshotsRepository 
     }
     return rows.slice(0, params.limit).map(({ snapshotText: _snapshotText, ...publicItem }) => publicItem);
   }
+
+  async getById(id: string): Promise<SourceSnapshotRecord | null> {
+    return this.items.find((item) => item.id === id) ?? null;
+  }
 }
 
 export class PgSourceSnapshotsRepository implements SourceSnapshotsRepository {
@@ -125,7 +142,7 @@ export class PgSourceSnapshotsRepository implements SourceSnapshotsRepository {
         $6, $7, $8, $9, $10::jsonb
       )
       RETURNING id, source_name, source_url, final_url, http_status, content_type,
-                title, excerpt, content_sha256, metadata, fetched_at, created_at
+                title, excerpt, content_sha256, snapshot_text, metadata, fetched_at, created_at
       `,
       [
         input.sourceName,
@@ -147,7 +164,7 @@ export class PgSourceSnapshotsRepository implements SourceSnapshotsRepository {
     const res = await this.pool.query<SnapshotRow>(
       `
       SELECT id, source_name, source_url, final_url, http_status, content_type,
-             title, excerpt, content_sha256, metadata, fetched_at, created_at
+             title, excerpt, content_sha256, snapshot_text, metadata, fetched_at, created_at
       FROM source_snapshots
       WHERE ($2::text IS NULL OR source_name = $2::text)
       ORDER BY fetched_at DESC, created_at DESC
@@ -156,5 +173,20 @@ export class PgSourceSnapshotsRepository implements SourceSnapshotsRepository {
       [params.limit, params.sourceName ?? null],
     );
     return res.rows.map(rowToItem);
+  }
+
+  async getById(id: string): Promise<SourceSnapshotRecord | null> {
+    const res = await this.pool.query<SnapshotRow>(
+      `
+      SELECT id, source_name, source_url, final_url, http_status, content_type,
+             title, excerpt, content_sha256, snapshot_text, metadata, fetched_at, created_at
+      FROM source_snapshots
+      WHERE id = $1
+      LIMIT 1
+      `,
+      [id],
+    );
+    const row = res.rows[0];
+    return row ? rowToRecord(row) : null;
   }
 }

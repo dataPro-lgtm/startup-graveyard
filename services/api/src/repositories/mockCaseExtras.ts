@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import type { EvidenceSourceItem, FailureFactorItem } from './casesRepository.js';
+import type { EvidenceSourceItem, FailureFactorItem, TimelineEventItem } from './casesRepository.js';
 
 const extraEvidence = new Map<string, EvidenceSourceItem[]>();
 const extraFactors = new Map<string, FailureFactorItem[]>();
+const extraTimeline = new Map<string, TimelineEventItem[]>();
 
 export function appendMockEvidence(
   caseId: string,
@@ -48,4 +49,28 @@ export function getMockExtraEvidence(caseId: string): EvidenceSourceItem[] {
 
 export function getMockExtraFactors(caseId: string): FailureFactorItem[] {
   return extraFactors.get(caseId) ?? [];
+}
+
+export function appendMockTimelineEvent(
+  caseId: string,
+  partial: Omit<TimelineEventItem, 'id'> & { id?: string },
+): TimelineEventItem {
+  const item: TimelineEventItem = {
+    id: partial.id ?? randomUUID(),
+    eventDate: partial.eventDate,
+    eventType: partial.eventType,
+    title: partial.title,
+    description: partial.description,
+    amountUsd: partial.amountUsd,
+    sortOrder: partial.sortOrder,
+  };
+  const list = extraTimeline.get(caseId) ?? [];
+  list.push(item);
+  list.sort((a, b) => a.sortOrder - b.sortOrder || a.eventDate.localeCompare(b.eventDate));
+  extraTimeline.set(caseId, list);
+  return item;
+}
+
+export function getMockExtraTimeline(caseId: string): TimelineEventItem[] {
+  return extraTimeline.get(caseId) ?? [];
 }

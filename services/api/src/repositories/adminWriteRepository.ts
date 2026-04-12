@@ -3,6 +3,7 @@ import type { CreateDraftCaseBody } from '../schemas/adminCases.js';
 import { withTransaction } from '../db/withTransaction.js';
 import type { MockCasesRepository } from './casesRepository.js';
 import type { MockReviewsRepository } from './reviewsRepository.js';
+import type { UpdateCaseAnalysisBody } from '../schemas/adminCaseAttachments.js';
 
 export type CreateDraftCaseResult =
   | { ok: true; caseId: string; reviewId: string }
@@ -10,6 +11,10 @@ export type CreateDraftCaseResult =
 
 export interface AdminWriteRepository {
   createDraftCaseWithReview(input: CreateDraftCaseBody): Promise<CreateDraftCaseResult>;
+  updateCaseAnalysis(
+    caseId: string,
+    input: UpdateCaseAnalysisBody,
+  ): Promise<{ ok: true } | { ok: false; error: 'case_not_found' }>;
 }
 
 export class PgAdminWriteRepository implements AdminWriteRepository {
@@ -82,6 +87,56 @@ export class PgAdminWriteRepository implements AdminWriteRepository {
       throw e;
     }
   }
+
+  async updateCaseAnalysis(
+    caseId: string,
+    input: UpdateCaseAnalysisBody,
+  ): Promise<{ ok: true } | { ok: false; error: 'case_not_found' }> {
+    return withTransaction(this.pool, async (client) => {
+      const setClauses = ['updated_at = NOW()'];
+      const values: unknown[] = [caseId];
+
+      if (input.primaryFailureReasonKey !== undefined) {
+        values.push(input.primaryFailureReasonKey);
+        setClauses.push(`primary_failure_reason_key = $${values.length}`);
+      }
+      if (input.keyLessons !== undefined) {
+        values.push(input.keyLessons);
+        setClauses.push(`key_lessons = $${values.length}`);
+      }
+
+      const res = await client.query<{ id: string }>(
+        `
+        UPDATE cases
+        SET ${setClauses.join(', ')}
+        WHERE id = $1
+        RETURNING id
+        `,
+        values,
+      );
+      if ((res.rowCount ?? 0) === 0) {
+        return { ok: false as const, error: 'case_not_found' as const };
+      }
+
+      await client.query(
+        `
+        INSERT INTO admin_audit_events (action, review_id, case_id, metadata)
+        VALUES ($1, NULL, $2, $3::jsonb)
+        `,
+        [
+          'case.analysis_updated',
+          caseId,
+          JSON.stringify({
+            actor: 'admin_api',
+            primaryFailureReasonKey: input.primaryFailureReasonKey ?? null,
+            keyLessonsUpdated: input.keyLessons !== undefined,
+          }),
+        ],
+      );
+
+      return { ok: true as const };
+    });
+  }
 }
 
 export class MockAdminWriteRepository implements AdminWriteRepository {
@@ -100,5 +155,13 @@ export class MockAdminWriteRepository implements AdminWriteRepository {
       assignedTo: input.assignedTo ?? null,
     });
     return { ok: true, caseId: c.caseId, reviewId };
+  }
+
+  async updateCaseAnalysis(
+    caseId: string,
+    input: UpdateCaseAnalysisBody,
+  ): Promise<{ ok: true } | { ok: false; error: 'case_not_found' }> {
+    const ok = this.cases.adminUpdateAnalysis(caseId, input);
+    return ok ? { ok: true } : { ok: false, error: 'case_not_found' };
   }
 }

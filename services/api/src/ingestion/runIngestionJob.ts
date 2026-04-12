@@ -3,9 +3,11 @@ import { z } from 'zod';
 import { embedCaseDocument, vectorToPgLiteral } from '../ai/openaiEmbed.js';
 import { captureSourceSnapshot } from './sourceSnapshot.js';
 import { rebuildCaseSearchIndex } from './caseIndexing.js';
+import { extractCaseSignals } from './extractCaseSignals.js';
 import type { AdminCaseAttachmentsRepository } from '../repositories/adminCaseAttachmentsRepository.js';
 import type { AdminWriteRepository } from '../repositories/adminWriteRepository.js';
 import type { SourceSnapshotsRepository } from '../repositories/sourceSnapshotsRepository.js';
+import type { IngestionJobsRepository } from '../repositories/ingestionJobsRepository.js';
 import { createDraftCaseBodySchema } from '../schemas/adminCases.js';
 
 export type IngestionRunInput = {
@@ -18,6 +20,7 @@ export type IngestionRunContext = {
   adminWrite?: AdminWriteRepository;
   adminAttachments?: AdminCaseAttachmentsRepository;
   sourceSnapshots?: SourceSnapshotsRepository;
+  ingestionJobs?: IngestionJobsRepository;
   pool?: Pool;
 };
 
@@ -36,6 +39,7 @@ function clip(s: string): string {
  * - **create_draft**：`payload` 符合 `CreateDraftCaseBody`（与 POST /v1/admin/cases 相同字段），需 `ctx.adminWrite`。
  * - **capture_source_snapshot**：抓取 URL，保存 source snapshot。
  * - **pipeline_url_draft**：抓取 URL -> 保存 snapshot -> 生成 draft -> 自动附一条 evidence。
+ * - **extract_case_signals**：从 source snapshot 自动抽取 failure factors / timeline / lessons / primary reason。
  * - **rebuild_case_search_index**：从 case/evidence/factors/timeline/lessons 重建 `case_chunks` 与 `case_embeddings`。
  * - **backfill_case_search_index**：批量回填缺 chunk 或缺 embedding 的已发布案例。
  * - **upsert_embedding_stub**：`payload.caseId`（uuid）；需 `ctx.pool`。若设置 `OPENAI_API_KEY` 则用
@@ -90,7 +94,11 @@ export async function runIngestionJob(
       excerpt: captured.snapshot.excerpt,
       contentSha256: captured.snapshot.contentSha256,
       snapshotText: captured.snapshot.snapshotText,
-      metadata: captured.snapshot.metadata,
+      metadata: {
+        ...captured.snapshot.metadata,
+        companyName: captured.snapshot.companyName,
+        publisher: captured.snapshot.publisher,
+      },
     });
     return { ok: true, detail: `snapshotId=${saved.id} title=${captured.snapshot.companyName}` };
   }
@@ -147,7 +155,11 @@ export async function runIngestionJob(
       excerpt: captured.snapshot.excerpt,
       contentSha256: captured.snapshot.contentSha256,
       snapshotText: captured.snapshot.snapshotText,
-      metadata: captured.snapshot.metadata,
+      metadata: {
+        ...captured.snapshot.metadata,
+        companyName: captured.snapshot.companyName,
+        publisher: captured.snapshot.publisher,
+      },
     });
     const parsed = createDraftCaseBodySchema.safeParse({
       ...payload,
@@ -183,9 +195,74 @@ export async function runIngestionJob(
         error: 'pipeline_url_draft：draft 已创建，但自动 evidence 附加失败',
       };
     }
+    let extractionJobId: string | null = null;
+    if (ctx.ingestionJobs) {
+      const queued = await ctx.ingestionJobs.enqueue({
+        sourceName: 'extract_case_signals',
+        triggerType: 'pipeline_followup',
+        payload: {
+          caseId: out.caseId,
+          snapshotId: snapshot.id,
+        },
+      });
+      extractionJobId = queued.id;
+    }
     return {
       ok: true,
-      detail: `snapshotId=${snapshot.id} caseId=${out.caseId} reviewId=${out.reviewId} evidenceId=${evidence.id}`,
+      detail:
+        `snapshotId=${snapshot.id} caseId=${out.caseId} reviewId=${out.reviewId} evidenceId=${evidence.id}` +
+        (extractionJobId ? ` extractionJobId=${extractionJobId}` : ''),
+    };
+  }
+
+  if (sourceName === 'extract_case_signals') {
+    if (!ctx?.adminWrite || !ctx?.adminAttachments || !ctx?.sourceSnapshots) {
+      return {
+        ok: false,
+        error: 'extract_case_signals：服务端未注入完整上下文（adminWrite/adminAttachments/sourceSnapshots）',
+      };
+    }
+    const caseIdRaw = payload.caseId;
+    const snapshotIdRaw = payload.snapshotId;
+    if (typeof caseIdRaw !== 'string' || !z.string().uuid().safeParse(caseIdRaw).success) {
+      return { ok: false, error: 'extract_case_signals：需要合法 payload.caseId（uuid）' };
+    }
+    if (typeof snapshotIdRaw !== 'string' || !z.string().uuid().safeParse(snapshotIdRaw).success) {
+      return { ok: false, error: 'extract_case_signals：需要合法 payload.snapshotId（uuid）' };
+    }
+    const snapshot = await ctx.sourceSnapshots.getById(snapshotIdRaw);
+    if (!snapshot) {
+      return { ok: false, error: 'extract_case_signals：snapshot 不存在' };
+    }
+    const extracted = extractCaseSignals({
+      snapshotText: snapshot.snapshotText,
+      title: snapshot.title,
+      excerpt: snapshot.excerpt,
+    });
+    let factorCount = 0;
+    for (const factor of extracted.failureFactors) {
+      const result = await ctx.adminAttachments.addFailureFactor(caseIdRaw, factor);
+      if (!result.ok) return { ok: false, error: 'extract_case_signals：case 不存在' };
+      factorCount++;
+    }
+    let timelineCount = 0;
+    for (const event of extracted.timelineEvents) {
+      const result = await ctx.adminAttachments.addTimelineEvent(caseIdRaw, event);
+      if (!result.ok) return { ok: false, error: 'extract_case_signals：case 不存在' };
+      timelineCount++;
+    }
+    if (extracted.primaryFailureReasonKey || extracted.keyLessons) {
+      const update = await ctx.adminWrite.updateCaseAnalysis(caseIdRaw, {
+        primaryFailureReasonKey: extracted.primaryFailureReasonKey ?? undefined,
+        keyLessons: extracted.keyLessons ?? undefined,
+      });
+      if (!update.ok) return { ok: false, error: 'extract_case_signals：case 不存在' };
+    }
+    return {
+      ok: true,
+      detail:
+        `caseId=${caseIdRaw} snapshotId=${snapshotIdRaw} factors=${factorCount} timeline=${timelineCount}` +
+        ` primaryReason=${extracted.primaryFailureReasonKey ?? 'none'} lessons=${extracted.keyLessons ? 'yes' : 'no'}`,
     };
   }
 

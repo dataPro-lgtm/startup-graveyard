@@ -1,7 +1,15 @@
 import type { Pool } from 'pg';
-import type { AddEvidenceBody, AddFailureFactorBody } from '../schemas/adminCaseAttachments.js';
+import type {
+  AddEvidenceBody,
+  AddFailureFactorBody,
+  AddTimelineEventBody,
+} from '../schemas/adminCaseAttachments.js';
 import type { CasesRepository } from './casesRepository.js';
-import { appendMockEvidence, appendMockFailureFactor } from './mockCaseExtras.js';
+import {
+  appendMockEvidence,
+  appendMockFailureFactor,
+  appendMockTimelineEvent,
+} from './mockCaseExtras.js';
 
 export type AttachmentWriteResult =
   | { ok: true; id: string }
@@ -10,6 +18,7 @@ export type AttachmentWriteResult =
 export interface AdminCaseAttachmentsRepository {
   addEvidence(caseId: string, body: AddEvidenceBody): Promise<AttachmentWriteResult>;
   addFailureFactor(caseId: string, body: AddFailureFactorBody): Promise<AttachmentWriteResult>;
+  addTimelineEvent(caseId: string, body: AddTimelineEventBody): Promise<AttachmentWriteResult>;
 }
 
 export class PgAdminCaseAttachmentsRepository implements AdminCaseAttachmentsRepository {
@@ -135,6 +144,84 @@ export class PgAdminCaseAttachmentsRepository implements AdminCaseAttachmentsRep
       client.release();
     }
   }
+
+  async addTimelineEvent(
+    caseId: string,
+    body: AddTimelineEventBody,
+  ): Promise<AttachmentWriteResult> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const exists = await client.query(`SELECT 1 FROM cases WHERE id = $1 LIMIT 1`, [caseId]);
+      if ((exists.rowCount ?? 0) === 0) {
+        await client.query('ROLLBACK');
+        return { ok: false, error: 'case_not_found' };
+      }
+
+      const duplicate = await client.query<{ id: string }>(
+        `
+        SELECT id
+        FROM timeline_events
+        WHERE case_id = $1
+          AND event_date = $2::date
+          AND event_type = $3
+          AND title = $4
+        LIMIT 1
+        `,
+        [caseId, body.eventDate, body.eventType, body.title],
+      );
+      if ((duplicate.rowCount ?? 0) > 0) {
+        await client.query('COMMIT');
+        return { ok: true, id: duplicate.rows[0]!.id };
+      }
+
+      const ins = await client.query<{ id: string }>(
+        `
+        INSERT INTO timeline_events (
+          case_id, event_date, event_type, title, description, amount_usd, sort_order
+        ) VALUES ($1, $2::date, $3, $4, $5, $6, $7)
+        RETURNING id
+        `,
+        [
+          caseId,
+          body.eventDate,
+          body.eventType,
+          body.title,
+          body.description ?? null,
+          body.amountUsd ?? null,
+          body.sortOrder,
+        ],
+      );
+      const id = ins.rows[0]!.id;
+      await client.query(
+        `
+        INSERT INTO admin_audit_events (action, review_id, case_id, metadata)
+        VALUES ($1, NULL, $2, $3::jsonb)
+        `,
+        [
+          'timeline_event.added',
+          caseId,
+          JSON.stringify({
+            actor: 'admin_api',
+            timelineEventId: id,
+            eventType: body.eventType,
+            title: body.title,
+          }),
+        ],
+      );
+      await client.query('COMMIT');
+      return { ok: true, id };
+    } catch (e) {
+      try {
+        await client.query('ROLLBACK');
+      } catch {
+        /* ignore */
+      }
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
 }
 
 export class MockAdminCaseAttachmentsRepository implements AdminCaseAttachmentsRepository {
@@ -168,6 +255,23 @@ export class MockAdminCaseAttachmentsRepository implements AdminCaseAttachmentsR
       level3Key: body.level3Key ?? null,
       weight: body.weight,
       explanation: body.explanation ?? null,
+    });
+    return { ok: true, id: item.id };
+  }
+
+  async addTimelineEvent(
+    caseId: string,
+    body: AddTimelineEventBody,
+  ): Promise<AttachmentWriteResult> {
+    const exists = await this.cases.caseExists(caseId);
+    if (!exists) return { ok: false, error: 'case_not_found' };
+    const item = appendMockTimelineEvent(caseId, {
+      eventDate: new Date(body.eventDate).toISOString().slice(0, 10),
+      eventType: body.eventType,
+      title: body.title,
+      description: body.description ?? null,
+      amountUsd: body.amountUsd ?? null,
+      sortOrder: body.sortOrder,
     });
     return { ok: true, id: item.id };
   }

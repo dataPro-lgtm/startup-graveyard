@@ -127,3 +127,101 @@ export async function addCaseFailureFactor(caseId: string, formData: FormData) {
   }
   redirect(`/admin/cases/${caseId}?ok=factor`);
 }
+
+export async function addCaseTimelineEvent(caseId: string, formData: FormData) {
+  if (!UUID_RE.test(caseId)) {
+    redirect('/admin/cases?err=invalid_case');
+  }
+  let h: HeadersInit;
+  try {
+    h = adminHeaders();
+  } catch {
+    redirect(`/admin/cases/${caseId}?err=config`);
+  }
+
+  const amountUsdRaw = pickStr(formData, 'amountUsd');
+  const sortOrderRaw = pickStr(formData, 'sortOrder');
+  const amountUsd = amountUsdRaw !== undefined ? Number(amountUsdRaw) : undefined;
+  const sortOrder = sortOrderRaw !== undefined ? Number(sortOrderRaw) : 0;
+  if (
+    (amountUsd !== undefined && (!Number.isFinite(amountUsd) || amountUsd < 0)) ||
+    !Number.isFinite(sortOrder) ||
+    sortOrder < 0
+  ) {
+    redirect(`/admin/cases/${caseId}?err=timeline_validation`);
+  }
+
+  const body = {
+    eventDate: pickStr(formData, 'eventDate'),
+    eventType: pickStr(formData, 'eventType'),
+    title: pickStr(formData, 'title'),
+    description: pickStr(formData, 'description'),
+    amountUsd,
+    sortOrder,
+  };
+
+  if (!body.eventDate || !body.eventType || !body.title) {
+    redirect(`/admin/cases/${caseId}?err=timeline_fields`);
+  }
+
+  const res = await fetch(
+    `${API_BASE_URL}/v1/admin/cases/${encodeURIComponent(caseId)}/timeline-events`,
+    {
+      method: 'POST',
+      headers: { ...h, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    },
+  );
+  revalidatePath(`/admin/cases/${caseId}`);
+  revalidatePath(`/cases/${caseId}`);
+  revalidatePath('/');
+  if (res.status === 404) {
+    redirect(`/admin/cases/${caseId}?err=notfound`);
+  }
+  if (res.status === 400) {
+    redirect(`/admin/cases/${caseId}?err=timeline_validation`);
+  }
+  if (!res.ok) {
+    redirect(`/admin/cases/${caseId}?err=timeline_failed`);
+  }
+  redirect(`/admin/cases/${caseId}?ok=timeline`);
+}
+
+export async function updateCaseAnalysis(caseId: string, formData: FormData) {
+  if (!UUID_RE.test(caseId)) {
+    redirect('/admin/cases?err=invalid_case');
+  }
+  let h: HeadersInit;
+  try {
+    h = adminHeaders();
+  } catch {
+    redirect(`/admin/cases/${caseId}?err=config`);
+  }
+
+  const body = {
+    primaryFailureReasonKey: pickStr(formData, 'primaryFailureReasonKey'),
+    keyLessons: pickStr(formData, 'keyLessons'),
+  };
+  if (!body.primaryFailureReasonKey && !body.keyLessons) {
+    redirect(`/admin/cases/${caseId}?err=analysis_fields`);
+  }
+
+  const res = await fetch(`${API_BASE_URL}/v1/admin/cases/${encodeURIComponent(caseId)}/analysis`, {
+    method: 'PATCH',
+    headers: { ...h, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  revalidatePath(`/admin/cases/${caseId}`);
+  revalidatePath(`/cases/${caseId}`);
+  revalidatePath('/');
+  if (res.status === 404) {
+    redirect(`/admin/cases/${caseId}?err=notfound`);
+  }
+  if (res.status === 400) {
+    redirect(`/admin/cases/${caseId}?err=analysis_validation`);
+  }
+  if (!res.ok) {
+    redirect(`/admin/cases/${caseId}?err=analysis_failed`);
+  }
+  redirect(`/admin/cases/${caseId}?ok=analysis`);
+}
