@@ -8,6 +8,7 @@
     "start": "node dist/index.js",
     "lint": "eslint src",
     "test": "vitest run",
+    "test:pg": "node scripts/run_pg_integration_tests.mjs",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },

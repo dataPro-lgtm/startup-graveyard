@@ -10,3 +10,11 @@ export function getPool(): pg.Pool | null {
   pool = url ? new Pool({ connectionString: url }) : null;
   return pool;
 }
+
+export async function resetPool(): Promise<void> {
+  const current = pool;
+  pool = undefined;
+  if (current) {
+    await current.end();
+  }
+}

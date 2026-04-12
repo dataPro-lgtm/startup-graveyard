@@ -9,6 +9,7 @@
     "lint": "eslint . && turbo run lint",
     "lint:fix": "eslint . --fix",
     "test": "turbo run test",
+    "test:pg": "pnpm --filter @sg/api test:pg",
     "typecheck": "turbo run typecheck",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

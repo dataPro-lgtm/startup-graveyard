@@ -117,7 +117,18 @@ cd services/api
 node scripts/gen_embeddings.mjs
 ```
 
-### 6. 启动服务
+### 6. 运行 PostgreSQL 集成测试（推荐）
+
+```bash
+pnpm --filter @sg/api test:pg
+```
+
+说明：
+
+- 若已设置 `TEST_DATABASE_URL`，脚本会在同一 PostgreSQL 集群内创建隔离测试库、回放全部 migration，并在测试结束后自动清理。
+- 若未设置 `TEST_DATABASE_URL`，脚本会尝试拉起临时 Docker Postgres；要求本机 Docker daemon 可用。
+
+### 7. 启动服务
 
 ```bash
 # API

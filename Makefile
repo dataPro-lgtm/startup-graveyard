@@ -1,6 +1,6 @@
 # Startup Graveyard — Developer Commands
 # Usage: make <target>
-.PHONY: help dev build test typecheck lint format db-up db-down db-migrate db-seed db-reset embed clean
+.PHONY: help dev build test test-pg typecheck lint format db-up db-down db-migrate db-seed db-reset embed clean
 
 SHELL := /bin/bash
 
@@ -34,6 +34,9 @@ build: ## Build all packages
 
 test: ## Run all tests
 	pnpm test
+
+test-pg: ## Run API PostgreSQL integration tests
+	pnpm --filter @sg/api test:pg
 
 typecheck: ## TypeScript type check all packages
 	pnpm typecheck

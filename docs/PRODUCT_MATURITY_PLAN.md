@@ -141,3 +141,9 @@
 - 新增 `extract_case_signals`，会从 source snapshot 自动抽取 primary failure reason、failure factors、timeline events 与 key lessons。
 - `pipeline_url_draft` 现在会自动排入 follow-up extraction job，而不是只停留在“有 snapshot + 有 draft”。
 - Admin case 页面补齐了时间线和分析修正入口，运营可对自动抽取结果做人工兜底。
+
+已完成 M1 第五段（真实 PostgreSQL 回归基线）：
+
+- 新增 PostgreSQL 集成测试 harness，会创建隔离测试库、回放全部 migration，并在测试后自动清理。
+- 补了两条真实库主链断言：`review approval -> rebuild_case_search_index` 与 `pipeline_url_draft -> extract_case_signals`。
+- 默认单元测试仍走 mock；需要真实库验证时可执行 `pnpm --filter @sg/api test:pg`。
