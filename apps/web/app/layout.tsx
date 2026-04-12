@@ -78,6 +78,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <a href="/copilot" style={{ color: '#5b7cff', textDecoration: 'none', fontWeight: 600 }}>
             AI Copilot
           </a>
+          <a href="/admin/dashboard" style={{ color: '#9fb3ff', textDecoration: 'none' }}>
+            Dashboard
+          </a>
           <a href="/admin/reviews" style={{ color: '#9fb3ff', textDecoration: 'none' }}>
             运营台
           </a>
