@@ -1,13 +1,17 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/app/components/AuthProvider';
+import { getAccessToken, isApiError } from '@/lib/authApi';
+import { API_BASE_URL } from '@/lib/api';
 
 export default function AccountPage() {
   const { user, loading, logout } = useAuth();
   const router = useRouter();
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [stripeUnavailable, setStripeUnavailable] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -26,6 +30,42 @@ export default function AccountPage() {
   async function handleLogout() {
     await logout();
     router.push('/');
+  }
+
+  async function handleUpgrade() {
+    if (!user) return;
+    const token = getAccessToken();
+    if (!token) {
+      router.push('/auth/login');
+      return;
+    }
+    setCheckoutLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/v1/payments/checkout`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ userId: user.id }),
+      });
+      if (res.status === 503) {
+        setStripeUnavailable(true);
+        return;
+      }
+      const data = (await res.json()) as { url?: string } | { error: string };
+      if (isApiError(data)) {
+        console.error('Checkout error:', data.error);
+        return;
+      }
+      if ('url' in data && data.url) {
+        window.location.href = data.url;
+      }
+    } catch (err) {
+      console.error('Checkout failed:', err);
+    } finally {
+      setCheckoutLoading(false);
+    }
   }
 
   return (
@@ -60,6 +100,32 @@ export default function AccountPage() {
         </div>
       </div>
 
+      {/* Pro badge (pro tier) */}
+      {user.subscription === 'pro' && (
+        <div
+          style={{
+            background: 'linear-gradient(135deg, #1a1f3a, #1a0a2e)',
+            border: '1px solid #fbbf2444',
+            borderRadius: 16,
+            padding: '24px 28px',
+            marginBottom: 20,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+          }}
+        >
+          <span style={{ fontSize: 22 }}>🌟</span>
+          <div>
+            <p style={{ margin: '0 0 2px', fontWeight: 700, fontSize: 16, color: '#fbbf24' }}>
+              Pro 会员 ✓
+            </p>
+            <p style={{ margin: 0, color: '#9fb3ff', fontSize: 13 }}>
+              您已解锁所有高级功能，感谢支持！
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Pro upsell (free tier only) */}
       {user.subscription === 'free' && (
         <div
@@ -75,21 +141,42 @@ export default function AccountPage() {
           <p style={{ margin: '0 0 16px', color: '#9fb3ff', fontSize: 14, lineHeight: 1.7 }}>
             Pro 会员解锁高级功能：无限 Copilot 问答、案例深度报告、API 访问权限。
           </p>
-          <button
-            style={{
-              padding: '10px 22px',
-              borderRadius: 10,
-              border: 'none',
-              background: '#5b7cff',
-              color: '#fff',
-              fontWeight: 600,
-              cursor: 'pointer',
-              fontSize: 14,
-            }}
-            onClick={() => alert('支付功能即将上线')}
-          >
-            了解 Pro 计划
-          </button>
+          {stripeUnavailable ? (
+            <button
+              disabled
+              title="暂未开放"
+              style={{
+                padding: '10px 22px',
+                borderRadius: 10,
+                border: '1px solid #2a3658',
+                background: '#1d2746',
+                color: '#6b7ca8',
+                fontWeight: 600,
+                cursor: 'not-allowed',
+                fontSize: 14,
+              }}
+            >
+              升级到 Pro (¥xx/月) — 暂未开放
+            </button>
+          ) : (
+            <button
+              style={{
+                padding: '10px 22px',
+                borderRadius: 10,
+                border: 'none',
+                background: checkoutLoading ? '#3a50cc' : '#5b7cff',
+                color: '#fff',
+                fontWeight: 600,
+                cursor: checkoutLoading ? 'wait' : 'pointer',
+                fontSize: 14,
+                opacity: checkoutLoading ? 0.8 : 1,
+              }}
+              onClick={handleUpgrade}
+              disabled={checkoutLoading}
+            >
+              {checkoutLoading ? '跳转中…' : '升级到 Pro (¥xx/月)'}
+            </button>
+          )}
         </div>
       )}
 
