@@ -470,6 +470,133 @@ components:
           type: string
           enum: [up, down]
         note: { type: string, nullable: true }
+    CopilotFeedbackEval:
+      type: object
+      required: [helpful, needsImprovement, unrated, positiveRate]
+      properties:
+        helpful: { type: integer, minimum: 0 }
+        needsImprovement: { type: integer, minimum: 0 }
+        unrated: { type: integer, minimum: 0 }
+        positiveRate: { type: number, minimum: 0, maximum: 1, nullable: true }
+    CopilotOverviewStats:
+      type: object
+      required:
+        [
+          totalRuns,
+          totalSessions,
+          groundedRuns,
+          fallbackRuns,
+          avgResponseMs,
+          avgTotalTokens,
+          totalEstimatedCostUsd,
+          lastRunAt,
+        ]
+      properties:
+        totalRuns: { type: integer, minimum: 0 }
+        totalSessions: { type: integer, minimum: 0 }
+        groundedRuns: { type: integer, minimum: 0 }
+        fallbackRuns: { type: integer, minimum: 0 }
+        avgResponseMs: { type: integer, minimum: 0 }
+        avgTotalTokens: { type: integer, minimum: 0 }
+        totalEstimatedCostUsd: { type: number, minimum: 0 }
+        lastRunAt: { type: string, nullable: true }
+    CopilotPromptVersionStats:
+      type: object
+      required:
+        [
+          promptVersion,
+          runs,
+          groundedRuns,
+          fallbackRuns,
+          avgResponseMs,
+          avgTotalTokens,
+          totalEstimatedCostUsd,
+          positiveFeedback,
+          negativeFeedback,
+          noFeedback,
+          groundedRate,
+          positiveRate,
+          lastRunAt,
+        ]
+      properties:
+        promptVersion: { type: string }
+        runs: { type: integer, minimum: 0 }
+        groundedRuns: { type: integer, minimum: 0 }
+        fallbackRuns: { type: integer, minimum: 0 }
+        avgResponseMs: { type: integer, minimum: 0 }
+        avgTotalTokens: { type: integer, minimum: 0 }
+        totalEstimatedCostUsd: { type: number, minimum: 0 }
+        positiveFeedback: { type: integer, minimum: 0 }
+        negativeFeedback: { type: integer, minimum: 0 }
+        noFeedback: { type: integer, minimum: 0 }
+        groundedRate: { type: number, minimum: 0, maximum: 1, nullable: true }
+        positiveRate: { type: number, minimum: 0, maximum: 1, nullable: true }
+        lastRunAt: { type: string, nullable: true }
+    CopilotFallbackReasonCount:
+      type: object
+      required: [reason, count]
+      properties:
+        reason:
+          $ref: '#/components/schemas/CopilotFallbackReason'
+        count: { type: integer, minimum: 0 }
+    CopilotFlaggedRun:
+      type: object
+      required:
+        [
+          sessionId,
+          userMessageId,
+          assistantMessageId,
+          promptVersion,
+          question,
+          answerPreview,
+          feedbackVote,
+          feedbackNote,
+          fallbackReason,
+          responseMs,
+          totalTokens,
+          estimatedCostUsd,
+          createdAt,
+        ]
+      properties:
+        sessionId: { type: string, format: uuid }
+        userMessageId: { type: string, format: uuid }
+        assistantMessageId: { type: string, format: uuid }
+        promptVersion: { type: string }
+        question: { type: string }
+        answerPreview: { type: string }
+        feedbackVote:
+          type: string
+          nullable: true
+          enum: [up, down]
+        feedbackNote: { type: string, nullable: true }
+        fallbackReason:
+          allOf:
+            - $ref: '#/components/schemas/CopilotFallbackReason'
+          nullable: true
+        responseMs: { type: integer, minimum: 0 }
+        totalTokens: { type: integer, minimum: 0, nullable: true }
+        estimatedCostUsd: { type: number, minimum: 0, nullable: true }
+        createdAt: { type: string }
+    CopilotAdminMetrics:
+      type: object
+      required: [overview, feedbackEval, byPromptVersion, byFallbackReason, recentFlags]
+      properties:
+        overview:
+          $ref: '#/components/schemas/CopilotOverviewStats'
+        feedbackEval:
+          $ref: '#/components/schemas/CopilotFeedbackEval'
+        byPromptVersion:
+          type: array
+          items:
+            $ref: '#/components/schemas/CopilotPromptVersionStats'
+        byFallbackReason:
+          type: array
+          items:
+            $ref: '#/components/schemas/CopilotFallbackReasonCount'
+        recentFlags:
+          type: array
+          items:
+            $ref: '#/components/schemas/CopilotFlaggedRun'
     AdminStatsResponse:
       type: object
       required:
@@ -484,6 +611,7 @@ components:
         - recentlyAdded
         - pendingReviews
         - ingestionStats
+        - copilot
       properties:
         totalPublished: { type: integer, minimum: 0 }
         totalFundingUsd: { type: number, minimum: 0 }
@@ -541,6 +669,8 @@ components:
             running: { type: integer, minimum: 0 }
             failed: { type: integer, minimum: 0 }
             completed: { type: integer, minimum: 0 }
+        copilot:
+          $ref: '#/components/schemas/CopilotAdminMetrics'
     SchedulerJob:
       type: object
       required: [id, name, source_name, cron_expr, enabled]

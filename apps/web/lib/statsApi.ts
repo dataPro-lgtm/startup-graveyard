@@ -1,18 +1,10 @@
 import { API_BASE_URL } from './api';
+import {
+  adminStatsResponseSchema,
+  type AdminStatsResponse as AdminStats,
+} from '@sg/shared/schemas/adminStats';
 
-export interface AdminStats {
-  totalPublished: number;
-  totalFundingUsd: number;
-  totalDraft: number;
-  avgFundingUsd: number;
-  byIndustry: Array<{ industry: string; count: number; totalFunding: number }>;
-  byCountry: Array<{ country: string; count: number }>;
-  byYear: Array<{ year: number; count: number }>;
-  byFailureReason: Array<{ reason: string; count: number }>;
-  recentlyAdded: Array<{ id: string; slug: string; companyName: string; createdAt: string }>;
-  pendingReviews: number;
-  ingestionStats: { pending: number; running: number; failed: number; completed: number };
-}
+export type { AdminStats };
 
 export async function fetchAdminStats(adminKey: string): Promise<AdminStats | null> {
   const url = `${API_BASE_URL}/v1/admin/stats`;
@@ -22,7 +14,9 @@ export async function fetchAdminStats(adminKey: string): Promise<AdminStats | nu
       cache: 'no-store',
     });
     if (!res.ok) return null;
-    return (await res.json()) as AdminStats;
+    const json = await res.json();
+    const parsed = adminStatsResponseSchema.safeParse(json);
+    return parsed.success ? parsed.data : null;
   } catch {
     return null;
   }

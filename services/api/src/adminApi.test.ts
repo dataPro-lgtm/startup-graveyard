@@ -67,4 +67,73 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
     expect(body.status).toBe('draft');
     expect(body.caseId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
   });
+
+  it('GET /v1/admin/stats includes copilot telemetry and feedback eval summary', async () => {
+    const answerRes = await app.inject({
+      method: 'POST',
+      url: '/v1/copilot/answer',
+      payload: {
+        visitorId: 'admin-stats-visitor',
+        question: 'Airlift 为什么会失败？',
+        topK: 3,
+      },
+    });
+    expect(answerRes.statusCode).toBe(200);
+    const answered = JSON.parse(answerRes.body) as { assistantMessageId: string };
+
+    const feedbackRes = await app.inject({
+      method: 'POST',
+      url: `/v1/copilot/messages/${encodeURIComponent(answered.assistantMessageId)}/feedback`,
+      payload: {
+        visitorId: 'admin-stats-visitor',
+        vote: 'down',
+        note: '需要更具体的归因链路',
+      },
+    });
+    expect(feedbackRes.statusCode).toBe(200);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/stats',
+      headers: { 'x-admin-key': key },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      copilot: {
+        overview: {
+          totalRuns: 1,
+          totalSessions: 1,
+          groundedRuns: 0,
+          fallbackRuns: 1,
+        },
+        feedbackEval: {
+          helpful: 0,
+          needsImprovement: 1,
+          unrated: 0,
+          positiveRate: 0,
+        },
+        byPromptVersion: [
+          expect.objectContaining({
+            promptVersion: '2026-04-13.v1',
+            runs: 1,
+            negativeFeedback: 1,
+          }),
+        ],
+        byFallbackReason: [
+          expect.objectContaining({
+            reason: 'provider_unavailable',
+            count: 1,
+          }),
+        ],
+        recentFlags: [
+          expect.objectContaining({
+            promptVersion: '2026-04-13.v1',
+            feedbackVote: 'down',
+            feedbackNote: '需要更具体的归因链路',
+            fallbackReason: 'provider_unavailable',
+          }),
+        ],
+      },
+    });
+  });
 });

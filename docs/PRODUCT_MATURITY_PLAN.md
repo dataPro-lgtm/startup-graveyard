@@ -39,7 +39,7 @@
 ### P1 检索与 Copilot
 
 - 当前主要是 PostgreSQL + pgvector 混合排序，OpenSearch hybrid/facet/explain 尚未落地。
-- Copilot 已支持 session、上下文 pin、回答反馈，以及 run-level prompt version / token-cost 追踪，但仍缺评测集、prompt 回归、answer grading 与更系统的质量回归。
+- Copilot 已支持 session、上下文 pin、回答反馈，以及 run-level prompt version / token-cost 追踪和后台回归视图，但仍缺可回放评测集、自动 prompt 回归、answer grading 与更系统的质量回归。
 - 契约漂移已经明显收敛，但 OpenAPI 对 auth/payments/admin stats/scheduler 等实际接口仍未完全覆盖。
 
 ### P1 产品能力
@@ -50,7 +50,7 @@
 
 ### P2 平台化与运营
 
-- 没有 OTel trace、聚合级 prompt/token-cost dashboard、报警与 runbook。
+- 没有 OTel trace、自动告警、nightly prompt regression 与 runbook。
 - 没有 Redis、对象存储、worker 独立部署、Temporal durable workflow。
 - 没有数据回填、夜间回归、搜索评测、内容质量报表。
 
@@ -177,3 +177,9 @@
 - Copilot system prompt 已收口为可版本化的 `copilotPrompt` 模块，并在每次回答 run 中持久化 `promptVersion`。
 - 新增 `copilot_runs`，记录 provider、model、fallback reason、响应耗时、token 用量、估算成本、检索案例数、引用数等 run-level 指标。
 - Web Copilot 会在消息详情里展示 prompt 版本、响应耗时、token/cost 与降级原因，为后续 eval、prompt 回归和运营 dashboard 提供基础数据。
+
+已完成 M2 第四段（feedback-based eval / regression dashboard）：
+
+- Admin `/v1/admin/stats` 现在会返回 Copilot telemetry 聚合，包括 runs、grounded/fallback、feedback eval、prompt version 对比、fallback 原因和 recent flagged runs。
+- Copilot repo 补了 mock / PostgreSQL 两套 `getAdminMetrics()`，后台 dashboard 在 mock 和真实库模式下都能展示研究助手运营数据。
+- Admin dashboard 新增 Copilot KPI、prompt version regression 视图和 recent flagged runs 列表，运营能直接看到哪个 prompt 版本、哪类 fallback、哪些回答最需要修正。

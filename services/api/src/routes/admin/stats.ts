@@ -1,8 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import type { Pool } from 'pg';
 import { getPool } from '../../db/pool.js';
+import { adminStatsResponseSchema } from '../../schemas/adminStats.js';
 
-interface StatsResult {
+interface ContentStatsResult {
   totalPublished: number;
   totalFundingUsd: number;
   totalDraft: number;
@@ -20,10 +21,24 @@ export async function adminStatsRoutes(app: FastifyInstance) {
   app.get('/', async (_request, reply) => {
     const pool = getPool();
     if (!pool) {
-      return reply.send(emptyStats());
+      return reply.send(
+        adminStatsResponseSchema.parse({
+          ...emptyContentStats(),
+          copilot: await app.copilotSessionsRepo.getAdminMetrics(),
+        }),
+      );
     }
     try {
-      return reply.send(await fetchStats(pool));
+      const [contentStats, copilotStats] = await Promise.all([
+        fetchContentStats(pool),
+        app.copilotSessionsRepo.getAdminMetrics(),
+      ]);
+      return reply.send(
+        adminStatsResponseSchema.parse({
+          ...contentStats,
+          copilot: copilotStats,
+        }),
+      );
     } catch (err) {
       app.log.error(err, 'Failed to fetch admin stats');
       return reply.code(500).send({ error: 'stats_unavailable' });
@@ -31,7 +46,7 @@ export async function adminStatsRoutes(app: FastifyInstance) {
   });
 }
 
-function emptyStats(): StatsResult {
+function emptyContentStats(): ContentStatsResult {
   return {
     totalPublished: 0,
     totalFundingUsd: 0,
@@ -47,7 +62,7 @@ function emptyStats(): StatsResult {
   };
 }
 
-async function fetchStats(pool: Pool): Promise<StatsResult> {
+async function fetchContentStats(pool: Pool): Promise<ContentStatsResult> {
   const [
     summaryRes,
     industryRes,

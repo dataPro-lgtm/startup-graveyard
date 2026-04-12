@@ -37,10 +37,28 @@ export default async function DashboardPage() {
   );
 }
 
+function formatPercent(rate: number | null): string {
+  if (rate == null) return 'N/A';
+  return `${(rate * 100).toFixed(rate >= 0.1 ? 0 : 1)}%`;
+}
+
+function formatCompactUsd(value: number | null): string {
+  if (value == null) return 'N/A';
+  if (value >= 1) return `$${value.toFixed(2)}`;
+  if (value > 0) return `$${value.toFixed(4)}`;
+  return '$0';
+}
+
 function DashboardContent({ stats }: { stats: AdminStats }) {
   const maxIndustry = Math.max(...stats.byIndustry.map((r) => r.count), 1);
   const maxYear = Math.max(...stats.byYear.map((r) => r.count), 1);
   const maxReason = Math.max(...stats.byFailureReason.map((r) => r.count), 1);
+  const maxPromptRuns = Math.max(...stats.copilot.byPromptVersion.map((r) => r.runs), 1);
+  const maxFallbackReason = Math.max(...stats.copilot.byFallbackReason.map((r) => r.count), 1);
+  const groundedRate =
+    stats.copilot.overview.totalRuns > 0
+      ? stats.copilot.overview.groundedRuns / stats.copilot.overview.totalRuns
+      : null;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
@@ -78,6 +96,76 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
           color="#34d399"
           href="/admin/reviews"
         />
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+          gap: 16,
+        }}
+      >
+        <KpiCard
+          label="Copilot 运行数"
+          value={String(stats.copilot.overview.totalRuns)}
+          sub={`${stats.copilot.overview.totalSessions} 个研究线程`}
+          color="#8b5cf6"
+        />
+        <KpiCard
+          label="Grounded Rate"
+          value={formatPercent(groundedRate)}
+          sub={`fallback ${stats.copilot.overview.fallbackRuns} 次`}
+          color="#38bdf8"
+        />
+        <KpiCard
+          label="反馈 Eval"
+          value={formatPercent(stats.copilot.feedbackEval.positiveRate)}
+          sub={`👍 ${stats.copilot.feedbackEval.helpful} / 👎 ${stats.copilot.feedbackEval.needsImprovement}`}
+          color="#34d399"
+        />
+        <KpiCard
+          label="Copilot 成本"
+          value={formatCompactUsd(stats.copilot.overview.totalEstimatedCostUsd)}
+          sub={`均值 ${stats.copilot.overview.avgResponseMs} ms · ${stats.copilot.overview.avgTotalTokens} tok`}
+          color="#f59e0b"
+        />
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20 }}>
+        <ChartCard title="Prompt 版本回归视图">
+          {stats.copilot.byPromptVersion.length === 0 ? (
+            <EmptyState text="还没有 Copilot run 数据。先在 /copilot 发起会话后，这里才会出现 prompt 版本、反馈和成本对比。" />
+          ) : (
+            <div style={{ display: 'grid', gap: 12 }}>
+              {stats.copilot.byPromptVersion.map((row) => (
+                <BarRow
+                  key={row.promptVersion}
+                  label={row.promptVersion}
+                  value={row.runs}
+                  max={maxPromptRuns}
+                  color="#8b5cf6"
+                  sub={`${formatPercent(row.groundedRate)} grounded · ${formatPercent(row.positiveRate)} helpful · ${formatCompactUsd(row.totalEstimatedCostUsd)}`}
+                />
+              ))}
+            </div>
+          )}
+        </ChartCard>
+
+        <ChartCard title="Fallback 原因">
+          {stats.copilot.byFallbackReason.length === 0 ? (
+            <EmptyState text="当前还没有 fallback run。" compact />
+          ) : (
+            stats.copilot.byFallbackReason.map((row) => (
+              <BarRow
+                key={row.reason}
+                label={row.reason}
+                value={row.count}
+                max={maxFallbackReason}
+                color="#f87171"
+              />
+            ))
+          )}
+        </ChartCard>
       </div>
 
       {/* ── Charts Row ──────────────────────────────────────────────────── */}
@@ -169,6 +257,55 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
         </ChartCard>
       </div>
 
+      <ChartCard title="最近需要关注的 Copilot run">
+        {stats.copilot.recentFlags.length === 0 ? (
+          <EmptyState text="目前没有被 downvote 或触发 fallback 的回答。" />
+        ) : (
+          <div style={{ display: 'grid', gap: 12 }}>
+            {stats.copilot.recentFlags.map((item) => (
+              <div
+                key={item.assistantMessageId}
+                style={{
+                  borderRadius: 12,
+                  border: '1px solid #1d2746',
+                  background: '#0d1426',
+                  padding: '14px 16px',
+                  display: 'grid',
+                  gap: 8,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                  <div style={{ color: '#f5f7fb', fontWeight: 600 }}>{item.question}</div>
+                  <div style={{ color: '#6b7ca8', fontSize: 12 }}>
+                    {new Date(item.createdAt).toLocaleString('zh-CN')}
+                  </div>
+                </div>
+                <div style={{ color: '#c8d0e5', fontSize: 13, lineHeight: 1.7 }}>{item.answerPreview}</div>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 12 }}>
+                  <span style={{ color: '#9fb3ff' }}>prompt {item.promptVersion}</span>
+                  <span style={{ color: '#6b7ca8' }}>{item.responseMs} ms</span>
+                  <span style={{ color: '#6b7ca8' }}>
+                    {item.totalTokens == null ? 'tok N/A' : `${item.totalTokens} tok`}
+                  </span>
+                  <span style={{ color: '#6b7ca8' }}>{formatCompactUsd(item.estimatedCostUsd)}</span>
+                  {item.feedbackVote ? (
+                    <span style={{ color: item.feedbackVote === 'down' ? '#f87171' : '#34d399' }}>
+                      {item.feedbackVote === 'down' ? '用户反馈：需要改进' : '用户反馈：有帮助'}
+                    </span>
+                  ) : null}
+                  {item.fallbackReason ? (
+                    <span style={{ color: '#f87171' }}>fallback: {item.fallbackReason}</span>
+                  ) : null}
+                </div>
+                {item.feedbackNote ? (
+                  <div style={{ color: '#9fb3ff', fontSize: 12 }}>备注：{item.feedbackNote}</div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
+      </ChartCard>
+
       {/* ── Recent cases ────────────────────────────────────────────────── */}
       <ChartCard title="最近入库案例">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -246,6 +383,23 @@ function ChartCard({ title, children }: { title: string; children: React.ReactNo
     >
       <p style={{ margin: '0 0 16px', fontSize: 13, fontWeight: 600, color: '#9fb3ff' }}>{title}</p>
       {children}
+    </div>
+  );
+}
+
+function EmptyState({ text, compact = false }: { text: string; compact?: boolean }) {
+  return (
+    <div
+      style={{
+        borderRadius: 12,
+        border: '1px dashed #2a3658',
+        padding: compact ? '10px 12px' : '16px 18px',
+        color: '#6b7ca8',
+        fontSize: 13,
+        lineHeight: 1.7,
+      }}
+    >
+      {text}
     </div>
   );
 }

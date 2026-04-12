@@ -32,6 +32,11 @@
       "types": "./dist/schemas/meta.d.ts",
       "import": "./dist/schemas/meta.js",
       "default": "./dist/schemas/meta.js"
+    },
+    "./schemas/adminStats": {
+      "types": "./dist/schemas/adminStats.d.ts",
+      "import": "./dist/schemas/adminStats.js",
+      "default": "./dist/schemas/adminStats.js"
     }
   },
   "files": [
