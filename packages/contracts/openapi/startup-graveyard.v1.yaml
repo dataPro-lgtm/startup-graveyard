@@ -1174,8 +1174,9 @@ paths:
     post:
       summary: >-
         Claim next queued job (SKIP LOCKED), run processor (echo / fetch_title /
-        create_draft / pipeline_url_draft / upsert_embedding_stub / noop), then
-        succeeded or failed; audit job_succeeded or job_failed
+        create_draft / pipeline_url_draft / backfill_case_taxonomy /
+        upsert_embedding_stub / noop), then succeeded or failed; audit
+        job_succeeded or job_failed
       security:
         - AdminKey: []
       responses:
@@ -1210,7 +1211,10 @@ paths:
           description: Admin API disabled
   /v1/admin/scheduler/trigger:
     post:
-      summary: Trigger a scheduled job immediately by job name or source name
+      summary: >-
+        Trigger a scheduled job immediately by job name or source name
+        (for example pipeline_url_draft / extract_case_signals /
+        backfill_case_search_index / backfill_case_taxonomy)
       security:
         - AdminKey: []
       requestBody:

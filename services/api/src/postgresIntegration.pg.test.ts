@@ -335,4 +335,143 @@ suite('postgres integration', () => {
       ]),
     });
   });
+
+  it('backfills dirty taxonomy keys and queues reindex jobs against postgres', async () => {
+    const db = pool;
+    if (!db) throw new Error('postgres integration test pool not initialized');
+
+    const caseInsert = await db.query<{ id: string }>(
+      `
+      INSERT INTO cases (
+        slug, company_name, summary, industry_key, business_model_key,
+        primary_failure_reason_key, status, published_at
+      ) VALUES (
+        'dirty-taxonomy-case',
+        'Dirty Taxonomy Case',
+        'A published case with legacy freeform taxonomy labels.',
+        'Real Estate',
+        'B2B SaaS',
+        '技术债',
+        'published',
+        NOW()
+      )
+      RETURNING id
+      `,
+    );
+    const caseId = caseInsert.rows[0]!.id;
+
+    await db.query(
+      `
+      INSERT INTO failure_factors (case_id, level_1_key, level_2_key, level_3_key, weight, explanation)
+      VALUES ($1, 'Go To Market', 'Channel Mismatch', 'Cash Burn', 77, 'Legacy labels before taxonomy normalization')
+      `,
+      [caseId],
+    );
+    await db.query(
+      `
+      INSERT INTO timeline_events (case_id, event_date, event_type, title, sort_order)
+      VALUES ($1, DATE '2023-06-01', 'Released', 'Legacy product launch label', 0)
+      `,
+      [caseId],
+    );
+
+    const triggerRes = await app!.inject({
+      method: 'POST',
+      url: '/v1/admin/scheduler/trigger',
+      headers: {
+        'content-type': 'application/json',
+        'x-admin-key': ADMIN_KEY,
+      },
+      payload: {
+        sourceName: 'backfill_case_taxonomy',
+        payload: { limit: 20 },
+      },
+    });
+    expect(triggerRes.statusCode).toBe(200);
+    expect(JSON.parse(triggerRes.body)).toMatchObject({
+      ok: true,
+    });
+
+    const normalizedCaseRes = await db.query<{
+      industry_key: string;
+      business_model_key: string | null;
+      primary_failure_reason_key: string | null;
+    }>(
+      `
+      SELECT industry_key, business_model_key, primary_failure_reason_key
+      FROM cases
+      WHERE id = $1
+      `,
+      [caseId],
+    );
+    expect(normalizedCaseRes.rows[0]).toMatchObject({
+      industry_key: 'real_estate',
+      business_model_key: 'b2b_saas',
+      primary_failure_reason_key: 'technical_debt',
+    });
+
+    const normalizedFactorRes = await db.query<{
+      level_1_key: string;
+      level_2_key: string;
+      level_3_key: string | null;
+    }>(
+      `
+      SELECT level_1_key, level_2_key, level_3_key
+      FROM failure_factors
+      WHERE case_id = $1
+      `,
+      [caseId],
+    );
+    expect(normalizedFactorRes.rows[0]).toMatchObject({
+      level_1_key: 'go_to_market',
+      level_2_key: 'channel_mismatch',
+      level_3_key: 'cash_burn',
+    });
+
+    const normalizedTimelineRes = await db.query<{ event_type: string }>(
+      `
+      SELECT event_type
+      FROM timeline_events
+      WHERE case_id = $1
+      `,
+      [caseId],
+    );
+    expect(normalizedTimelineRes.rows[0]?.event_type).toBe('product_launch');
+
+    const queuedRes = await app!.inject({
+      method: 'GET',
+      url: '/v1/admin/ingestion-jobs?status=queued&limit=20',
+      headers: { 'x-admin-key': ADMIN_KEY },
+    });
+    expect(queuedRes.statusCode).toBe(200);
+    expect(JSON.parse(queuedRes.body)).toMatchObject({
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          sourceName: 'rebuild_case_search_index',
+          triggerType: 'taxonomy_backfill',
+          payload: { caseId },
+        }),
+      ]),
+    });
+
+    const processRes = await app!.inject({
+      method: 'POST',
+      url: '/v1/admin/ingestion-jobs/process-next',
+      headers: { 'x-admin-key': ADMIN_KEY },
+    });
+    expect(processRes.statusCode).toBe(200);
+    expect(JSON.parse(processRes.body)).toMatchObject({
+      ok: true,
+      job: {
+        status: 'succeeded',
+        sourceName: 'rebuild_case_search_index',
+      },
+    });
+
+    const chunkCountRes = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::bigint AS count FROM case_chunks WHERE case_id = $1`,
+      [caseId],
+    );
+    expect(Number(chunkCountRes.rows[0]?.count ?? 0)).toBeGreaterThanOrEqual(3);
+  });
 });

@@ -153,3 +153,9 @@
 - shared taxonomy 扩展为产品可用的枚举层：补齐 primary failure reasons、failure-factor level1/level2、timeline event types 的标签与别名归一化。
 - Admin 草稿录入 / case 修正页改为基于 taxonomy 的选项化输入，减少自由文本导致的脏数据。
 - API schema 会在写入前把常见别名、大小写、空格形式归一成 canonical key，Case Detail 展示也统一走标签映射。
+
+已完成 M1 第七段（历史 taxonomy 回填）：
+
+- 新增 `backfill_case_taxonomy` ingestion job，会批量扫描历史 case / failure_factors / timeline_events，把旧的 freeform/alias key 回填成 canonical taxonomy。
+- 回填完成后，会为受影响的 published case 自动排入 `rebuild_case_search_index`，避免搜索索引、筛选统计和详情展示继续读取旧 key。
+- 新增纯规则测试与 PostgreSQL 集成回归，保证历史脏数据修复后，公开接口与索引层看到的是一致的 canonical 值。

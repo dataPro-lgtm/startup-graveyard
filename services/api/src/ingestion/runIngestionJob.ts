@@ -4,6 +4,7 @@ import { embedCaseDocument, vectorToPgLiteral } from '../ai/openaiEmbed.js';
 import { captureSourceSnapshot } from './sourceSnapshot.js';
 import { rebuildCaseSearchIndex } from './caseIndexing.js';
 import { extractCaseSignals } from './extractCaseSignals.js';
+import { backfillCaseTaxonomy } from './taxonomyBackfill.js';
 import type { AdminCaseAttachmentsRepository } from '../repositories/adminCaseAttachmentsRepository.js';
 import type { AdminWriteRepository } from '../repositories/adminWriteRepository.js';
 import type { SourceSnapshotsRepository } from '../repositories/sourceSnapshotsRepository.js';
@@ -42,6 +43,7 @@ function clip(s: string): string {
  * - **extract_case_signals**：从 source snapshot 自动抽取 failure factors / timeline / lessons / primary reason。
  * - **rebuild_case_search_index**：从 case/evidence/factors/timeline/lessons 重建 `case_chunks` 与 `case_embeddings`。
  * - **backfill_case_search_index**：批量回填缺 chunk 或缺 embedding 的已发布案例。
+ * - **backfill_case_taxonomy**：批量归一化历史 taxonomy key，并为受影响的 published case 排入重建索引任务。
  * - **upsert_embedding_stub**：`payload.caseId`（uuid）；需 `ctx.pool`。若设置 `OPENAI_API_KEY` 则用
  *   `company_name`+`summary` 调 OpenAI 写入真实向量；否则用确定性 sin 向量（演示）。
  */
@@ -387,6 +389,39 @@ export async function runIngestionJob(
       else failed++;
     }
     return { ok: true, detail: `backfill_case_search_index: done=${done} failed=${failed}` };
+  }
+
+  if (sourceName === 'backfill_case_taxonomy') {
+    if (!ctx?.pool) {
+      return { ok: false, error: 'backfill_case_taxonomy：需要 PostgreSQL' };
+    }
+    const limitRaw = payload.limit;
+    const limit =
+      typeof limitRaw === 'number' && Number.isInteger(limitRaw) && limitRaw > 0
+        ? Math.min(limitRaw, 500)
+        : 100;
+
+    const result = await backfillCaseTaxonomy(ctx.pool, limit);
+
+    let reindexQueued = 0;
+    if (ctx.ingestionJobs) {
+      for (const caseId of result.publishedCaseIds) {
+        await ctx.ingestionJobs.enqueue({
+          sourceName: 'rebuild_case_search_index',
+          triggerType: 'taxonomy_backfill',
+          payload: { caseId },
+        });
+        reindexQueued++;
+      }
+    }
+
+    return {
+      ok: true,
+      detail:
+        `backfill_case_taxonomy: scanned=${result.scannedCases} cases=${result.casesUpdated}` +
+        ` factors=${result.factorsUpdated} timeline=${result.timelineUpdated}` +
+        ` reindexQueued=${reindexQueued}`,
+    };
   }
 
   // ── auto_embed_new ──────────────────────────────────────────────────────────
