@@ -12,9 +12,7 @@ export async function reviewRoutes(app: FastifyInstance) {
   app.get('/', async (request, reply) => {
     const parsed = listReviewsQuerySchema.safeParse(request.query);
     if (!parsed.success) {
-      return reply
-        .code(400)
-        .send({ error: 'invalid_query', details: parsed.error.flatten() });
+      return reply.code(400).send({ error: 'invalid_query', details: parsed.error.flatten() });
     }
     const q = parsed.data;
     const result = await app.reviewsRepo.list({
@@ -42,14 +40,9 @@ export async function reviewRoutes(app: FastifyInstance) {
     }
     const body = rejectReviewBodySchema.safeParse(request.body ?? {});
     if (!body.success) {
-      return reply
-        .code(400)
-        .send({ error: 'invalid_body', details: body.error.flatten() });
+      return reply.code(400).send({ error: 'invalid_body', details: body.error.flatten() });
     }
-    const out = await app.reviewsRepo.reject(
-      params.data.id,
-      body.data.decisionNote,
-    );
+    const out = await app.reviewsRepo.reject(params.data.id, body.data.decisionNote);
     if (!out) return reply.notFound('review not found or not pending');
     return rejectReviewResponseSchema.parse(out);
   });

@@ -11,8 +11,12 @@ export default function Loading() {
           animation: 'sg-shimmer 1.2s ease-in-out infinite',
         }}
       />
-      <div style={{ height: 48, width: '72%', marginTop: 16, borderRadius: 8, background: '#151d33' }} />
-      <div style={{ height: 20, width: '90%', marginTop: 12, borderRadius: 6, background: '#151d33' }} />
+      <div
+        style={{ height: 48, width: '72%', marginTop: 16, borderRadius: 8, background: '#151d33' }}
+      />
+      <div
+        style={{ height: 20, width: '90%', marginTop: 12, borderRadius: 6, background: '#151d33' }}
+      />
       <section style={{ display: 'grid', gap: 16, marginTop: 40 }}>
         {[1, 2, 3].map((i) => (
           <div
@@ -27,8 +31,24 @@ export default function Loading() {
             }}
           >
             <div style={{ height: 22, width: '40%', borderRadius: 4, background: '#1d2746' }} />
-            <div style={{ height: 16, width: '100%', marginTop: 14, borderRadius: 4, background: '#1d2746' }} />
-            <div style={{ height: 16, width: '85%', marginTop: 8, borderRadius: 4, background: '#1d2746' }} />
+            <div
+              style={{
+                height: 16,
+                width: '100%',
+                marginTop: 14,
+                borderRadius: 4,
+                background: '#1d2746',
+              }}
+            />
+            <div
+              style={{
+                height: 16,
+                width: '85%',
+                marginTop: 8,
+                borderRadius: 4,
+                background: '#1d2746',
+              }}
+            />
           </div>
         ))}
       </section>

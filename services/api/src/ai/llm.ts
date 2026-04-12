@@ -30,11 +30,7 @@ class OpenAIProvider implements LLMProvider {
     this.name = config.openai.chatModel;
   }
 
-  async chat(
-    systemPrompt: string,
-    userMessage: string,
-    opts: ChatOptions = {},
-  ): Promise<string> {
+  async chat(systemPrompt: string, userMessage: string, opts: ChatOptions = {}): Promise<string> {
     const resp = await fetch(`${config.openai.baseUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: {
@@ -76,11 +72,7 @@ class AnthropicProvider implements LLMProvider {
     this.name = config.anthropic.chatModel;
   }
 
-  async chat(
-    systemPrompt: string,
-    userMessage: string,
-    opts: ChatOptions = {},
-  ): Promise<string> {
+  async chat(systemPrompt: string, userMessage: string, opts: ChatOptions = {}): Promise<string> {
     const resp = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {

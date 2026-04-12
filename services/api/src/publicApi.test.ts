@@ -81,9 +81,7 @@ describe('public API (mock DB)', () => {
     };
     expect(body.items.length).toBeGreaterThan(0);
     for (const row of body.items) {
-      expect((row.primaryFailureReasonKey ?? '').toLowerCase()).toBe(
-        'premature_scaling',
-      );
+      expect((row.primaryFailureReasonKey ?? '').toLowerCase()).toBe('premature_scaling');
     }
   });
 });

@@ -13,10 +13,7 @@ export type CopilotResult =
   | { ok: true; answer: string; citations: CopilotCitation[]; model?: string; grounded: boolean }
   | { ok: false; error: string };
 
-export async function askCopilotAction(
-  question: string,
-  topK = 5,
-): Promise<CopilotResult> {
+export async function askCopilotAction(question: string, topK = 5): Promise<CopilotResult> {
   try {
     const res = await fetch(`${API_BASE_URL}/v1/copilot/answer`, {
       method: 'POST',

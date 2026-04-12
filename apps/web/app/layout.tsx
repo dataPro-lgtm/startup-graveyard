@@ -3,14 +3,18 @@ export const metadata = {
   description: 'Failure intelligence for founders and investors',
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="zh-CN">
-      <body suppressHydrationWarning style={{ fontFamily: 'Inter, ui-sans-serif, system-ui', margin: 0, background: '#0b1020', color: '#f5f7fb' }}>
+      <body
+        suppressHydrationWarning
+        style={{
+          fontFamily: 'Inter, ui-sans-serif, system-ui',
+          margin: 0,
+          background: '#0b1020',
+          color: '#f5f7fb',
+        }}
+      >
         <header
           style={{
             display: 'flex',

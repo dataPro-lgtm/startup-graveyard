@@ -4,10 +4,7 @@ const emptyToUndefined = (v: unknown) =>
   v === '' || v === null || v === undefined ? undefined : v;
 
 export const listReviewsQuerySchema = z.object({
-  status: z.preprocess(
-    emptyToUndefined,
-    z.enum(['pending', 'approved', 'rejected']).optional(),
-  ),
+  status: z.preprocess(emptyToUndefined, z.enum(['pending', 'approved', 'rejected']).optional()),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });

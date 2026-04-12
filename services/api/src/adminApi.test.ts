@@ -65,8 +65,6 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
       status: string;
     };
     expect(body.status).toBe('draft');
-    expect(body.caseId).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
-    );
+    expect(body.caseId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
   });
 });

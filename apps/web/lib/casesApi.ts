@@ -53,16 +53,15 @@ export function casesListPath(p: CasesSearchParams): string {
   return qs ? `/?${qs}` : '/';
 }
 
-export async function fetchCasesList(
-  params: CasesSearchParams,
-): Promise<ListCasesResult | null> {
+export async function fetchCasesList(params: CasesSearchParams): Promise<ListCasesResult | null> {
   const sp = new URLSearchParams();
   if (params.q) sp.set('q', params.q);
   if (params.industry) sp.set('industry', params.industry);
   if (params.country) sp.set('country', params.country);
   if (params.closedYear) sp.set('closedYear', params.closedYear);
   if (params.businessModelKey) sp.set('businessModelKey', params.businessModelKey);
-  if (params.primaryFailureReasonKey) sp.set('primaryFailureReasonKey', params.primaryFailureReasonKey);
+  if (params.primaryFailureReasonKey)
+    sp.set('primaryFailureReasonKey', params.primaryFailureReasonKey);
   if (params.sort) sp.set('sort', params.sort);
   sp.set('page', params.page ?? '1');
   sp.set('limit', params.limit ?? '20');
@@ -107,10 +106,7 @@ export async function fetchCaseBySlug(slug: string): Promise<CaseDetail | null> 
   }
 }
 
-export async function fetchSimilarCases(
-  id: string,
-  limit = 6,
-): Promise<CaseListItem[]> {
+export async function fetchSimilarCases(id: string, limit = 6): Promise<CaseListItem[]> {
   const url = `${API_BASE_URL}/v1/cases/${encodeURIComponent(id)}/similar?limit=${limit}`;
   try {
     const res = await fetch(url, { cache: 'no-store' });

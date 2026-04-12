@@ -47,10 +47,7 @@ export default async function AdminCasesHubPage({
         <p style={{ color: '#ff8a8a', marginBottom: 16 }}>请输入合法 UUID。</p>
       ) : null}
 
-      <form
-        action={goToCaseAttachments}
-        style={{ display: 'grid', gap: 14, maxWidth: 480 }}
-      >
+      <form action={goToCaseAttachments} style={{ display: 'grid', gap: 14, maxWidth: 480 }}>
         <label style={fieldStyle}>
           caseId（UUID）
           <input

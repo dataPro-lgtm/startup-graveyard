@@ -54,9 +54,7 @@ export default async function AdminIngestionJobDetailPage({
         <p style={{ color: '#7dffb3', marginTop: 16 }}>已重新入队（queued）。</p>
       ) : null}
       {err === 'requeue_notfound' ? (
-        <p style={{ color: '#ff8a8a', marginTop: 16 }}>
-          重新入队失败：任务不存在或非 failed。
-        </p>
+        <p style={{ color: '#ff8a8a', marginTop: 16 }}>重新入队失败：任务不存在或非 failed。</p>
       ) : null}
       {err === 'requeue_failed' ? (
         <p style={{ color: '#ff8a8a', marginTop: 16 }}>重新入队请求失败。</p>
@@ -76,8 +74,7 @@ export default async function AdminIngestionJobDetailPage({
         }}
       >
         <div>
-          <span style={{ color: '#9fb3ff' }}>status</span> ·{' '}
-          <strong>{j.status}</strong>
+          <span style={{ color: '#9fb3ff' }}>status</span> · <strong>{j.status}</strong>
         </div>
         <div>
           <span style={{ color: '#9fb3ff' }}>source</span> · {j.sourceName}

@@ -47,10 +47,7 @@ export default function CopilotPage() {
 
   return (
     <main style={{ maxWidth: 860, margin: '0 auto', padding: '48px 24px 80px' }}>
-      <Link
-        href="/"
-        style={{ color: '#9fb3ff', textDecoration: 'none', fontSize: 14 }}
-      >
+      <Link href="/" style={{ color: '#9fb3ff', textDecoration: 'none', fontSize: 14 }}>
         ← 返回案例列表
       </Link>
 
@@ -58,9 +55,7 @@ export default function CopilotPage() {
         <p style={{ color: '#9fb3ff', fontSize: 13, letterSpacing: 1.2, margin: '0 0 8px' }}>
           FAILURE COPILOT
         </p>
-        <h1 style={{ fontSize: 34, lineHeight: 1.15, margin: '0 0 10px' }}>
-          失败智能问答
-        </h1>
+        <h1 style={{ fontSize: 34, lineHeight: 1.15, margin: '0 0 10px' }}>失败智能问答</h1>
         <p style={{ color: '#c8d0e5', lineHeight: 1.7, margin: 0 }}>
           基于创业坟场知识库，用自然语言提问，获取有案例引用支撑的失败模式分析。
         </p>
@@ -152,9 +147,7 @@ export default function CopilotPage() {
       </form>
 
       {/* 错误 */}
-      {error && (
-        <p style={{ color: '#f87171', marginBottom: 24 }}>{error}</p>
-      )}
+      {error && <p style={{ color: '#f87171', marginBottom: 24 }}>{error}</p>}
 
       {/* 加载占位 */}
       {loading && (
@@ -184,15 +177,20 @@ export default function CopilotPage() {
               background: '#10172b',
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
-              <p style={{ color: '#9fb3ff', fontSize: 12, letterSpacing: 1, margin: 0 }}>
-                AI 分析
-              </p>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: 16,
+                flexWrap: 'wrap',
+                gap: 8,
+              }}
+            >
+              <p style={{ color: '#9fb3ff', fontSize: 12, letterSpacing: 1, margin: 0 }}>AI 分析</p>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 {result.model && (
-                  <span style={{ color: '#6b7ca8', fontSize: 11 }}>
-                    {result.model}
-                  </span>
+                  <span style={{ color: '#6b7ca8', fontSize: 11 }}>{result.model}</span>
                 )}
                 <span
                   style={{
@@ -242,7 +240,12 @@ export default function CopilotPage() {
                   >
                     <Link
                       href={`/cases/s/${encodeURIComponent(c.slug)}`}
-                      style={{ color: '#7d9cff', fontWeight: 600, textDecoration: 'none', fontSize: 15 }}
+                      style={{
+                        color: '#7d9cff',
+                        fontWeight: 600,
+                        textDecoration: 'none',
+                        fontSize: 15,
+                      }}
                     >
                       {c.companyName}
                     </Link>
@@ -259,4 +262,3 @@ export default function CopilotPage() {
     </main>
   );
 }
-
