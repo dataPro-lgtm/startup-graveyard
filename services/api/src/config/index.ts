@@ -13,6 +13,11 @@ export const config = {
     adminApiKey: process.env.ADMIN_API_KEY ?? '',
   },
 
+  auth: {
+    /** Secret used to sign JWT access tokens. Generate with: openssl rand -base64 48 */
+    jwtSecret: process.env.JWT_SECRET ?? 'change-me-in-production',
+  },
+
   openai: {
     apiKey: process.env.OPENAI_API_KEY?.trim() ?? '',
     /** Base URL — supports proxy / mirror endpoints */
