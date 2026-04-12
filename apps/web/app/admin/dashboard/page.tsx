@@ -274,20 +274,31 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
                   gap: 8,
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    flexWrap: 'wrap',
+                  }}
+                >
                   <div style={{ color: '#f5f7fb', fontWeight: 600 }}>{item.question}</div>
                   <div style={{ color: '#6b7ca8', fontSize: 12 }}>
                     {new Date(item.createdAt).toLocaleString('zh-CN')}
                   </div>
                 </div>
-                <div style={{ color: '#c8d0e5', fontSize: 13, lineHeight: 1.7 }}>{item.answerPreview}</div>
+                <div style={{ color: '#c8d0e5', fontSize: 13, lineHeight: 1.7 }}>
+                  {item.answerPreview}
+                </div>
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 12 }}>
                   <span style={{ color: '#9fb3ff' }}>prompt {item.promptVersion}</span>
                   <span style={{ color: '#6b7ca8' }}>{item.responseMs} ms</span>
                   <span style={{ color: '#6b7ca8' }}>
                     {item.totalTokens == null ? 'tok N/A' : `${item.totalTokens} tok`}
                   </span>
-                  <span style={{ color: '#6b7ca8' }}>{formatCompactUsd(item.estimatedCostUsd)}</span>
+                  <span style={{ color: '#6b7ca8' }}>
+                    {formatCompactUsd(item.estimatedCostUsd)}
+                  </span>
                   {item.feedbackVote ? (
                     <span style={{ color: item.feedbackVote === 'down' ? '#f87171' : '#34d399' }}>
                       {item.feedbackVote === 'down' ? '用户反馈：需要改进' : '用户反馈：有帮助'}

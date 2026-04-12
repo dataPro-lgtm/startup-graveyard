@@ -135,7 +135,9 @@ export default async function AdminReviewsPage({
 
   const ok = pickSearchParam(raw.ok);
   const err = pickSearchParam(raw.err);
-  const industryEntries = Object.entries(taxonomy.industries).sort(([a], [b]) => a.localeCompare(b));
+  const industryEntries = Object.entries(taxonomy.industries).sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
   const countryEntries = Object.entries(taxonomy.countries).sort(([a], [b]) => a.localeCompare(b));
   const businessModelEntries = Object.entries(taxonomy.businessModels).sort(([a], [b]) =>
     a.localeCompare(b),
@@ -217,11 +219,7 @@ export default async function AdminReviewsPage({
             </label>
             <label style={fieldStyle}>
               主失败原因 key（可选）
-              <select
-                name="primaryFailureReasonKey"
-                style={inputLike}
-                defaultValue=""
-              >
+              <select name="primaryFailureReasonKey" style={inputLike} defaultValue="">
                 <option value="">未设置</option>
                 {primaryReasonEntries.map(([key, label]) => (
                   <option key={key} value={key}>
@@ -642,18 +640,18 @@ export default async function AdminReviewsPage({
             → <code>payload.url</code>； <code>capture_source_snapshot</code> → 抓取 URL 并保存
             source snapshot； <code>create_draft</code> → 与「新建草稿」同字段；{' '}
             <code>pipeline_url_draft</code> → <code>url</code> + <code>slug</code> +{' '}
-            <code>summary</code> + <code>industryKey</code>，并自动保存 snapshot + 附一条
-            evidence + 排入 <code>extract_case_signals</code>；{' '}
-            <code>extract_case_signals</code> → 从 snapshot 自动抽取 failure factors / timeline /
-            lessons / primary reason； <code>rebuild_case_search_index</code> → 基于
-            case/evidence/factors/timeline 重建 <code>case_chunks</code> +{' '}
-            <code>case_embeddings</code>；{' '}
+            <code>summary</code> + <code>industryKey</code>，并自动保存 snapshot + 附一条 evidence +
+            排入 <code>extract_case_signals</code>； <code>extract_case_signals</code> → 从 snapshot
+            自动抽取 failure factors / timeline / lessons / primary reason；{' '}
+            <code>rebuild_case_search_index</code> → 基于 case/evidence/factors/timeline 重建{' '}
+            <code>case_chunks</code> + <code>case_embeddings</code>；{' '}
             <code>backfill_case_search_index</code> → 批量回填缺索引的已发布案例；{' '}
-            <code>backfill_case_taxonomy</code> → 批量修复历史 taxonomy key，并为受影响的已发布案例排入
-            <code>rebuild_case_search_index</code>；{' '}
-            <code>upsert_embedding_stub</code> → <code>payload.caseId</code>（仅 case embedding
-            演示）；其它 为 noop。审核通过后也会自动排入 <code>rebuild_case_search_index</code>。
-            长时间 <code>running</code> 可用下方「回收卡住」重置为 <code>queued</code>。
+            <code>backfill_case_taxonomy</code> → 批量修复历史 taxonomy
+            key，并为受影响的已发布案例排入
+            <code>rebuild_case_search_index</code>； <code>upsert_embedding_stub</code> →{' '}
+            <code>payload.caseId</code>（仅 case embedding 演示）；其它 为
+            noop。审核通过后也会自动排入 <code>rebuild_case_search_index</code>。 长时间{' '}
+            <code>running</code> 可用下方「回收卡住」重置为 <code>queued</code>。
           </span>
         </p>
         <div
@@ -962,7 +960,9 @@ upsert_embedding_stub → {"caseId":"<已发布 case 的 uuid>"}`}
                 <div style={{ marginTop: 6, fontSize: 15, color: '#f5f7fb', fontWeight: 600 }}>
                   {snapshot.title ?? '(无标题)'}
                 </div>
-                <div style={{ marginTop: 6, fontSize: 12, color: '#8a96b0', wordBreak: 'break-all' }}>
+                <div
+                  style={{ marginTop: 6, fontSize: 12, color: '#8a96b0', wordBreak: 'break-all' }}
+                >
                   {snapshot.finalUrl}
                 </div>
                 {snapshot.excerpt ? (

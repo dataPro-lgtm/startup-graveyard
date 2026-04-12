@@ -3,12 +3,7 @@ import { z } from 'zod';
 const emptyToUndefined = (v: unknown) =>
   v === '' || v === null || v === undefined ? undefined : v;
 
-export const reviewStatusSchema = z.enum([
-  'pending',
-  'changes_requested',
-  'approved',
-  'rejected',
-]);
+export const reviewStatusSchema = z.enum(['pending', 'changes_requested', 'approved', 'rejected']);
 
 export const listReviewsQuerySchema = z.object({
   status: z.preprocess(emptyToUndefined, reviewStatusSchema.optional()),

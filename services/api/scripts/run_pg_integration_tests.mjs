@@ -144,19 +144,15 @@ async function applyMigrations(testDatabaseUrl) {
 
 async function runVitest(testDatabaseUrl) {
   return await new Promise((resolve, reject) => {
-    const child = spawn(
-      'pnpm',
-      ['exec', 'vitest', 'run', 'src/postgresIntegration.pg.test.ts'],
-      {
-        cwd: apiDir,
-        stdio: 'inherit',
-        env: {
-          ...process.env,
-          TEST_DATABASE_URL: testDatabaseUrl,
-          DATABASE_URL: testDatabaseUrl,
-        },
+    const child = spawn('pnpm', ['exec', 'vitest', 'run', 'src/postgresIntegration.pg.test.ts'], {
+      cwd: apiDir,
+      stdio: 'inherit',
+      env: {
+        ...process.env,
+        TEST_DATABASE_URL: testDatabaseUrl,
+        DATABASE_URL: testDatabaseUrl,
       },
-    );
+    });
     child.on('error', reject);
     child.on('close', (code) => resolve(code ?? 1));
   });
@@ -200,7 +196,9 @@ async function main() {
   } finally {
     console.log(`[pg-test] dropping isolated database: ${databaseName}`);
     await dropDatabase(adminUrl, databaseName).catch((error) => {
-      console.warn(`[pg-test] drop database failed: ${error instanceof Error ? error.message : String(error)}`);
+      console.warn(
+        `[pg-test] drop database failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
     });
     if (containerName) {
       console.log(`[pg-test] stopping temporary container: ${containerName}`);

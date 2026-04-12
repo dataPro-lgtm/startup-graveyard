@@ -120,7 +120,9 @@ export class MockSourceSnapshotsRepository implements SourceSnapshotsRepository 
     if (params.sourceName) {
       rows = rows.filter((item) => item.sourceName === params.sourceName);
     }
-    return rows.slice(0, params.limit).map(({ snapshotText: _snapshotText, ...publicItem }) => publicItem);
+    return rows
+      .slice(0, params.limit)
+      .map(({ snapshotText: _snapshotText, ...publicItem }) => publicItem);
   }
 
   async getById(id: string): Promise<SourceSnapshotRecord | null> {

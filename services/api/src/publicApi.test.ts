@@ -215,7 +215,9 @@ describe('public API (mock DB)', () => {
     const followup = JSON.parse(followupRes.body) as {
       citations: Array<{ caseId: string; pinned?: boolean }>;
     };
-    expect(followup.citations.some((item) => item.caseId === answered.citations[0]!.caseId)).toBe(true);
+    expect(followup.citations.some((item) => item.caseId === answered.citations[0]!.caseId)).toBe(
+      true,
+    );
     expect(followup.citations.some((item) => item.pinned === true)).toBe(true);
 
     const detailRes = await app.inject({

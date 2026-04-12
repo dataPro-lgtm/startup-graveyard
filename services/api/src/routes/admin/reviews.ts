@@ -35,15 +35,13 @@ export async function reviewRoutes(app: FastifyInstance) {
     const out = await app.reviewsRepo.approve(params.data.id);
     if (!out) return reply.notFound('review not found or not pending');
     if (!out.ok) {
-      return reply
-        .code(409)
-        .send(
-          approveReviewBlockedResponseSchema.parse({
-            error: out.error,
-            caseId: out.caseId,
-            publishReadiness: out.publishReadiness,
-          }),
-        );
+      return reply.code(409).send(
+        approveReviewBlockedResponseSchema.parse({
+          error: out.error,
+          caseId: out.caseId,
+          publishReadiness: out.publishReadiness,
+        }),
+      );
     }
     return approveReviewResponseSchema.parse(out);
   });

@@ -172,9 +172,10 @@ function inferEventDate(sentence: string): string | null {
   const isoDate = /\b((?:19|20)\d{2}-\d{2}-\d{2})\b/.exec(sentence);
   if (isoDate) return isoDate[1] ?? null;
 
-  const monthDate = /\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),\s*((?:19|20)\d{2})\b/i.exec(
-    sentence,
-  );
+  const monthDate =
+    /\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),\s*((?:19|20)\d{2})\b/i.exec(
+      sentence,
+    );
   if (monthDate) {
     const monthNames = [
       'january',

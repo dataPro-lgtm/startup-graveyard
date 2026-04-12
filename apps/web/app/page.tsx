@@ -275,7 +275,9 @@ export default async function HomePage({
                   }}
                 />
                 <div style={{ fontWeight: 700, fontSize: 16 }}>{preset.title}</div>
-                <div style={{ color: '#c8d0e5', lineHeight: 1.6, fontSize: 13 }}>{preset.description}</div>
+                <div style={{ color: '#c8d0e5', lineHeight: 1.6, fontSize: 13 }}>
+                  {preset.description}
+                </div>
               </Link>
             ))}
           </div>

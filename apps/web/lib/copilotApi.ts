@@ -14,15 +14,13 @@ import {
 
 export type { CopilotCitation, CopilotAnswerResponse as CopilotResponse };
 
-export async function askCopilot(
-  input: {
-    visitorId: string;
-    question: string;
-    sessionId?: string;
-    topK?: number;
-    pinnedCaseIds?: string[];
-  },
-): Promise<CopilotAnswerResponse | null> {
+export async function askCopilot(input: {
+  visitorId: string;
+  question: string;
+  sessionId?: string;
+  topK?: number;
+  pinnedCaseIds?: string[];
+}): Promise<CopilotAnswerResponse | null> {
   const url = `${API_BASE_URL}/v1/copilot/answer`;
   try {
     const res = await fetch(url, {

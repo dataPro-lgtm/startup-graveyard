@@ -348,14 +348,10 @@ function summarizeAdminRuns(runs: AdminRunRecord[]): CopilotAdminMetrics {
         positiveFeedback: helpfulVotes,
         negativeFeedback: negativeVotes,
         noFeedback,
-        groundedRate: toRate(
-          bucket.filter((run) => run.grounded).length,
-          bucket.length,
-        ),
+        groundedRate: toRate(bucket.filter((run) => run.grounded).length, bucket.length),
         positiveRate: toRate(helpfulVotes, helpfulVotes + negativeVotes),
-        lastRunAt: [...bucket]
-          .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]
-          ?.createdAt ?? null,
+        lastRunAt:
+          [...bucket].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]?.createdAt ?? null,
       };
     })
     .sort((a, b) => (b.lastRunAt ?? '').localeCompare(a.lastRunAt ?? '') || b.runs - a.runs)
@@ -406,7 +402,8 @@ function summarizeAdminRuns(runs: AdminRunRecord[]): CopilotAdminMetrics {
           : tokenRuns.reduce((sum, run) => sum + (run.totalTokens ?? 0), 0) / tokenRuns.length,
       ),
       totalEstimatedCostUsd,
-      lastRunAt: [...runs].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]?.createdAt ?? null,
+      lastRunAt:
+        [...runs].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]?.createdAt ?? null,
     },
     feedbackEval: {
       helpful,
@@ -473,10 +470,7 @@ function toSessionDetail(session: SessionRecord, messages: MessageRecord[]): Cop
     .filter((message) => message.sessionId === session.id)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const lastQuestion =
-    [...sessionMessages]
-      .reverse()
-      .find((message) => message.role === 'user')
-      ?.content ?? null;
+    [...sessionMessages].reverse().find((message) => message.role === 'user')?.content ?? null;
 
   return {
     session: {
@@ -521,14 +515,20 @@ export class MockCopilotSessionsRepository implements CopilotSessionsRepository 
   }
 
   async getSession(visitorId: string, sessionId: string): Promise<CopilotSessionDetail | null> {
-    const session = this.sessions.find((item) => item.id === sessionId && item.visitorId === visitorId);
+    const session = this.sessions.find(
+      (item) => item.id === sessionId && item.visitorId === visitorId,
+    );
     if (!session) return null;
     return toSessionDetail(session, this.messages);
   }
 
-  async saveAnswerTurn(input: SaveCopilotAnswerTurnInput): Promise<SaveCopilotAnswerTurnResult | null> {
+  async saveAnswerTurn(
+    input: SaveCopilotAnswerTurnInput,
+  ): Promise<SaveCopilotAnswerTurnResult | null> {
     let session = input.sessionId
-      ? this.sessions.find((item) => item.id === input.sessionId && item.visitorId === input.visitorId)
+      ? this.sessions.find(
+          (item) => item.id === input.sessionId && item.visitorId === input.visitorId,
+        )
       : undefined;
 
     if (input.sessionId && !session) return null;
@@ -542,7 +542,9 @@ export class MockCopilotSessionsRepository implements CopilotSessionsRepository 
       session.pinnedCaseIds = [...new Set(input.initialPinnedCaseIds ?? [])];
     }
 
-    const existingCount = this.messages.filter((message) => message.sessionId === session.id).length;
+    const existingCount = this.messages.filter(
+      (message) => message.sessionId === session.id,
+    ).length;
     if (existingCount === 0 && session.title === DEFAULT_SESSION_TITLE) {
       session.title = clipTitle(input.question);
     }
@@ -633,8 +635,14 @@ export class MockCopilotSessionsRepository implements CopilotSessionsRepository 
     return summarizeAdminRuns(runs);
   }
 
-  async addPinnedCase(visitorId: string, sessionId: string, caseId: string): Promise<CopilotSessionDetail | null> {
-    const session = this.sessions.find((item) => item.id === sessionId && item.visitorId === visitorId);
+  async addPinnedCase(
+    visitorId: string,
+    sessionId: string,
+    caseId: string,
+  ): Promise<CopilotSessionDetail | null> {
+    const session = this.sessions.find(
+      (item) => item.id === sessionId && item.visitorId === visitorId,
+    );
     if (!session) return null;
     if (!session.pinnedCaseIds.includes(caseId)) {
       session.pinnedCaseIds.push(caseId);
@@ -648,7 +656,9 @@ export class MockCopilotSessionsRepository implements CopilotSessionsRepository 
     sessionId: string,
     caseId: string,
   ): Promise<CopilotSessionDetail | null> {
-    const session = this.sessions.find((item) => item.id === sessionId && item.visitorId === visitorId);
+    const session = this.sessions.find(
+      (item) => item.id === sessionId && item.visitorId === visitorId,
+    );
     if (!session) return null;
     session.pinnedCaseIds = session.pinnedCaseIds.filter((id) => id !== caseId);
     session.updatedAt = new Date().toISOString();
@@ -663,7 +673,9 @@ export class MockCopilotSessionsRepository implements CopilotSessionsRepository 
   ): Promise<SaveCopilotFeedbackResult | null> {
     const message = this.messages.find((item) => item.id === messageId);
     if (!message || message.role !== 'assistant') return null;
-    const session = this.sessions.find((item) => item.id === message.sessionId && item.visitorId === visitorId);
+    const session = this.sessions.find(
+      (item) => item.id === message.sessionId && item.visitorId === visitorId,
+    );
     if (!session) return null;
     message.feedbackVote = vote;
     message.feedbackNote = note?.trim() || null;
@@ -822,7 +834,9 @@ export class PgCopilotSessionsRepository implements CopilotSessionsRepository {
     return getSessionDetailWithDb(this.pool, visitorId, sessionId);
   }
 
-  async saveAnswerTurn(input: SaveCopilotAnswerTurnInput): Promise<SaveCopilotAnswerTurnResult | null> {
+  async saveAnswerTurn(
+    input: SaveCopilotAnswerTurnInput,
+  ): Promise<SaveCopilotAnswerTurnResult | null> {
     return withTransaction(this.pool, async (client) => {
       let sessionId = input.sessionId;
       let title = clipTitle(input.question);
@@ -1109,7 +1123,11 @@ export class PgCopilotSessionsRepository implements CopilotSessionsRepository {
     };
   }
 
-  async addPinnedCase(visitorId: string, sessionId: string, caseId: string): Promise<CopilotSessionDetail | null> {
+  async addPinnedCase(
+    visitorId: string,
+    sessionId: string,
+    caseId: string,
+  ): Promise<CopilotSessionDetail | null> {
     return withTransaction(this.pool, async (client) => {
       const row = await client.query<{ pinned_case_ids: unknown }>(
         `

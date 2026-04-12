@@ -99,9 +99,12 @@ export const updateCaseAnalysisBodySchema = z
     ),
     keyLessons: z.preprocess(emptyToUndef, z.string().trim().max(12_000).optional()),
   })
-  .refine((value) => value.primaryFailureReasonKey !== undefined || value.keyLessons !== undefined, {
-    message: 'at_least_one_field_required',
-  });
+  .refine(
+    (value) => value.primaryFailureReasonKey !== undefined || value.keyLessons !== undefined,
+    {
+      message: 'at_least_one_field_required',
+    },
+  );
 
 export type UpdateCaseAnalysisBody = z.infer<typeof updateCaseAnalysisBodySchema>;
 

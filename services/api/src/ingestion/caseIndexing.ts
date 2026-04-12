@@ -134,7 +134,12 @@ function splitLessons(keyLessons: string | null): string[] {
     .split(/\n+/)
     .map((item) => item.trim())
     .filter(Boolean)
-    .map((item) => item.replace(/^\d+[.)]\s*/, '').replace(/^[-*•]\s*/, '').trim())
+    .map((item) =>
+      item
+        .replace(/^\d+[.)]\s*/, '')
+        .replace(/^[-*•]\s*/, '')
+        .trim(),
+    )
     .filter(Boolean);
 }
 

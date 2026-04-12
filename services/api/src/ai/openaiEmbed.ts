@@ -106,7 +106,9 @@ export async function embedDocuments(
       return { vectors, provider: 'openai' };
     } catch (e) {
       if (!options.fallbackToDeterministic) throw e;
-      console.warn(`[openaiEmbed] fallback to deterministic: ${e instanceof Error ? e.message : String(e)}`);
+      console.warn(
+        `[openaiEmbed] fallback to deterministic: ${e instanceof Error ? e.message : String(e)}`,
+      );
     }
   }
 

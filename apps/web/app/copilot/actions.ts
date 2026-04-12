@@ -110,12 +110,15 @@ export async function pinCopilotCaseAction(
   caseId: string,
 ): Promise<ActionResult<CopilotSessionDetail>> {
   try {
-    const res = await fetch(`${API_BASE_URL}/v1/copilot/sessions/${encodeURIComponent(sessionId)}/pins`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ visitorId, caseId }),
-      cache: 'no-store',
-    });
+    const res = await fetch(
+      `${API_BASE_URL}/v1/copilot/sessions/${encodeURIComponent(sessionId)}/pins`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ visitorId, caseId }),
+        cache: 'no-store',
+      },
+    );
     return parseJson(res, copilotSessionDetailSchema);
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : '请求失败' };

@@ -62,10 +62,7 @@ function normalizeOptionalKey(
   return normalizer(value) ?? normalizeFreeformTaxonomyKey(value) ?? value;
 }
 
-function changed<T extends Record<string, string | null>>(
-  current: T,
-  next: T,
-): Partial<T> | null {
+function changed<T extends Record<string, string | null>>(current: T, next: T): Partial<T> | null {
   const patch: Partial<T> = {};
   let hasChange = false;
   for (const key of Object.keys(next) as Array<keyof T>) {
@@ -140,7 +137,8 @@ export function diffFailureFactorTaxonomyRow(row: {
 
 export function normalizeTimelineTaxonomyRow(row: { eventType: string }): TimelineTaxonomyPatch {
   return {
-    eventType: normalizeTimelineEventType(row.eventType) ?? normalizeFreeformTaxonomyKey(row.eventType),
+    eventType:
+      normalizeTimelineEventType(row.eventType) ?? normalizeFreeformTaxonomyKey(row.eventType),
   };
 }
 
@@ -202,7 +200,9 @@ export async function backfillCaseTaxonomy(
     let timelineUpdated = 0;
     const affectedCaseIds = new Set<string>();
     const publishedCaseIds = new Set<string>();
-    const publishedLookup = new Map(caseRows.rows.map((row) => [row.id, row.status === 'published']));
+    const publishedLookup = new Map(
+      caseRows.rows.map((row) => [row.id, row.status === 'published']),
+    );
 
     for (const row of caseRows.rows) {
       const patch = diffCaseTaxonomyRow({

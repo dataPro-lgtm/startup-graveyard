@@ -114,7 +114,9 @@ export default async function AdminCaseAttachmentsPage({
         <p style={{ color: '#ff8a8a', marginBottom: 16 }}>添加因子请求失败。</p>
       ) : null}
       {err === 'timeline_fields' ? (
-        <p style={{ color: '#ff8a8a', marginBottom: 16 }}>时间线：请填写 eventDate、eventType、title。</p>
+        <p style={{ color: '#ff8a8a', marginBottom: 16 }}>
+          时间线：请填写 eventDate、eventType、title。
+        </p>
       ) : null}
       {err === 'timeline_validation' ? (
         <p style={{ color: '#ff8a8a', marginBottom: 16 }}>时间线字段未通过 API 校验。</p>
@@ -255,12 +257,7 @@ export default async function AdminCaseAttachmentsPage({
           </label>
           <label style={fieldStyle}>
             eventType
-            <select
-              name="eventType"
-              required
-              style={inputLike}
-              defaultValue="funding"
-            >
+            <select name="eventType" required style={inputLike} defaultValue="funding">
               {eventTypeEntries.map(([key, label]) => (
                 <option key={key} value={key}>
                   {label} ({key})
@@ -307,11 +304,7 @@ export default async function AdminCaseAttachmentsPage({
         <form action={updateCaseAnalysis.bind(null, caseId)} style={{ display: 'grid', gap: 12 }}>
           <label style={fieldStyle}>
             primaryFailureReasonKey（可选）
-            <select
-              name="primaryFailureReasonKey"
-              style={inputLike}
-              defaultValue=""
-            >
+            <select name="primaryFailureReasonKey" style={inputLike} defaultValue="">
               <option value="">不更新</option>
               {primaryReasonEntries.map(([key, label]) => (
                 <option key={key} value={key}>

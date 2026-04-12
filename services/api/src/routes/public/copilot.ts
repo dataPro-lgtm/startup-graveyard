@@ -134,7 +134,10 @@ export async function copilotRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'invalid_query', details: parsed.error.flatten() });
     }
 
-    const items = await app.copilotSessionsRepo.listSessions(parsed.data.visitorId, parsed.data.limit);
+    const items = await app.copilotSessionsRepo.listSessions(
+      parsed.data.visitorId,
+      parsed.data.limit,
+    );
     return copilotSessionsListResponseSchema.parse({ items });
   });
 
@@ -150,7 +153,9 @@ export async function copilotRoutes(app: FastifyInstance) {
 
   app.get('/sessions/:sessionId', async (request, reply) => {
     const sessionId = parseSessionId((request.params as { sessionId?: unknown }).sessionId);
-    const visitorId = copilotVisitorIdSchema.safeParse((request.query as { visitorId?: unknown }).visitorId);
+    const visitorId = copilotVisitorIdSchema.safeParse(
+      (request.query as { visitorId?: unknown }).visitorId,
+    );
     if (!sessionId || !visitorId.success) {
       return reply.code(400).send({ error: 'invalid_query' });
     }
@@ -164,7 +169,10 @@ export async function copilotRoutes(app: FastifyInstance) {
     const sessionId = parseSessionId((request.params as { sessionId?: unknown }).sessionId);
     const parsed = copilotPinBodySchema.safeParse(request.body ?? {});
     if (!sessionId || !parsed.success) {
-      return reply.code(400).send({ error: 'invalid_body', details: parsed.success ? undefined : parsed.error.flatten() });
+      return reply.code(400).send({
+        error: 'invalid_body',
+        details: parsed.success ? undefined : parsed.error.flatten(),
+      });
     }
 
     const pinnedCase = await app.casesRepo.getById(parsed.data.caseId);
@@ -185,7 +193,9 @@ export async function copilotRoutes(app: FastifyInstance) {
     const params = request.params as { sessionId?: unknown; caseId?: unknown };
     const sessionId = parseSessionId(params.sessionId);
     const caseId = copilotPinBodySchema.shape.caseId.safeParse(params.caseId);
-    const visitorId = copilotVisitorIdSchema.safeParse((request.query as { visitorId?: unknown }).visitorId);
+    const visitorId = copilotVisitorIdSchema.safeParse(
+      (request.query as { visitorId?: unknown }).visitorId,
+    );
     if (!sessionId || !caseId.success || !visitorId.success) {
       return reply.code(400).send({ error: 'invalid_query' });
     }
@@ -205,7 +215,10 @@ export async function copilotRoutes(app: FastifyInstance) {
     );
     const parsed = copilotFeedbackBodySchema.safeParse(request.body ?? {});
     if (!messageId.success || !parsed.success) {
-      return reply.code(400).send({ error: 'invalid_body', details: parsed.success ? undefined : parsed.error.flatten() });
+      return reply.code(400).send({
+        error: 'invalid_body',
+        details: parsed.success ? undefined : parsed.error.flatten(),
+      });
     }
 
     const saved = await app.copilotSessionsRepo.saveFeedback(
@@ -229,7 +242,13 @@ export async function copilotRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'invalid_body', details: parsed.error.flatten() });
     }
 
-    const { question, topK, visitorId, sessionId, pinnedCaseIds: initialPinnedCaseIds } = parsed.data;
+    const {
+      question,
+      topK,
+      visitorId,
+      sessionId,
+      pinnedCaseIds: initialPinnedCaseIds,
+    } = parsed.data;
 
     const existingSession = sessionId
       ? await app.copilotSessionsRepo.getSession(visitorId, sessionId)
@@ -254,7 +273,9 @@ export async function copilotRoutes(app: FastifyInstance) {
       sort: 'relevance',
     });
 
-    const candidateIds = [...new Set([...pinnedCaseIds, ...listResult.items.map((item) => item.id)])];
+    const candidateIds = [
+      ...new Set([...pinnedCaseIds, ...listResult.items.map((item) => item.id)]),
+    ];
     const details = await fetchCaseDetails(app.casesRepo, candidateIds);
     const pinnedIdSet = new Set(pinnedCaseIds);
     const citations = buildCitations(details, pinnedIdSet);
@@ -264,7 +285,8 @@ export async function copilotRoutes(app: FastifyInstance) {
     let grounded: boolean;
     let model: string | undefined;
     let providerName: string | null = null;
-    let fallbackReason: 'no_relevant_cases' | 'provider_unavailable' | 'provider_error' | null = null;
+    let fallbackReason: 'no_relevant_cases' | 'provider_unavailable' | 'provider_error' | null =
+      null;
     let promptTokens: number | null = null;
     let completionTokens: number | null = null;
     let totalTokens: number | null = null;

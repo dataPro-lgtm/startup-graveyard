@@ -112,7 +112,9 @@ export default function CopilotPage() {
       if (cancelled) return;
       const storedSessionId = getStoredActiveCopilotSessionId();
       const targetSessionId =
-        (storedSessionId && items.some((item) => item.id === storedSessionId) ? storedSessionId : null) ??
+        (storedSessionId && items.some((item) => item.id === storedSessionId)
+          ? storedSessionId
+          : null) ??
         items[0]?.id ??
         null;
 
@@ -300,9 +302,12 @@ export default function CopilotPage() {
           <p style={{ color: '#9fb3ff', fontSize: 13, letterSpacing: 1.2, margin: '20px 0 8px' }}>
             FAILURE COPILOT
           </p>
-          <h1 style={{ fontSize: 36, lineHeight: 1.1, margin: '0 0 10px' }}>研究型失败问答工作台</h1>
+          <h1 style={{ fontSize: 36, lineHeight: 1.1, margin: '0 0 10px' }}>
+            研究型失败问答工作台
+          </h1>
           <p style={{ color: '#c8d0e5', lineHeight: 1.75, margin: 0, maxWidth: 780 }}>
-            现在 Copilot 不再只是单轮回答。你可以保留研究线程、固定关键案例当作上下文，并对回答做反馈，逐步把“灵感问题”沉淀成可复用的研究会话。
+            现在 Copilot
+            不再只是单轮回答。你可以保留研究线程、固定关键案例当作上下文，并对回答做反馈，逐步把“灵感问题”沉淀成可复用的研究会话。
           </p>
         </div>
         <button
@@ -357,7 +362,14 @@ export default function CopilotPage() {
             top: 20,
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: 12,
+              alignItems: 'center',
+            }}
+          >
             <div>
               <div style={{ color: '#9fb3ff', fontSize: 12, letterSpacing: 1 }}>THREADS</div>
               <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>研究会话</div>
@@ -389,7 +401,8 @@ export default function CopilotPage() {
                   style={{
                     textAlign: 'left',
                     borderRadius: 14,
-                    border: session.id === activeSessionId ? '1px solid #5b7cff' : '1px solid #1d2746',
+                    border:
+                      session.id === activeSessionId ? '1px solid #5b7cff' : '1px solid #1d2746',
                     background: session.id === activeSessionId ? '#13203a' : '#0d1426',
                     padding: '14px 14px 12px',
                     color: '#f5f7fb',
@@ -398,11 +411,21 @@ export default function CopilotPage() {
                     gap: 8,
                   }}
                 >
-                  <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.4 }}>{session.title}</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1.4 }}>
+                    {session.title}
+                  </div>
                   <div style={{ color: '#9fb3ff', fontSize: 12, lineHeight: 1.6 }}>
                     {session.lastQuestion ? session.lastQuestion : '还没有提问'}
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, color: '#6b7fa8', fontSize: 12 }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      gap: 8,
+                      color: '#6b7fa8',
+                      fontSize: 12,
+                    }}
+                  >
                     <span>{session.messageCount} 条消息</span>
                     <span>{session.pinnedCaseCount} 个 pinned</span>
                     <span>{formatSessionTime(session.updatedAt)}</span>
@@ -447,7 +470,8 @@ export default function CopilotPage() {
               </div>
               {activeSession ? (
                 <div style={{ color: '#6b7fa8', fontSize: 13 }}>
-                  {activeSession.session.messageCount} 条消息 · {activeSession.pinnedCases.length} 个 pinned case
+                  {activeSession.session.messageCount} 条消息 · {activeSession.pinnedCases.length}{' '}
+                  个 pinned case
                 </div>
               ) : null}
             </div>
@@ -501,7 +525,9 @@ export default function CopilotPage() {
                         {industryLabel(item.industry)} · {countryLabel(item.country)}
                         {item.closedYear ? ` · ${item.closedYear}` : ''}
                       </div>
-                      <div style={{ color: '#c8d0e5', fontSize: 13, lineHeight: 1.6 }}>{item.summary}</div>
+                      <div style={{ color: '#c8d0e5', fontSize: 13, lineHeight: 1.6 }}>
+                        {item.summary}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -544,7 +570,14 @@ export default function CopilotPage() {
                   lineHeight: 1.7,
                 }}
               />
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                  flexWrap: 'wrap',
+                }}
+              >
                 <div style={{ color: '#6b7fa8', fontSize: 12 }}>
                   {activeSession?.pinnedCases.length
                     ? `本轮会自动带入 ${activeSession.pinnedCases.length} 个 pinned case`
@@ -612,30 +645,51 @@ export default function CopilotPage() {
                   key={message.id}
                   style={{
                     borderRadius: 18,
-                    border: message.role === 'assistant' ? '1px solid #233255' : '1px solid #1d2746',
+                    border:
+                      message.role === 'assistant' ? '1px solid #233255' : '1px solid #1d2746',
                     background: message.role === 'assistant' ? '#10172b' : '#0d1426',
                     padding: '16px 18px',
                     display: 'grid',
                     gap: 12,
                   }}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
-                    <div style={{ fontWeight: 700, color: message.role === 'assistant' ? '#9fb3ff' : '#f5f7fb' }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      alignItems: 'center',
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontWeight: 700,
+                        color: message.role === 'assistant' ? '#9fb3ff' : '#f5f7fb',
+                      }}
+                    >
                       {message.role === 'assistant' ? 'Copilot' : '你'}
                     </div>
-                    <div style={{ color: '#6b7fa8', fontSize: 12 }}>{formatSessionTime(message.createdAt)}</div>
+                    <div style={{ color: '#6b7fa8', fontSize: 12 }}>
+                      {formatSessionTime(message.createdAt)}
+                    </div>
                   </div>
 
-                  <div style={{ color: '#f5f7fb', lineHeight: 1.85, whiteSpace: 'pre-wrap' }}>{message.content}</div>
+                  <div style={{ color: '#f5f7fb', lineHeight: 1.85, whiteSpace: 'pre-wrap' }}>
+                    {message.content}
+                  </div>
 
                   {message.role === 'assistant' ? (
                     <div style={{ display: 'grid', gap: 12 }}>
-                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <div
+                        style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}
+                      >
                         <span
                           style={{
                             padding: '4px 9px',
                             borderRadius: 999,
-                            background: message.grounded ? 'rgba(24,185,129,0.15)' : 'rgba(255,138,101,0.15)',
+                            background: message.grounded
+                              ? 'rgba(24,185,129,0.15)'
+                              : 'rgba(255,138,101,0.15)',
                             color: message.grounded ? '#18b981' : '#ff8a65',
                             fontSize: 12,
                             fontWeight: 700,
@@ -644,7 +698,9 @@ export default function CopilotPage() {
                           {message.grounded ? 'Grounded' : 'Rule-based'}
                         </span>
                         {message.model ? (
-                          <span style={{ color: '#6b7fa8', fontSize: 12 }}>model: {message.model}</span>
+                          <span style={{ color: '#6b7fa8', fontSize: 12 }}>
+                            model: {message.model}
+                          </span>
                         ) : null}
                         {message.run ? (
                           <>
@@ -675,7 +731,14 @@ export default function CopilotPage() {
 
                       {message.citations.length ? (
                         <div>
-                          <div style={{ color: '#9fb3ff', fontSize: 12, letterSpacing: 1, marginBottom: 10 }}>
+                          <div
+                            style={{
+                              color: '#9fb3ff',
+                              fontSize: 12,
+                              letterSpacing: 1,
+                              marginBottom: 10,
+                            }}
+                          >
                             CITATIONS
                           </div>
                           <div
@@ -699,24 +762,39 @@ export default function CopilotPage() {
                                     gap: 8,
                                   }}
                                 >
-                                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                                  <div
+                                    style={{
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      gap: 10,
+                                    }}
+                                  >
                                     <Link
                                       href={`/cases/s/${encodeURIComponent(citation.slug)}`}
-                                      style={{ color: '#f5f7fb', textDecoration: 'none', fontWeight: 700 }}
+                                      style={{
+                                        color: '#f5f7fb',
+                                        textDecoration: 'none',
+                                        fontWeight: 700,
+                                      }}
                                     >
                                       {citation.companyName}
                                     </Link>
                                     <button
                                       type="button"
                                       onClick={() =>
-                                        pinned ? handleUnpin(citation.caseId) : handlePin(citation.caseId)
+                                        pinned
+                                          ? handleUnpin(citation.caseId)
+                                          : handlePin(citation.caseId)
                                       }
                                       disabled={pinningCaseId === citation.caseId}
                                       style={{
                                         border: 'none',
                                         background: 'transparent',
                                         color: pinned ? '#18b981' : '#9fb3ff',
-                                        cursor: pinningCaseId === citation.caseId ? 'not-allowed' : 'pointer',
+                                        cursor:
+                                          pinningCaseId === citation.caseId
+                                            ? 'not-allowed'
+                                            : 'pointer',
                                         fontWeight: 700,
                                       }}
                                     >
@@ -752,7 +830,8 @@ export default function CopilotPage() {
                                 border: active ? '1px solid #5b7cff' : '1px solid #2a3658',
                                 background: active ? '#13203a' : '#0d1426',
                                 color: active ? '#9fb3ff' : '#c8d0e5',
-                                cursor: feedbackingMessageId === message.id ? 'not-allowed' : 'pointer',
+                                cursor:
+                                  feedbackingMessageId === message.id ? 'not-allowed' : 'pointer',
                               }}
                             >
                               {feedbackingMessageId === message.id

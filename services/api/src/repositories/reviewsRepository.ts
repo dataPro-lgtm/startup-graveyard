@@ -74,10 +74,7 @@ export type RejectReviewResult = {
   status: 'rejected';
 };
 
-export type ReviewApprovedHook = (input: {
-  reviewId: string;
-  caseId: string;
-}) => Promise<void>;
+export type ReviewApprovedHook = (input: { reviewId: string; caseId: string }) => Promise<void>;
 
 export interface ReviewsRepository {
   list(params: ListReviewsParams): Promise<ListReviewsResult>;
@@ -168,7 +165,10 @@ async function getCasePublishReadiness(
   );
   const row = res.rows[0];
   if (!row) return null;
-  return buildPublishReadiness(Number(row.evidence_count ?? 0), Number(row.failure_factor_count ?? 0));
+  return buildPublishReadiness(
+    Number(row.evidence_count ?? 0),
+    Number(row.failure_factor_count ?? 0),
+  );
 }
 
 export class MockReviewsRepository implements ReviewsRepository {
@@ -216,7 +216,9 @@ export class MockReviewsRepository implements ReviewsRepository {
     };
   }
 
-  async approve(id: string): Promise<ApproveReviewSuccessResult | ApproveReviewBlockedResult | null> {
+  async approve(
+    id: string,
+  ): Promise<ApproveReviewSuccessResult | ApproveReviewBlockedResult | null> {
     const idx = this.items.findIndex((r) => r.id === id);
     if (idx < 0) return null;
     const r = this.items[idx];
@@ -225,7 +227,12 @@ export class MockReviewsRepository implements ReviewsRepository {
     if (!snapshot) return null;
     const publishReadiness = snapshotToReadiness(snapshot);
     if (!publishReadiness.ready) {
-      return { ok: false, error: 'publish_requirements_not_met', caseId: r.caseId, publishReadiness };
+      return {
+        ok: false,
+        error: 'publish_requirements_not_met',
+        caseId: r.caseId,
+        publishReadiness,
+      };
     }
 
     const approvedAt = new Date().toISOString();
@@ -246,7 +253,10 @@ export class MockReviewsRepository implements ReviewsRepository {
     return out;
   }
 
-  async requestChanges(id: string, decisionNote: string): Promise<RequestChangesReviewResult | null> {
+  async requestChanges(
+    id: string,
+    decisionNote: string,
+  ): Promise<RequestChangesReviewResult | null> {
     const idx = this.items.findIndex((r) => r.id === id);
     if (idx < 0) return null;
     const r = this.items[idx];
@@ -369,84 +379,89 @@ export class PgReviewsRepository implements ReviewsRepository {
     };
   }
 
-  async approve(id: string): Promise<ApproveReviewSuccessResult | ApproveReviewBlockedResult | null> {
+  async approve(
+    id: string,
+  ): Promise<ApproveReviewSuccessResult | ApproveReviewBlockedResult | null> {
     const out: ApproveReviewSuccessResult | ApproveReviewBlockedResult | null =
       await withTransaction(this.pool, async (client) => {
-      const locked = await client.query<{ case_id: string }>(
-        `
+        const locked = await client.query<{ case_id: string }>(
+          `
         SELECT case_id
         FROM reviews
         WHERE id = $1 AND review_status = 'pending'
         FOR UPDATE
         `,
-        [id],
-      );
-      if (locked.rowCount === 0) return null;
+          [id],
+        );
+        if (locked.rowCount === 0) return null;
 
-      const caseId = locked.rows[0]!.case_id;
-      const publishReadiness = await getCasePublishReadiness(client, caseId);
-      if (!publishReadiness) return null;
-      if (!publishReadiness.ready) {
-        const blocked: ApproveReviewBlockedResult = {
-          ok: false,
-          error: 'publish_requirements_not_met',
-          caseId,
-          publishReadiness,
-        };
-        return blocked;
-      }
+        const caseId = locked.rows[0]!.case_id;
+        const publishReadiness = await getCasePublishReadiness(client, caseId);
+        if (!publishReadiness) return null;
+        if (!publishReadiness.ready) {
+          const blocked: ApproveReviewBlockedResult = {
+            ok: false,
+            error: 'publish_requirements_not_met',
+            caseId,
+            publishReadiness,
+          };
+          return blocked;
+        }
 
-      const upd = await client.query<{ case_id: string; approved_at: Date }>(
-        `
+        const upd = await client.query<{ case_id: string; approved_at: Date }>(
+          `
         UPDATE reviews
         SET review_status = 'approved', approved_at = NOW()
         WHERE id = $1 AND review_status = 'pending'
         RETURNING case_id, approved_at
         `,
-        [id],
-      );
-      if (upd.rowCount === 0) return null;
+          [id],
+        );
+        if (upd.rowCount === 0) return null;
 
-      const row = upd.rows[0]!;
+        const row = upd.rows[0]!;
 
-      await client.query(
-        `UPDATE cases
+        await client.query(
+          `UPDATE cases
          SET status = 'published',
              published_at = COALESCE(published_at, NOW()),
              updated_at = NOW()
          WHERE id = $1`,
-        [caseId],
-      );
-      await client.query(
-        `INSERT INTO admin_audit_events (action, review_id, case_id, metadata)
+          [caseId],
+        );
+        await client.query(
+          `INSERT INTO admin_audit_events (action, review_id, case_id, metadata)
          VALUES ($1, $2, $3, $4::jsonb)`,
-        [
-          'review.approved',
-          id,
-          caseId,
-          JSON.stringify({
-            actor: 'admin_api',
-            publishReadiness,
-          }),
-        ],
-      );
+          [
+            'review.approved',
+            id,
+            caseId,
+            JSON.stringify({
+              actor: 'admin_api',
+              publishReadiness,
+            }),
+          ],
+        );
 
-      const approved: ApproveReviewSuccessResult = {
-        ok: true,
-        reviewId: id,
-        caseId: row.case_id,
-        status: 'approved',
-        approvedAt: row.approved_at.toISOString(),
-      };
-      return approved;
-    });
+        const approved: ApproveReviewSuccessResult = {
+          ok: true,
+          reviewId: id,
+          caseId: row.case_id,
+          status: 'approved',
+          approvedAt: row.approved_at.toISOString(),
+        };
+        return approved;
+      });
     if (out && out.ok) {
       await runApprovedHook(this.onApproved, { reviewId: out.reviewId, caseId: out.caseId });
     }
     return out;
   }
 
-  async requestChanges(id: string, decisionNote: string): Promise<RequestChangesReviewResult | null> {
+  async requestChanges(
+    id: string,
+    decisionNote: string,
+  ): Promise<RequestChangesReviewResult | null> {
     return withTransaction(this.pool, async (client) => {
       const res = await client.query<{ case_id: string }>(
         `

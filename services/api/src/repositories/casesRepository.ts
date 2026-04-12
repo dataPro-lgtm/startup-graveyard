@@ -2,7 +2,11 @@ import { randomUUID } from 'node:crypto';
 import type { Pool, QueryResultRow } from 'pg';
 import type { CreateDraftCaseBody } from '../schemas/adminCases.js';
 import { embedSearchQuery, vectorToPgLiteral } from '../ai/openaiEmbed.js';
-import { getMockExtraEvidence, getMockExtraFactors, getMockExtraTimeline } from './mockCaseExtras.js';
+import {
+  getMockExtraEvidence,
+  getMockExtraFactors,
+  getMockExtraTimeline,
+} from './mockCaseExtras.js';
 
 export type ListCasesSort = 'relevance' | 'updated_at';
 
@@ -436,34 +440,39 @@ export class MockCasesRepository implements CasesRepository {
 
   async getResearchOverview(): Promise<ResearchOverview> {
     const published = this.rows.filter((r) => r.status === 'published');
-    const byKey = (
-      pick: (row: MockCaseRow) => string | null,
-      limit = 6,
-    ): ResearchBucket[] =>
-      [...published.reduce((map, row) => {
-        const key = pick(row);
-        if (!key) return map;
-        const cur = map.get(key) ?? { key, caseCount: 0, totalFundingUsd: 0 };
-        cur.caseCount += 1;
-        cur.totalFundingUsd += row.totalFundingUsd ?? 0;
-        map.set(key, cur);
-        return map;
-      }, new Map<string, ResearchBucket>()).values()]
+    const byKey = (pick: (row: MockCaseRow) => string | null, limit = 6): ResearchBucket[] =>
+      [
+        ...published
+          .reduce((map, row) => {
+            const key = pick(row);
+            if (!key) return map;
+            const cur = map.get(key) ?? { key, caseCount: 0, totalFundingUsd: 0 };
+            cur.caseCount += 1;
+            cur.totalFundingUsd += row.totalFundingUsd ?? 0;
+            map.set(key, cur);
+            return map;
+          }, new Map<string, ResearchBucket>())
+          .values(),
+      ]
         .sort((a, b) => b.caseCount - a.caseCount || b.totalFundingUsd - a.totalFundingUsd)
         .slice(0, limit);
 
-    const closureTimeline = [...published.reduce((map, row) => {
-      if (!row.closedYear) return map;
-      const cur = map.get(row.closedYear) ?? {
-        year: row.closedYear,
-        caseCount: 0,
-        totalFundingUsd: 0,
-      };
-      cur.caseCount += 1;
-      cur.totalFundingUsd += row.totalFundingUsd ?? 0;
-      map.set(row.closedYear, cur);
-      return map;
-    }, new Map<number, ResearchTimelinePoint>()).values()].sort((a, b) => a.year - b.year);
+    const closureTimeline = [
+      ...published
+        .reduce((map, row) => {
+          if (!row.closedYear) return map;
+          const cur = map.get(row.closedYear) ?? {
+            year: row.closedYear,
+            caseCount: 0,
+            totalFundingUsd: 0,
+          };
+          cur.caseCount += 1;
+          cur.totalFundingUsd += row.totalFundingUsd ?? 0;
+          map.set(row.closedYear, cur);
+          return map;
+        }, new Map<number, ResearchTimelinePoint>())
+        .values(),
+    ].sort((a, b) => a.year - b.year);
 
     return {
       summary: await this.getHomeSummary(),

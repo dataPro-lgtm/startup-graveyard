@@ -76,8 +76,8 @@ export default async function ResearchPage() {
           用专题和趋势，而不是孤立案例，去研究失败。
         </h1>
         <p style={{ margin: 0, maxWidth: 760, color: '#c8d0e5', lineHeight: 1.8, fontSize: 16 }}>
-          这个页面把案例库里的样本压缩成更适合研究的入口：预设专题、核心聚合、年度波段和
-          Copilot 问题模板。目标不是“看更多案例”，而是更快找到可以比较、可以复盘、可以提问的研究切口。
+          这个页面把案例库里的样本压缩成更适合研究的入口：预设专题、核心聚合、年度波段和 Copilot
+          问题模板。目标不是“看更多案例”，而是更快找到可以比较、可以复盘、可以提问的研究切口。
         </p>
         {overview ? (
           <div
@@ -163,7 +163,9 @@ export default async function ResearchPage() {
                 />
                 <div>
                   <h3 style={{ margin: '0 0 8px', fontSize: 20 }}>{preset.title}</h3>
-                  <p style={{ margin: 0, color: '#c8d0e5', lineHeight: 1.7 }}>{preset.description}</p>
+                  <p style={{ margin: 0, color: '#c8d0e5', lineHeight: 1.7 }}>
+                    {preset.description}
+                  </p>
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                   {badges.map((badge) => (
@@ -229,7 +231,12 @@ export default async function ResearchPage() {
             {topIndustries.map((item) => (
               <div key={item.key}>
                 <div
-                  style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 6 }}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    marginBottom: 6,
+                  }}
                 >
                   <Link
                     href={casesListPath({ industry: item.key })}
@@ -239,7 +246,14 @@ export default async function ResearchPage() {
                   </Link>
                   <span style={{ color: '#9fb3ff', fontSize: 13 }}>{item.caseCount} 个案例</span>
                 </div>
-                <div style={{ height: 8, borderRadius: 999, background: '#0b1020', overflow: 'hidden' }}>
+                <div
+                  style={{
+                    height: 8,
+                    borderRadius: 999,
+                    background: '#0b1020',
+                    overflow: 'hidden',
+                  }}
+                >
                   <div
                     style={{
                       height: '100%',
@@ -262,7 +276,12 @@ export default async function ResearchPage() {
             {topFailureReasons.map((item) => (
               <div key={item.key}>
                 <div
-                  style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 6 }}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    marginBottom: 6,
+                  }}
                 >
                   <Link
                     href={casesListPath({ primaryFailureReasonKey: item.key })}
@@ -272,7 +291,14 @@ export default async function ResearchPage() {
                   </Link>
                   <span style={{ color: '#9fb3ff', fontSize: 13 }}>{item.caseCount} 个案例</span>
                 </div>
-                <div style={{ height: 8, borderRadius: 999, background: '#0b1020', overflow: 'hidden' }}>
+                <div
+                  style={{
+                    height: 8,
+                    borderRadius: 999,
+                    background: '#0b1020',
+                    overflow: 'hidden',
+                  }}
+                >
                   <div
                     style={{
                       height: '100%',
@@ -295,7 +321,12 @@ export default async function ResearchPage() {
             {topCountries.map((item) => (
               <div key={item.key}>
                 <div
-                  style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 6 }}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    marginBottom: 6,
+                  }}
                 >
                   <Link
                     href={casesListPath({ country: item.key })}
@@ -305,7 +336,14 @@ export default async function ResearchPage() {
                   </Link>
                   <span style={{ color: '#9fb3ff', fontSize: 13 }}>{item.caseCount} 个案例</span>
                 </div>
-                <div style={{ height: 8, borderRadius: 999, background: '#0b1020', overflow: 'hidden' }}>
+                <div
+                  style={{
+                    height: 8,
+                    borderRadius: 999,
+                    background: '#0b1020',
+                    overflow: 'hidden',
+                  }}
+                >
                   <div
                     style={{
                       height: '100%',
@@ -336,14 +374,26 @@ export default async function ResearchPage() {
             {closureTimeline.map((point) => (
               <div key={point.year}>
                 <div
-                  style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 6 }}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    marginBottom: 6,
+                  }}
                 >
                   <span style={{ fontWeight: 600 }}>{point.year}</span>
                   <span style={{ color: '#9fb3ff', fontSize: 13 }}>
                     {point.caseCount} 个案例 · {formatUsd(point.totalFundingUsd)}
                   </span>
                 </div>
-                <div style={{ height: 10, borderRadius: 999, background: '#0b1020', overflow: 'hidden' }}>
+                <div
+                  style={{
+                    height: 10,
+                    borderRadius: 999,
+                    background: '#0b1020',
+                    overflow: 'hidden',
+                  }}
+                >
                   <div
                     style={{
                       height: '100%',
@@ -380,7 +430,9 @@ export default async function ResearchPage() {
                   {industryLabel(item.industry)} · {countryLabel(item.country)}
                   {item.closedYear ? ` · ${item.closedYear}` : ''}
                 </div>
-                <div style={{ color: '#c8d0e5', fontSize: 13, lineHeight: 1.6 }}>{item.summary}</div>
+                <div style={{ color: '#c8d0e5', fontSize: 13, lineHeight: 1.6 }}>
+                  {item.summary}
+                </div>
               </Link>
             ))}
           </div>

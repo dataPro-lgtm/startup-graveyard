@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import type { EvidenceSourceItem, FailureFactorItem, TimelineEventItem } from './casesRepository.js';
+import type {
+  EvidenceSourceItem,
+  FailureFactorItem,
+  TimelineEventItem,
+} from './casesRepository.js';
 
 const extraEvidence = new Map<string, EvidenceSourceItem[]>();
 const extraFactors = new Map<string, FailureFactorItem[]>();

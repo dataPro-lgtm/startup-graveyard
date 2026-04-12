@@ -133,7 +133,8 @@ export async function runIngestionJob(
     if (!ctx?.adminWrite || !ctx?.adminAttachments || !ctx?.sourceSnapshots) {
       return {
         ok: false,
-        error: 'pipeline_url_draft：服务端未注入完整上下文（adminWrite/adminAttachments/sourceSnapshots）',
+        error:
+          'pipeline_url_draft：服务端未注入完整上下文（adminWrite/adminAttachments/sourceSnapshots）',
       };
     }
     const urlRaw = payload.url;
@@ -221,7 +222,8 @@ export async function runIngestionJob(
     if (!ctx?.adminWrite || !ctx?.adminAttachments || !ctx?.sourceSnapshots) {
       return {
         ok: false,
-        error: 'extract_case_signals：服务端未注入完整上下文（adminWrite/adminAttachments/sourceSnapshots）',
+        error:
+          'extract_case_signals：服务端未注入完整上下文（adminWrite/adminAttachments/sourceSnapshots）',
       };
     }
     const caseIdRaw = payload.caseId;

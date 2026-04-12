@@ -95,7 +95,10 @@ export async function paymentsRoutes(app: FastifyInstance) {
       const session = event.data.object as Stripe.Checkout.Session;
       const userId = session.client_reference_id;
       if (!userId) {
-        app.log.warn({ eventId: event.id }, 'checkout.session.completed missing client_reference_id');
+        app.log.warn(
+          { eventId: event.id },
+          'checkout.session.completed missing client_reference_id',
+        );
         return reply.send({ received: true });
       }
 
