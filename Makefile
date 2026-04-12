@@ -66,11 +66,8 @@ db-down: ## Stop Postgres
 db-migrate: ## Run all pending migrations
 	docker compose --profile migrate run --rm migrate
 
-db-seed: ## Apply seed files
-	@for f in db/seed/*.sql; do \
-		echo ">> $$f"; \
-		PGPASSWORD=postgres psql -h 127.0.0.1 -p 5433 -U postgres -d sg -v ON_ERROR_STOP=1 -f "$$f"; \
-	done
+db-seed: ## Apply pending seed files
+	docker compose --profile seed run --rm seed
 
 db-reset: db-down ## Wipe + recreate DB, then migrate + seed
 	docker compose down -v
