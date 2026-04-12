@@ -15,13 +15,9 @@ export async function ingestionJobRoutes(app: FastifyInstance) {
   app.post('/reclaim-stale', async (request, reply) => {
     const parsed = reclaimStaleQuerySchema.safeParse(request.query);
     if (!parsed.success) {
-      return reply
-        .code(400)
-        .send({ error: 'invalid_query', details: parsed.error.flatten() });
+      return reply.code(400).send({ error: 'invalid_query', details: parsed.error.flatten() });
     }
-    const out = await app.ingestionJobsRepo.reclaimStaleRunning(
-      parsed.data.maxRunningMinutes,
-    );
+    const out = await app.ingestionJobsRepo.reclaimStaleRunning(parsed.data.maxRunningMinutes);
     return reclaimStaleResponseSchema.parse(out);
   });
 
@@ -33,9 +29,7 @@ export async function ingestionJobRoutes(app: FastifyInstance) {
   app.get('/', async (request, reply) => {
     const parsed = listIngestionJobsQuerySchema.safeParse(request.query);
     if (!parsed.success) {
-      return reply
-        .code(400)
-        .send({ error: 'invalid_query', details: parsed.error.flatten() });
+      return reply.code(400).send({ error: 'invalid_query', details: parsed.error.flatten() });
     }
     const items = await app.ingestionJobsRepo.listRecent({
       limit: parsed.data.limit,
@@ -69,9 +63,7 @@ export async function ingestionJobRoutes(app: FastifyInstance) {
   app.post('/', async (request, reply) => {
     const body = enqueueIngestionJobBodySchema.safeParse(request.body ?? {});
     if (!body.success) {
-      return reply
-        .code(400)
-        .send({ error: 'invalid_body', details: body.error.flatten() });
+      return reply.code(400).send({ error: 'invalid_body', details: body.error.flatten() });
     }
     const out = await app.ingestionJobsRepo.enqueue(body.data);
     return enqueueIngestionJobResponseSchema.parse(out);

@@ -20,9 +20,7 @@ const listSchema = z.object({
 export type AdminIngestionList = z.infer<typeof listSchema>;
 export type AdminIngestionJobItem = z.infer<typeof jobItemSchema>;
 
-export async function fetchAdminIngestionJobById(
-  id: string,
-): Promise<
+export async function fetchAdminIngestionJobById(id: string): Promise<
   | { ok: true; data: AdminIngestionJobItem }
   | {
       ok: false;

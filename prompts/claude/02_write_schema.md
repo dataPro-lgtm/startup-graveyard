@@ -4,6 +4,7 @@ Task:
 Design or revise the PostgreSQL schema for the requested feature.
 
 Output format:
+
 1. schema summary
 2. table changes
 3. constraints and indexes
@@ -14,6 +15,7 @@ Output format:
 8. precise instructions for Codex to implement the migration
 
 Rules:
+
 - optimize for operational simplicity
 - preserve auditability
 - prefer append-only event history where useful

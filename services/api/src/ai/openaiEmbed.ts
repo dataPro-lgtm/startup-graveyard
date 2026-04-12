@@ -51,10 +51,7 @@ export async function embedSearchQuery(text: string): Promise<number[] | null> {
 }
 
 /** Document embedding for indexing; throws on failure so ingestion can mark job failed. */
-export async function embedCaseDocument(
-  companyName: string,
-  summary: string,
-): Promise<number[]> {
+export async function embedCaseDocument(companyName: string, summary: string): Promise<number[]> {
   if (!config.hasOpenAI) throw new Error('OPENAI_API_KEY not set');
 
   const input = `${companyName.trim()}\n\n${summary.trim()}`.slice(0, 30_000);

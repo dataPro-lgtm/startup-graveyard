@@ -16,18 +16,14 @@ import {
 
 type ReviewTab = 'pending' | 'all' | 'approved' | 'rejected';
 
-function tabFromRaw(
-  raw: Record<string, string | string[] | undefined>,
-): ReviewTab {
+function tabFromRaw(raw: Record<string, string | string[] | undefined>): ReviewTab {
   const s = pickSearchParam(raw.status);
   if (s === 'all' || s === 'approved' || s === 'rejected') return s;
   return 'pending';
 }
 
 /** API 请求 query（不含路径） */
-function buildReviewsApiQuery(
-  raw: Record<string, string | string[] | undefined>,
-): string {
+function buildReviewsApiQuery(raw: Record<string, string | string[] | undefined>): string {
   const tab = tabFromRaw(raw);
   const page = pickSearchParam(raw.page) ?? '1';
   const sp = new URLSearchParams();
@@ -37,10 +33,7 @@ function buildReviewsApiQuery(
   return `?${sp.toString()}`;
 }
 
-function adminTabHref(
-  tab: ReviewTab,
-  raw?: Record<string, string | string[] | undefined>,
-): string {
+function adminTabHref(tab: ReviewTab, raw?: Record<string, string | string[] | undefined>): string {
   const sp = new URLSearchParams();
   if (tab !== 'pending') {
     if (tab === 'all') sp.set('status', 'all');
@@ -56,18 +49,11 @@ function adminTabHref(
   return q ? `/admin/reviews?${q}` : '/admin/reviews';
 }
 
-function buildIngestionListQuery(
-  raw: Record<string, string | string[] | undefined>,
-): string {
+function buildIngestionListQuery(raw: Record<string, string | string[] | undefined>): string {
   const sp = new URLSearchParams();
   sp.set('limit', '20');
   const st = pickSearchParam(raw.ingestionStatus);
-  if (
-    st === 'queued' ||
-    st === 'running' ||
-    st === 'succeeded' ||
-    st === 'failed'
-  ) {
+  if (st === 'queued' || st === 'running' || st === 'succeeded' || st === 'failed') {
     sp.set('status', st);
   }
   return `?${sp.toString()}`;
@@ -162,10 +148,7 @@ export default async function AdminReviewsPage({
         }}
       >
         <h2 style={{ fontSize: 18, margin: '0 0 14px' }}>新建草稿案例</h2>
-        <form
-          action={createDraftCase}
-          style={{ display: 'grid', gap: 14, maxWidth: 560 }}
-        >
+        <form action={createDraftCase} style={{ display: 'grid', gap: 14, maxWidth: 560 }}>
           <div style={{ display: 'grid', gap: 12 }}>
             <label style={fieldStyle}>
               slug（唯一，小写）
@@ -248,31 +231,19 @@ export default async function AdminReviewsPage({
             ['rejected', '已驳回'],
           ] as const
         ).map(([key, label]) => (
-          <Link
-            key={key}
-            href={adminTabHref(key, raw)}
-            style={tab === key ? tabBtnActive : tabBtn}
-          >
+          <Link key={key} href={adminTabHref(key, raw)} style={tab === key ? tabBtnActive : tabBtn}>
             {label}
           </Link>
         ))}
       </nav>
 
-      {ok === 'approve' ? (
-        <p style={{ color: '#7dffb3', marginBottom: 16 }}>已通过审核。</p>
-      ) : null}
-      {ok === 'reject' ? (
-        <p style={{ color: '#7dffb3', marginBottom: 16 }}>已驳回。</p>
-      ) : null}
+      {ok === 'approve' ? <p style={{ color: '#7dffb3', marginBottom: 16 }}>已通过审核。</p> : null}
+      {ok === 'reject' ? <p style={{ color: '#7dffb3', marginBottom: 16 }}>已驳回。</p> : null}
       {ok === 'draft' ? (
-        <p style={{ color: '#7dffb3', marginBottom: 16 }}>
-          已创建草稿案例并进入待审核队列。
-        </p>
+        <p style={{ color: '#7dffb3', marginBottom: 16 }}>已创建草稿案例并进入待审核队列。</p>
       ) : null}
       {ok === 'ingest' ? (
-        <p style={{ color: '#7dffb3', marginBottom: 16 }}>
-          已入队 ingestion 任务（并写入审计）。
-        </p>
+        <p style={{ color: '#7dffb3', marginBottom: 16 }}>已入队 ingestion 任务（并写入审计）。</p>
       ) : null}
       {ok === 'ingest_processed' ? (
         <p style={{ color: '#7dffb3', marginBottom: 16 }}>
@@ -289,9 +260,7 @@ export default async function AdminReviewsPage({
         </p>
       ) : null}
       {ok === 'requeued' ? (
-        <p style={{ color: '#7dffb3', marginBottom: 16 }}>
-          已将失败任务重新入队（queued）。
-        </p>
+        <p style={{ color: '#7dffb3', marginBottom: 16 }}>已将失败任务重新入队（queued）。</p>
       ) : null}
       {err === 'config' ? (
         <p style={{ color: '#ff8a8a', marginBottom: 16 }}>
@@ -307,27 +276,19 @@ export default async function AdminReviewsPage({
         <p style={{ color: '#ff8a8a', marginBottom: 16 }}>操作失败，请重试。</p>
       ) : null}
       {err === 'notfound' ? (
-        <p style={{ color: '#ff8a8a', marginBottom: 16 }}>
-          记录已不是 pending（可能已处理）。
-        </p>
+        <p style={{ color: '#ff8a8a', marginBottom: 16 }}>记录已不是 pending（可能已处理）。</p>
       ) : null}
-      {err === 'invalid' ? (
-        <p style={{ color: '#ff8a8a', marginBottom: 16 }}>无效请求。</p>
-      ) : null}
+      {err === 'invalid' ? <p style={{ color: '#ff8a8a', marginBottom: 16 }}>无效请求。</p> : null}
       {err === 'draft_fields' ? (
         <p style={{ color: '#ff8a8a', marginBottom: 16 }}>
           新建草稿：请填写 slug、公司名、摘要、行业 key。
         </p>
       ) : null}
       {err === 'draft_validation' ? (
-        <p style={{ color: '#ff8a8a', marginBottom: 16 }}>
-          API 校验未通过（字段格式或长度）。
-        </p>
+        <p style={{ color: '#ff8a8a', marginBottom: 16 }}>API 校验未通过（字段格式或长度）。</p>
       ) : null}
       {err === 'duplicate_slug' ? (
-        <p style={{ color: '#ff8a8a', marginBottom: 16 }}>
-          slug 已存在，请换一个。
-        </p>
+        <p style={{ color: '#ff8a8a', marginBottom: 16 }}>slug 已存在，请换一个。</p>
       ) : null}
       {err === 'draft_failed' ? (
         <p style={{ color: '#ff8a8a', marginBottom: 16 }}>
@@ -335,14 +296,10 @@ export default async function AdminReviewsPage({
         </p>
       ) : null}
       {err === 'ingest_fields' ? (
-        <p style={{ color: '#ff8a8a', marginBottom: 16 }}>
-          入队任务：请填写来源名与触发类型。
-        </p>
+        <p style={{ color: '#ff8a8a', marginBottom: 16 }}>入队任务：请填写来源名与触发类型。</p>
       ) : null}
       {err === 'ingest_payload' ? (
-        <p style={{ color: '#ff8a8a', marginBottom: 16 }}>
-          payload JSON 解析失败或不是对象。
-        </p>
+        <p style={{ color: '#ff8a8a', marginBottom: 16 }}>payload JSON 解析失败或不是对象。</p>
       ) : null}
       {err === 'ingest_validation' ? (
         <p style={{ color: '#ff8a8a', marginBottom: 16 }}>入队参数未通过 API 校验。</p>
@@ -391,9 +348,7 @@ export default async function AdminReviewsPage({
         <section style={{ display: 'grid', gap: 16 }}>
           {result.data.items.length === 0 ? (
             <p style={{ color: '#c8d0e5' }}>
-              {tab === 'pending'
-                ? '当前没有待审核项。'
-                : '当前筛选下没有记录。'}
+              {tab === 'pending' ? '当前没有待审核项。' : '当前筛选下没有记录。'}
             </p>
           ) : null}
           {result.data.items.map((item) => (
@@ -493,9 +448,7 @@ export default async function AdminReviewsPage({
                   </form>
                 </div>
               ) : (
-                <p style={{ margin: 0, fontSize: 13, color: '#8a96b0' }}>
-                  已处理，仅可查看。
-                </p>
+                <p style={{ margin: 0, fontSize: 13, color: '#8a96b0' }}>已处理，仅可查看。</p>
               )}
             </article>
           ))}
@@ -520,14 +473,12 @@ export default async function AdminReviewsPage({
           <code style={{ color: '#9fb3ff' }}>ingestion.job_failed</code>。
           <br />
           <span style={{ fontSize: 12 }}>
-            内置处理器：<code>echo</code> → <code>payload.message</code>；{' '}
-            <code>fetch_title</code> → <code>payload.url</code>；{' '}
-            <code>create_draft</code> → 与「新建草稿」同字段；{' '}
+            内置处理器：<code>echo</code> → <code>payload.message</code>； <code>fetch_title</code>{' '}
+            → <code>payload.url</code>； <code>create_draft</code> → 与「新建草稿」同字段；{' '}
             <code>pipeline_url_draft</code> → <code>url</code> + <code>slug</code> +{' '}
-            <code>summary</code> + <code>industryKey</code>；{' '}
-            <code>upsert_embedding_stub</code> → <code>payload.caseId</code>（需 PG，演示向量）；其它
-            为 noop。长时间 <code>running</code>{' '}
-            可用下方「回收卡住」重置为 <code>queued</code>。
+            <code>summary</code> + <code>industryKey</code>； <code>upsert_embedding_stub</code> →{' '}
+            <code>payload.caseId</code>（需 PG，演示向量）；其它 为 noop。长时间{' '}
+            <code>running</code> 可用下方「回收卡住」重置为 <code>queued</code>。
           </span>
         </p>
         <div
@@ -550,8 +501,7 @@ export default async function AdminReviewsPage({
               href={adminReviewsHref(raw, s)}
               style={{
                 color: '#9fb3ff',
-                fontWeight:
-                  pickSearchParam(raw.ingestionStatus) === s ? 700 : 400,
+                fontWeight: pickSearchParam(raw.ingestionStatus) === s ? 700 : 400,
               }}
             >
               {s}

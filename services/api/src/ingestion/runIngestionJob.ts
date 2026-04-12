@@ -15,9 +15,7 @@ export type IngestionRunContext = {
   pool?: Pool;
 };
 
-export type IngestionRunResult =
-  | { ok: true; detail?: string }
-  | { ok: false; error: string };
+export type IngestionRunResult = { ok: true; detail?: string } | { ok: false; error: string };
 
 const ERR_MAX = 4000;
 
@@ -47,8 +45,7 @@ async function fetchHtmlTitle(
     const html = await res.text();
     const m = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html);
     const rawTitle = m?.[1]?.replace(/\s+/g, ' ').trim() ?? '';
-    const title =
-      rawTitle.length > 0 ? rawTitle.slice(0, 800) : '(未找到 <title>)';
+    const title = rawTitle.length > 0 ? rawTitle.slice(0, 800) : '(未找到 <title>)';
     return { ok: true, title };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -103,9 +100,7 @@ export async function runIngestionJob(
     if (!parsed.success) {
       return {
         ok: false,
-        error: clip(
-          `create_draft：${JSON.stringify(parsed.error.flatten().fieldErrors)}`,
-        ),
+        error: clip(`create_draft：${JSON.stringify(parsed.error.flatten().fieldErrors)}`),
       };
     }
     const out = await ctx.adminWrite.createDraftCaseWithReview(parsed.data);
@@ -122,8 +117,7 @@ export async function runIngestionJob(
     if (!ctx?.adminWrite) {
       return {
         ok: false,
-        error:
-          'pipeline_url_draft：服务端未注入 adminWrite（仅 API 进程内可用）',
+        error: 'pipeline_url_draft：服务端未注入 adminWrite（仅 API 进程内可用）',
       };
     }
     const urlRaw = payload.url;
@@ -144,9 +138,7 @@ export async function runIngestionJob(
     if (!parsed.success) {
       return {
         ok: false,
-        error: clip(
-          `pipeline_url_draft：${JSON.stringify(parsed.error.flatten().fieldErrors)}`,
-        ),
+        error: clip(`pipeline_url_draft：${JSON.stringify(parsed.error.flatten().fieldErrors)}`),
       };
     }
     const out = await ctx.adminWrite.createDraftCaseWithReview(parsed.data);
@@ -181,10 +173,7 @@ export async function runIngestionJob(
     const row = await ctx.pool.query<{
       company_name: string;
       summary: string;
-    }>(
-      `SELECT company_name, summary FROM cases WHERE id = $1 LIMIT 1`,
-      [caseId],
-    );
+    }>(`SELECT company_name, summary FROM cases WHERE id = $1 LIMIT 1`, [caseId]);
     const c = row.rows[0];
     if (!c) {
       return { ok: false, error: 'upsert_embedding_stub：case 不存在' };
@@ -234,6 +223,64 @@ export async function runIngestionJob(
       ok: true,
       detail: `case_embeddings upserted (stub) caseId=${caseId}`,
     };
+  }
+
+  // ── auto_embed_new ──────────────────────────────────────────────────────────
+  // Finds all published cases without embeddings and generates them.
+  // Safe to run repeatedly (idempotent). Respects rate limits via sequential delay.
+  if (sourceName === 'auto_embed_new') {
+    if (!ctx?.pool) {
+      return { ok: false, error: 'auto_embed_new：需要 PostgreSQL' };
+    }
+    const useOpenAI = Boolean(process.env.OPENAI_API_KEY?.trim());
+    if (!useOpenAI) {
+      return { ok: false, error: 'auto_embed_new：需要 OPENAI_API_KEY' };
+    }
+
+    const { rows } = await ctx.pool.query<{
+      id: string;
+      company_name: string;
+      summary: string;
+      industry_key: string | null;
+      search_tags: string | null;
+    }>(`
+      SELECT c.id, c.company_name, c.summary, c.industry_key, c.search_tags
+      FROM cases c
+      LEFT JOIN case_embeddings e ON e.case_id = c.id
+      WHERE c.status = 'published' AND e.case_id IS NULL
+      ORDER BY c.created_at
+      LIMIT 50
+    `);
+
+    if (rows.length === 0) return { ok: true, detail: 'auto_embed_new：no unembedded cases' };
+
+    let done = 0;
+    let failed = 0;
+    for (const row of rows) {
+      try {
+        const vec = await embedCaseDocument(row.company_name, row.summary);
+        await ctx.pool.query(
+          `INSERT INTO case_embeddings (case_id, embedding)
+           VALUES ($1::uuid, $2::vector(1536))
+           ON CONFLICT (case_id) DO UPDATE SET embedding = EXCLUDED.embedding, updated_at = NOW()`,
+          [row.id, vectorToPgLiteral(vec)],
+        );
+        done++;
+        // 350ms between calls = ~3 req/s, well under rate limits
+        await new Promise((r) => setTimeout(r, 350));
+      } catch {
+        failed++;
+      }
+    }
+    return { ok: true, detail: `auto_embed_new: done=${done} failed=${failed}` };
+  }
+
+  // ── cleanup_sessions ────────────────────────────────────────────────────────
+  // Prunes expired user refresh tokens
+  if (sourceName === 'cleanup_sessions') {
+    if (!ctx?.pool) return { ok: false, error: 'cleanup_sessions：需要 PostgreSQL' };
+    const { rowCount } = await ctx.pool.query(`DELETE FROM user_sessions WHERE expires_at < NOW()`);
+    return { ok: true, detail: `cleanup_sessions: pruned ${rowCount ?? 0} rows` };
   }
 
   return { ok: true, detail: 'noop' };

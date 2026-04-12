@@ -30,15 +30,12 @@ function taxonomyFallback(): TaxonomyLabels {
   };
 }
 
-function normalizeTaxonomy(
-  parsed: z.infer<typeof taxonomySchema>,
-): TaxonomyLabels {
+function normalizeTaxonomy(parsed: z.infer<typeof taxonomySchema>): TaxonomyLabels {
   return {
     industries: parsed.industries,
     countries: parsed.countries,
     businessModels: parsed.businessModels ?? { ...BUSINESS_MODEL_LABELS },
-    primaryFailureReasons:
-      parsed.primaryFailureReasons ?? { ...PRIMARY_FAILURE_REASON_LABELS },
+    primaryFailureReasons: parsed.primaryFailureReasons ?? { ...PRIMARY_FAILURE_REASON_LABELS },
   };
 }
 

@@ -1,6 +1,7 @@
 Implement the Fastify API skeleton for Startup Graveyard.
 
 Requirements:
+
 - keep existing route prefixes stable
 - add Zod validation for request and response
 - expose Swagger docs
@@ -9,6 +10,7 @@ Requirements:
 - put DB access behind repository interfaces
 
 Return:
+
 - changed file list
 - commands to run
 - known gaps
