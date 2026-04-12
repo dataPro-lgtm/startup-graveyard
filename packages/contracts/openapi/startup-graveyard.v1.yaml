@@ -374,9 +374,48 @@ components:
         lastQuestion: { type: string, nullable: true }
         updatedAt: { type: string }
         createdAt: { type: string }
+    CopilotFallbackReason:
+      type: string
+      enum: [no_relevant_cases, provider_unavailable, provider_error]
+    CopilotRunStats:
+      type: object
+      required:
+        [
+          provider,
+          model,
+          promptVersion,
+          responseMs,
+          promptTokens,
+          completionTokens,
+          totalTokens,
+          estimatedCostUsd,
+          retrievedCaseCount,
+          pinnedCaseCount,
+          citationCount,
+          fallbackReason,
+          createdAt,
+        ]
+      properties:
+        provider: { type: string, nullable: true }
+        model: { type: string, nullable: true }
+        promptVersion: { type: string }
+        responseMs: { type: integer, minimum: 0 }
+        promptTokens: { type: integer, minimum: 0, nullable: true }
+        completionTokens: { type: integer, minimum: 0, nullable: true }
+        totalTokens: { type: integer, minimum: 0, nullable: true }
+        estimatedCostUsd: { type: number, minimum: 0, nullable: true }
+        retrievedCaseCount: { type: integer, minimum: 0 }
+        pinnedCaseCount: { type: integer, minimum: 0 }
+        citationCount: { type: integer, minimum: 0 }
+        fallbackReason:
+          allOf:
+            - $ref: '#/components/schemas/CopilotFallbackReason'
+          nullable: true
+        createdAt: { type: string }
     CopilotMessage:
       type: object
-      required: [id, role, content, citations, grounded, model, feedbackVote, feedbackNote, createdAt]
+      required:
+        [id, role, content, citations, grounded, model, feedbackVote, feedbackNote, run, createdAt]
       properties:
         id: { type: string, format: uuid }
         role:
@@ -394,6 +433,10 @@ components:
           nullable: true
           enum: [up, down]
         feedbackNote: { type: string, nullable: true }
+        run:
+          allOf:
+            - $ref: '#/components/schemas/CopilotRunStats'
+          nullable: true
         createdAt: { type: string }
     CopilotSessionDetail:
       type: object

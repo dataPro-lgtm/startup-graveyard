@@ -59,6 +59,95 @@ suite('postgres integration', () => {
     else process.env.OPENAI_API_KEY = previousEnv.openAiApiKey;
   });
 
+  it('persists copilot run stats and exposes them via session detail against postgres', async () => {
+    const db = pool;
+    if (!db) throw new Error('postgres integration test pool not initialized');
+
+    const answerRes = await app!.inject({
+      method: 'POST',
+      url: '/v1/copilot/answer',
+      payload: {
+        visitorId: 'pg-copilot-visitor',
+        question: '为什么这个空知识库里没有案例？',
+        topK: 3,
+      },
+    });
+    expect(answerRes.statusCode).toBe(200);
+    const answered = JSON.parse(answerRes.body) as {
+      sessionId: string;
+      citations: Array<unknown>;
+      grounded: boolean;
+    };
+    expect(answered.grounded).toBe(false);
+    expect(answered.citations).toHaveLength(0);
+
+    const runRes = await db.query<{
+      prompt_version: string;
+      provider: string | null;
+      model: string | null;
+      fallback_reason: string | null;
+      retrieved_case_count: string | number;
+      pinned_case_count: string | number;
+      citation_count: string | number;
+      response_ms: string | number;
+      total_tokens: string | number | null;
+      estimated_cost_usd: string | null;
+    }>(
+      `
+      SELECT
+        prompt_version,
+        provider,
+        model,
+        fallback_reason,
+        retrieved_case_count,
+        pinned_case_count,
+        citation_count,
+        response_ms,
+        total_tokens,
+        estimated_cost_usd
+      FROM copilot_runs
+      ORDER BY created_at DESC
+      LIMIT 1
+      `,
+    );
+    expect(runRes.rows[0]).toMatchObject({
+      prompt_version: '2026-04-13.v1',
+      provider: null,
+      model: null,
+      fallback_reason: 'no_relevant_cases',
+    });
+    expect(Number(runRes.rows[0]?.retrieved_case_count ?? -1)).toBe(0);
+    expect(Number(runRes.rows[0]?.pinned_case_count ?? -1)).toBe(0);
+    expect(Number(runRes.rows[0]?.citation_count ?? -1)).toBe(0);
+    expect(Number(runRes.rows[0]?.response_ms ?? -1)).toBeGreaterThanOrEqual(0);
+    expect(runRes.rows[0]?.total_tokens ?? null).toBeNull();
+    expect(runRes.rows[0]?.estimated_cost_usd ?? null).toBeNull();
+
+    const detailRes = await app!.inject({
+      method: 'GET',
+      url: `/v1/copilot/sessions/${encodeURIComponent(answered.sessionId)}?visitorId=pg-copilot-visitor`,
+    });
+    expect(detailRes.statusCode).toBe(200);
+    expect(JSON.parse(detailRes.body)).toMatchObject({
+      session: {
+        id: answered.sessionId,
+        messageCount: 2,
+      },
+      messages: expect.arrayContaining([
+        expect.objectContaining({
+          role: 'assistant',
+          run: expect.objectContaining({
+            promptVersion: '2026-04-13.v1',
+            fallbackReason: 'no_relevant_cases',
+            citationCount: 0,
+            totalTokens: null,
+            estimatedCostUsd: null,
+          }),
+        }),
+      ]),
+    });
+  });
+
   it('approves a review and rebuilds case search index against postgres', async () => {
     const db = pool;
     if (!db) throw new Error('postgres integration test pool not initialized');

@@ -1,6 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient, QueryResultRow } from 'pg';
-import type { CopilotCitation, CopilotFeedbackVote } from '@sg/shared/schemas/copilot';
+import type {
+  CopilotCitation,
+  CopilotFallbackReason,
+  CopilotFeedbackVote,
+  CopilotRunStats,
+} from '@sg/shared/schemas/copilot';
 import { withTransaction } from '../db/withTransaction.js';
 
 export type CopilotSessionSummary = {
@@ -22,6 +27,7 @@ export type CopilotMessageItem = {
   model: string | null;
   feedbackVote: CopilotFeedbackVote | null;
   feedbackNote: string | null;
+  run: CopilotRunStats | null;
   createdAt: string;
 };
 
@@ -45,6 +51,20 @@ export type SaveCopilotAnswerTurnInput = {
   grounded: boolean;
   model?: string;
   initialPinnedCaseIds?: string[];
+  run?: {
+    provider: string | null;
+    model: string | null;
+    promptVersion: string;
+    responseMs: number;
+    promptTokens: number | null;
+    completionTokens: number | null;
+    totalTokens: number | null;
+    estimatedCostUsd: number | null;
+    retrievedCaseCount: number;
+    pinnedCaseCount: number;
+    citationCount: number;
+    fallbackReason: CopilotFallbackReason | null;
+  };
 };
 
 export type SaveCopilotAnswerTurnResult = {
@@ -118,6 +138,19 @@ type MessageRow = QueryResultRow & {
   created_at: Date;
   feedback_vote: CopilotFeedbackVote | null;
   feedback_note: string | null;
+  run_provider: string | null;
+  run_model: string | null;
+  run_prompt_version: string | null;
+  run_response_ms: number | null;
+  run_prompt_tokens: number | null;
+  run_completion_tokens: number | null;
+  run_total_tokens: number | null;
+  run_estimated_cost_usd: string | number | null;
+  run_retrieved_case_count: number | null;
+  run_pinned_case_count: number | null;
+  run_citation_count: number | null;
+  run_fallback_reason: CopilotFallbackReason | null;
+  run_created_at: Date | null;
 };
 
 function clipTitle(question: string): string {
@@ -170,6 +203,26 @@ function rowToSessionSummary(row: SessionSummaryRow): CopilotSessionSummary {
 }
 
 function rowToMessage(row: MessageRow): CopilotMessageItem {
+  const run =
+    row.run_prompt_version && row.run_created_at
+      ? {
+          provider: row.run_provider ?? null,
+          model: row.run_model ?? null,
+          promptVersion: row.run_prompt_version,
+          responseMs: Number(row.run_response_ms ?? 0),
+          promptTokens: row.run_prompt_tokens == null ? null : Number(row.run_prompt_tokens),
+          completionTokens:
+            row.run_completion_tokens == null ? null : Number(row.run_completion_tokens),
+          totalTokens: row.run_total_tokens == null ? null : Number(row.run_total_tokens),
+          estimatedCostUsd:
+            row.run_estimated_cost_usd == null ? null : Number(row.run_estimated_cost_usd),
+          retrievedCaseCount: Number(row.run_retrieved_case_count ?? 0),
+          pinnedCaseCount: Number(row.run_pinned_case_count ?? 0),
+          citationCount: Number(row.run_citation_count ?? 0),
+          fallbackReason: row.run_fallback_reason ?? null,
+          createdAt: row.run_created_at.toISOString(),
+        }
+      : null;
   return {
     id: row.id,
     role: row.role,
@@ -179,6 +232,7 @@ function rowToMessage(row: MessageRow): CopilotMessageItem {
     model: row.model ?? null,
     feedbackVote: row.feedback_vote ?? null,
     feedbackNote: row.feedback_note ?? null,
+    run,
     createdAt: row.created_at.toISOString(),
   };
 }
@@ -276,6 +330,7 @@ export class MockCopilotSessionsRepository implements CopilotSessionsRepository 
       model: null,
       feedbackVote: null,
       feedbackNote: null,
+      run: null,
       createdAt: now,
     });
     this.messages.push({
@@ -288,6 +343,13 @@ export class MockCopilotSessionsRepository implements CopilotSessionsRepository 
       model: input.model ?? null,
       feedbackVote: null,
       feedbackNote: null,
+      run:
+        input.run == null
+          ? null
+          : {
+              ...input.run,
+              createdAt: now,
+            },
       createdAt: now,
     });
 
@@ -452,10 +514,25 @@ export class PgCopilotSessionsRepository implements CopilotSessionsRepository {
         m.model,
         m.created_at,
         f.vote AS feedback_vote,
-        f.note AS feedback_note
+        f.note AS feedback_note,
+        r.provider AS run_provider,
+        r.model AS run_model,
+        r.prompt_version AS run_prompt_version,
+        r.response_ms AS run_response_ms,
+        r.prompt_tokens AS run_prompt_tokens,
+        r.completion_tokens AS run_completion_tokens,
+        r.total_tokens AS run_total_tokens,
+        r.estimated_cost_usd AS run_estimated_cost_usd,
+        r.retrieved_case_count AS run_retrieved_case_count,
+        r.pinned_case_count AS run_pinned_case_count,
+        r.citation_count AS run_citation_count,
+        r.fallback_reason AS run_fallback_reason,
+        r.created_at AS run_created_at
       FROM copilot_messages m
       LEFT JOIN copilot_message_feedback f
         ON f.message_id = m.id
+      LEFT JOIN copilot_runs r
+        ON r.assistant_message_id = m.id
       WHERE m.session_id = $1
       ORDER BY m.created_at ASC, m.id ASC
       `,
@@ -531,6 +608,52 @@ export class PgCopilotSessionsRepository implements CopilotSessionsRepository {
           input.model ?? null,
         ],
       );
+
+      if (input.run) {
+        await client.query(
+          `
+          INSERT INTO copilot_runs (
+            session_id,
+            user_message_id,
+            assistant_message_id,
+            provider,
+            model,
+            prompt_version,
+            grounded,
+            fallback_reason,
+            response_ms,
+            prompt_tokens,
+            completion_tokens,
+            total_tokens,
+            estimated_cost_usd,
+            retrieved_case_count,
+            pinned_case_count,
+            citation_count
+          ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8,
+            $9, $10, $11, $12, $13, $14, $15, $16
+          )
+          `,
+          [
+            sessionId,
+            userMessageId,
+            assistantMessageId,
+            input.run.provider,
+            input.run.model,
+            input.run.promptVersion,
+            input.grounded,
+            input.run.fallbackReason,
+            input.run.responseMs,
+            input.run.promptTokens,
+            input.run.completionTokens,
+            input.run.totalTokens,
+            input.run.estimatedCostUsd,
+            input.run.retrievedCaseCount,
+            input.run.pinnedCaseCount,
+            input.run.citationCount,
+          ],
+        );
+      }
 
       await client.query(
         `

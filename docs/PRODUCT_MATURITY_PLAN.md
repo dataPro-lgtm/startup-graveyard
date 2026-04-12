@@ -1,6 +1,6 @@
 # Startup Graveyard 产品成熟化计划
 
-更新时间：2026-04-12
+更新时间：2026-04-13
 
 ## 1. 当前判断
 
@@ -39,7 +39,7 @@
 ### P1 检索与 Copilot
 
 - 当前主要是 PostgreSQL + pgvector 混合排序，OpenSearch hybrid/facet/explain 尚未落地。
-- Copilot 已支持 session、上下文 pin 与回答反馈，但仍缺评测集、成本追踪、prompt 管理与更系统的质量回归。
+- Copilot 已支持 session、上下文 pin、回答反馈，以及 run-level prompt version / token-cost 追踪，但仍缺评测集、prompt 回归、answer grading 与更系统的质量回归。
 - 契约漂移已经明显收敛，但 OpenAPI 对 auth/payments/admin stats/scheduler 等实际接口仍未完全覆盖。
 
 ### P1 产品能力
@@ -50,7 +50,7 @@
 
 ### P2 平台化与运营
 
-- 没有 OTel trace、prompt log、token/cost metrics、报警与 runbook。
+- 没有 OTel trace、聚合级 prompt/token-cost dashboard、报警与 runbook。
 - 没有 Redis、对象存储、worker 独立部署、Temporal durable workflow。
 - 没有数据回填、夜间回归、搜索评测、内容质量报表。
 
@@ -79,7 +79,7 @@
 目标：从“可浏览”升级到“可研究”。
 
 - 上线 Topic / 专题页、趋势页、预设研究入口。
-- Copilot 支持 session、上下文 pin、回答反馈、基础 prompt/eval 体系。
+- Copilot 支持 session、上下文 pin、回答反馈，以及基础 prompt version / eval / cost tracking 体系。
 - 首页升级为 discovery + research hub，不再只是列表壳。
 
 ### M3 商业化闭环（2-3 周）
@@ -171,3 +171,9 @@
 - Copilot 新增持久化 session、消息历史、上下文 pin 和回答反馈，问答从“单轮回答”升级成“可连续研究”的工作线程。
 - API 新增 `/v1/copilot/sessions`、`/pins`、`/messages/:messageId/feedback` 等接口，OpenAPI 与 shared schema 已同步覆盖。
 - Web Copilot 页面升级成多会话研究工作台，支持保留线程、固定关键案例、连续追问与标记回答质量。
+
+已完成 M2 第三段（Copilot prompt / telemetry baseline）：
+
+- Copilot system prompt 已收口为可版本化的 `copilotPrompt` 模块，并在每次回答 run 中持久化 `promptVersion`。
+- 新增 `copilot_runs`，记录 provider、model、fallback reason、响应耗时、token 用量、估算成本、检索案例数、引用数等 run-level 指标。
+- Web Copilot 会在消息详情里展示 prompt 版本、响应耗时、token/cost 与降级原因，为后续 eval、prompt 回归和运营 dashboard 提供基础数据。

@@ -43,6 +43,20 @@ function formatSessionTime(value: string): string {
   }).format(date);
 }
 
+function formatEstimatedCost(value: number | null): string | null {
+  if (value == null) return null;
+  if (value < 0.01) return `$${value.toFixed(4)}`;
+  return `$${value.toFixed(2)}`;
+}
+
+function fallbackReasonLabel(value: string | null): string | null {
+  if (!value) return null;
+  if (value === 'provider_unavailable') return '未配置 LLM';
+  if (value === 'provider_error') return 'LLM 降级';
+  if (value === 'no_relevant_cases') return '无相关案例';
+  return value;
+}
+
 export default function CopilotPage() {
   const searchParams = useSearchParams();
   const [visitorId, setVisitorId] = useState<string | null>(null);
@@ -631,6 +645,31 @@ export default function CopilotPage() {
                         </span>
                         {message.model ? (
                           <span style={{ color: '#6b7fa8', fontSize: 12 }}>model: {message.model}</span>
+                        ) : null}
+                        {message.run ? (
+                          <>
+                            <span style={{ color: '#6b7fa8', fontSize: 12 }}>
+                              prompt {message.run.promptVersion}
+                            </span>
+                            <span style={{ color: '#6b7fa8', fontSize: 12 }}>
+                              {message.run.responseMs} ms
+                            </span>
+                            {message.run.totalTokens != null ? (
+                              <span style={{ color: '#6b7fa8', fontSize: 12 }}>
+                                {message.run.totalTokens} tok
+                              </span>
+                            ) : null}
+                            {formatEstimatedCost(message.run.estimatedCostUsd) ? (
+                              <span style={{ color: '#6b7fa8', fontSize: 12 }}>
+                                {formatEstimatedCost(message.run.estimatedCostUsd)}
+                              </span>
+                            ) : null}
+                            {fallbackReasonLabel(message.run.fallbackReason) ? (
+                              <span style={{ color: '#ff8a65', fontSize: 12 }}>
+                                {fallbackReasonLabel(message.run.fallbackReason)}
+                              </span>
+                            ) : null}
+                          </>
                         ) : null}
                       </div>
 

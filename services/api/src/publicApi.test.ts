@@ -226,11 +226,20 @@ describe('public API (mock DB)', () => {
     const detail = JSON.parse(detailRes.body) as {
       session: { messageCount: number };
       pinnedCases: Array<{ id: string }>;
-      messages: Array<{ role: string; feedbackVote: string | null }>;
+      messages: Array<{
+        role: string;
+        feedbackVote: string | null;
+        run: { promptVersion: string; fallbackReason: string | null; citationCount: number } | null;
+      }>;
     };
     expect(detail.session.messageCount).toBe(4);
     expect(detail.pinnedCases).toHaveLength(1);
     expect(detail.messages.filter((item) => item.role === 'assistant')[0]?.feedbackVote).toBe('up');
+    expect(detail.messages.filter((item) => item.role === 'assistant')[0]?.run).toMatchObject({
+      promptVersion: '2026-04-13.v1',
+      fallbackReason: 'provider_unavailable',
+      citationCount: answered.citations.length,
+    });
   });
 
   it('GET /v1/admin/audit is disabled when ADMIN_API_KEY is unset', async () => {

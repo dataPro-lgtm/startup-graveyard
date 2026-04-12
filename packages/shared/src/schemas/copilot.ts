@@ -6,6 +6,11 @@ export const copilotSessionIdSchema = z.string().uuid();
 export const copilotMessageIdSchema = z.string().uuid();
 export const copilotFeedbackVoteSchema = z.enum(['up', 'down']);
 export const copilotMessageRoleSchema = z.enum(['user', 'assistant']);
+export const copilotFallbackReasonSchema = z.enum([
+  'no_relevant_cases',
+  'provider_unavailable',
+  'provider_error',
+]);
 
 export const copilotAnswerBodySchema = z.object({
   visitorId: copilotVisitorIdSchema,
@@ -53,6 +58,22 @@ export const copilotSessionSummarySchema = z.object({
   createdAt: z.string(),
 });
 
+export const copilotRunStatsSchema = z.object({
+  provider: z.string().nullable(),
+  model: z.string().nullable(),
+  promptVersion: z.string(),
+  responseMs: z.number().int().nonnegative(),
+  promptTokens: z.number().int().nonnegative().nullable(),
+  completionTokens: z.number().int().nonnegative().nullable(),
+  totalTokens: z.number().int().nonnegative().nullable(),
+  estimatedCostUsd: z.number().nonnegative().nullable(),
+  retrievedCaseCount: z.number().int().nonnegative(),
+  pinnedCaseCount: z.number().int().nonnegative(),
+  citationCount: z.number().int().nonnegative(),
+  fallbackReason: copilotFallbackReasonSchema.nullable(),
+  createdAt: z.string(),
+});
+
 export const copilotMessageSchema = z.object({
   id: copilotMessageIdSchema,
   role: copilotMessageRoleSchema,
@@ -62,6 +83,7 @@ export const copilotMessageSchema = z.object({
   model: z.string().nullable(),
   feedbackVote: copilotFeedbackVoteSchema.nullable(),
   feedbackNote: z.string().nullable(),
+  run: copilotRunStatsSchema.nullable(),
   createdAt: z.string(),
 });
 
@@ -101,3 +123,5 @@ export type CopilotSessionDetail = z.infer<typeof copilotSessionDetailSchema>;
 export type CopilotMessage = z.infer<typeof copilotMessageSchema>;
 export type CopilotFeedbackVote = z.infer<typeof copilotFeedbackVoteSchema>;
 export type CopilotFeedbackResponse = z.infer<typeof copilotFeedbackResponseSchema>;
+export type CopilotRunStats = z.infer<typeof copilotRunStatsSchema>;
+export type CopilotFallbackReason = z.infer<typeof copilotFallbackReasonSchema>;

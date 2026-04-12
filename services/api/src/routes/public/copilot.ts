@@ -10,6 +10,7 @@
  * - POST   /v1/copilot/messages/:messageId/feedback
  */
 import type { FastifyInstance } from 'fastify';
+import { COPILOT_PROMPT_VERSION, COPILOT_SYSTEM_PROMPT } from '../../ai/copilotPrompt.js';
 import { embedSearchQuery } from '../../ai/openaiEmbed.js';
 import { getProvider } from '../../ai/llm.js';
 import {
@@ -93,13 +94,6 @@ function buildFallbackAnswer(question: string, cases: NonNullCaseDetail[]): stri
     `\n\n（注：当前为规则摘要模式，未调用 LLM。配置 OPENAI_API_KEY 可获得更深度的分析。）`
   );
 }
-
-const SYSTEM_PROMPT = `你是"创业坟场"平台的失败智能分析师。你的任务是基于提供的失败案例知识库和当前研究会话上下文回答用户问题。
-规则：
-1. 所有结论必须来自提供的案例和会话上下文，不要凭空捏造。
-2. 用清晰、结构化的中文回答，优先给出跨案例规律、差异点、可操作教训。
-3. 如果证据不足，明确说明不足之处。
-4. 如果存在 pinned context，把它们视为本轮优先参考的案例。`;
 
 async function fetchCaseDetails(
   casesRepo: FastifyInstance['casesRepo'],
@@ -264,20 +258,30 @@ export async function copilotRoutes(app: FastifyInstance) {
     const details = await fetchCaseDetails(app.casesRepo, candidateIds);
     const pinnedIdSet = new Set(pinnedCaseIds);
     const citations = buildCitations(details, pinnedIdSet);
+    const answerStartedAt = Date.now();
 
     let answer: string;
     let grounded: boolean;
     let model: string | undefined;
+    let providerName: string | null = null;
+    let fallbackReason: 'no_relevant_cases' | 'provider_unavailable' | 'provider_error' | null = null;
+    let promptTokens: number | null = null;
+    let completionTokens: number | null = null;
+    let totalTokens: number | null = null;
+    let estimatedCostUsd: number | null = null;
 
     if (details.length === 0) {
       answer = buildFallbackAnswer(question, []);
       grounded = false;
+      fallbackReason = 'no_relevant_cases';
     } else {
       const provider = getProvider();
       if (!provider) {
         answer = buildFallbackAnswer(question, details);
         grounded = false;
+        fallbackReason = 'provider_unavailable';
       } else {
+        providerName = provider.vendor;
         const contextBlocks = details
           .map((detail) => buildContextSnippet(detail, pinnedIdSet.has(detail.id)))
           .join('\n\n---\n\n');
@@ -291,13 +295,19 @@ export async function copilotRoutes(app: FastifyInstance) {
           .join('\n\n');
 
         try {
-          answer = await provider.chat(SYSTEM_PROMPT, userMessage);
+          const completion = await provider.chat(COPILOT_SYSTEM_PROMPT, userMessage);
+          answer = completion.text;
           grounded = true;
           model = provider.name;
+          promptTokens = completion.usage.promptTokens;
+          completionTokens = completion.usage.completionTokens;
+          totalTokens = completion.usage.totalTokens;
+          estimatedCostUsd = completion.usage.estimatedCostUsd;
         } catch (e) {
           app.log.warn({ err: e }, 'LLM call failed, falling back to rule-based');
           answer = buildFallbackAnswer(question, details);
           grounded = false;
+          fallbackReason = 'provider_error';
         }
       }
     }
@@ -311,6 +321,20 @@ export async function copilotRoutes(app: FastifyInstance) {
       grounded,
       model,
       initialPinnedCaseIds,
+      run: {
+        provider: providerName,
+        model: model ?? null,
+        promptVersion: COPILOT_PROMPT_VERSION,
+        responseMs: Date.now() - answerStartedAt,
+        promptTokens,
+        completionTokens,
+        totalTokens,
+        estimatedCostUsd,
+        retrievedCaseCount: details.length,
+        pinnedCaseCount: pinnedCaseIds.length,
+        citationCount: citations.length,
+        fallbackReason,
+      },
     });
     if (!saved) return reply.code(404).send({ error: 'session_not_found' });
 
