@@ -111,7 +111,7 @@ async function fetchStats(pool: Pool): Promise<StatsResult> {
       `),
 
     pool.query<{ pending: string }>(`
-        SELECT COUNT(*) AS pending FROM reviews WHERE status = 'pending'
+        SELECT COUNT(*) AS pending FROM reviews WHERE review_status = 'pending'
       `),
 
     pool.query<{ status: string; cnt: string }>(`
