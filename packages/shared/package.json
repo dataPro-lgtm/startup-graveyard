@@ -28,6 +28,11 @@
       "import": "./dist/schemas/auth.js",
       "default": "./dist/schemas/auth.js"
     },
+    "./schemas/watchlist": {
+      "types": "./dist/schemas/watchlist.d.ts",
+      "import": "./dist/schemas/watchlist.js",
+      "default": "./dist/schemas/watchlist.js"
+    },
     "./schemas/meta": {
       "types": "./dist/schemas/meta.d.ts",
       "import": "./dist/schemas/meta.js",
@@ -37,6 +42,11 @@
       "types": "./dist/schemas/adminStats.d.ts",
       "import": "./dist/schemas/adminStats.js",
       "default": "./dist/schemas/adminStats.js"
+    },
+    "./billing": {
+      "types": "./dist/billing.d.ts",
+      "import": "./dist/billing.js",
+      "default": "./dist/billing.js"
     }
   },
   "files": [

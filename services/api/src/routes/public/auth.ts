@@ -1,13 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { loginBodySchema, registerBodySchema, refreshBodySchema } from '@sg/shared/schemas/auth';
-import { PgUsersRepository } from '../../repositories/usersRepository.js';
 import { verifyAccessToken } from '../../auth/tokens.js';
-import { getPool } from '../../db/pool.js';
-
-function getRepo(): PgUsersRepository | null {
-  const pool = getPool();
-  return pool ? new PgUsersRepository(pool) : null;
-}
 
 function extractBearer(authHeader: string | undefined): string | null {
   if (!authHeader) return null;
@@ -23,10 +16,7 @@ export async function authRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'invalid_body', details: parsed.error.flatten() });
     }
 
-    const repo = getRepo();
-    if (!repo) return reply.code(503).send({ error: 'database_unavailable' });
-
-    const result = await repo.register(
+    const result = await app.usersRepo.register(
       parsed.data.email,
       parsed.data.password,
       parsed.data.displayName,
@@ -48,10 +38,7 @@ export async function authRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'invalid_body' });
     }
 
-    const repo = getRepo();
-    if (!repo) return reply.code(503).send({ error: 'database_unavailable' });
-
-    const result = await repo.login(parsed.data.email, parsed.data.password);
+    const result = await app.usersRepo.login(parsed.data.email, parsed.data.password);
     if (!result.ok) {
       // Return 401 for both 'not found' and 'wrong password' — avoid enumeration
       return reply.code(401).send({ error: 'invalid_credentials' });
@@ -65,10 +52,7 @@ export async function authRoutes(app: FastifyInstance) {
     const parsed = refreshBodySchema.safeParse(request.body ?? {});
     if (!parsed.success) return reply.code(400).send({ error: 'invalid_body' });
 
-    const repo = getRepo();
-    if (!repo) return reply.code(503).send({ error: 'database_unavailable' });
-
-    const result = await repo.refresh(parsed.data.refreshToken);
+    const result = await app.usersRepo.refresh(parsed.data.refreshToken);
     if (!result.ok) {
       return reply.code(401).send({ error: result.code });
     }
@@ -84,10 +68,7 @@ export async function authRoutes(app: FastifyInstance) {
     const payload = verifyAccessToken(token);
     if (!payload) return reply.code(401).send({ error: 'invalid_token' });
 
-    const repo = getRepo();
-    if (!repo) return reply.code(503).send({ error: 'database_unavailable' });
-
-    await repo.logout(payload.sub);
+    await app.usersRepo.logout(payload.sub);
     return reply.send({ ok: true });
   });
 
@@ -99,10 +80,7 @@ export async function authRoutes(app: FastifyInstance) {
     const payload = verifyAccessToken(token);
     if (!payload) return reply.code(401).send({ error: 'invalid_token' });
 
-    const repo = getRepo();
-    if (!repo) return reply.code(503).send({ error: 'database_unavailable' });
-
-    const user = await repo.getById(payload.sub);
+    const user = await app.usersRepo.getById(payload.sub);
     if (!user) return reply.code(404).send({ error: 'user_not_found' });
 
     return reply.send(user);

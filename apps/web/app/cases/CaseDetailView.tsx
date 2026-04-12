@@ -17,6 +17,7 @@ import {
   primaryFailureReasonLabel,
   timelineEventTypeLabel,
 } from '@sg/shared/taxonomy';
+import { WatchlistButton } from './WatchlistButton';
 
 const sectionTitle = {
   fontSize: 13,
@@ -188,7 +189,19 @@ export async function CaseDetailView({
         ← 返回列表
       </Link>
       <article style={{ ...card, marginTop: 24, padding: 28 }}>
-        <h1 style={{ margin: '0 0 12px', fontSize: 36 }}>{item.companyName}</h1>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'start',
+            gap: 20,
+            flexWrap: 'wrap',
+            marginBottom: 12,
+          }}
+        >
+          <h1 style={{ margin: 0, fontSize: 36 }}>{item.companyName}</h1>
+          <WatchlistButton caseId={item.id} />
+        </div>
         <div
           style={{
             display: 'flex',

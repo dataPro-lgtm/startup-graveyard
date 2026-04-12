@@ -44,9 +44,9 @@
 
 ### P1 产品能力
 
-- 缺少 Topic/专题研究页、趋势看板、收藏、保存筛选、watchlist、导出报告、团队协作等中高频工作流。
+- Topic/专题研究页、趋势看板和个人 watchlist 已经上线，但保存筛选、导出报告、团队协作仍未落地。
 - 首页仍偏“案例站”，离“研究入口 / 决策面板”还有距离。
-- Pro 权益尚未真正 gated，升级文案和价格仍是占位。
+- Free / Pro / Team 的权益边界已经有了基础模型，但只有 watchlist 完成了真正的付费 gating；saved views、导出、Team workspace 还没跟上。
 
 ### P2 平台化与运营
 
@@ -86,9 +86,10 @@
 
 目标：从 demo 会员升级到真正可售卖产品。
 
-- 明确 Free / Pro / Team 权益边界，并在前后端做 feature gating。
-- 完成 Stripe 订阅生命周期、账单状态同步、降级/恢复逻辑。
-- 上线保存筛选、收藏/watchlist、导出报告等付费能力。
+- M3.1 商业化基础层：明确 Free / Pro / Team 权益边界，补 billing profile、账单状态同步、Portal 与统一 entitlement helper。
+- M3.2 个人付费工作流：上线保存筛选、watchlist、导出报告等真实可感知的个人付费能力。
+- M3.3 团队商业化：团队工作区、共享 watchlist / saved views、成员与权限管理。
+- M3.4 订阅运营闭环：失败补偿、账单告警、到期降级、使用量与转化分析。
 
 ### M4 生产级平台化（持续）
 
@@ -183,3 +184,10 @@
 - Admin `/v1/admin/stats` 现在会返回 Copilot telemetry 聚合，包括 runs、grounded/fallback、feedback eval、prompt version 对比、fallback 原因和 recent flagged runs。
 - Copilot repo 补了 mock / PostgreSQL 两套 `getAdminMetrics()`，后台 dashboard 在 mock 和真实库模式下都能展示研究助手运营数据。
 - Admin dashboard 新增 Copilot KPI、prompt version regression 视图和 recent flagged runs 列表，运营能直接看到哪个 prompt 版本、哪类 fallback、哪些回答最需要修正。
+
+已完成 M3 第一段（commercial foundation / watchlist）：
+
+- 用户模型已经从简单的 `free/pro` 扩展成 `free/pro/team + billingStatus + billingInterval + currentPeriodEnd + cancelAtPeriodEnd`，并且 shared 层新增了统一 entitlement helper。
+- Stripe 不再只是 checkout：现在支持 customer 绑定、billing portal、`checkout.session.completed` / `customer.subscription.*` 生命周期同步，以及账户页账单状态展示。
+- 产品里已经出现第一个真正被付费权益驱动的能力：个人 watchlist。Free 用户会被 entitlement gate 拦住，Pro/Team 可保存案例并在账户页查看自己的研究清单。
+- OpenAPI、shared schema、mock route tests 已同步覆盖新的 profile / billing / watchlist 契约，后续实现 saved views 和导出可以沿着这套 entitlement 层继续扩展。

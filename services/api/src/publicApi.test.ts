@@ -244,6 +244,124 @@ describe('public API (mock DB)', () => {
     });
   });
 
+  it('auth profiles expose entitlements and watchlist gating unlocks with Pro', async () => {
+    const email = `watchlist-${Date.now()}@example.com`;
+    const registerRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        email,
+        password: 'password123',
+        displayName: 'Watchlist User',
+      },
+    });
+    expect(registerRes.statusCode).toBe(201);
+    const registered = JSON.parse(registerRes.body) as {
+      user: {
+        id: string;
+        subscription: string;
+        billingStatus: string;
+        entitlements: { canUseWatchlist: boolean; watchlistLimit: number };
+      };
+      accessToken: string;
+    };
+    expect(registered.user.subscription).toBe('free');
+    expect(registered.user.billingStatus).toBe('inactive');
+    expect(registered.user.entitlements.canUseWatchlist).toBe(false);
+    expect(registered.user.entitlements.watchlistLimit).toBe(0);
+
+    const listCasesRes = await app.inject({
+      method: 'GET',
+      url: '/v1/cases?limit=1',
+    });
+    const firstCaseId = (JSON.parse(listCasesRes.body) as { items: Array<{ id: string }> })
+      .items[0]!.id;
+
+    const freeListRes = await app.inject({
+      method: 'GET',
+      url: '/v1/watchlist/me',
+      headers: { authorization: `Bearer ${registered.accessToken}` },
+    });
+    expect(freeListRes.statusCode).toBe(200);
+    expect(JSON.parse(freeListRes.body)).toMatchObject({
+      summary: {
+        canUseWatchlist: false,
+        watchlistLimit: 0,
+      },
+      items: [],
+    });
+
+    const blockedAddRes = await app.inject({
+      method: 'POST',
+      url: '/v1/watchlist/items',
+      headers: {
+        authorization: `Bearer ${registered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: { caseId: firstCaseId },
+    });
+    expect(blockedAddRes.statusCode).toBe(403);
+    expect(JSON.parse(blockedAddRes.body)).toMatchObject({
+      error: 'entitlement_required',
+    });
+
+    await app.usersRepo.updateBillingAccount(registered.user.id, {
+      subscription: 'pro',
+      billingStatus: 'active',
+      billingInterval: 'month',
+    });
+
+    const unlockedAddRes = await app.inject({
+      method: 'POST',
+      url: '/v1/watchlist/items',
+      headers: {
+        authorization: `Bearer ${registered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: { caseId: firstCaseId },
+    });
+    expect(unlockedAddRes.statusCode).toBe(200);
+    expect(JSON.parse(unlockedAddRes.body)).toMatchObject({
+      ok: true,
+      saved: true,
+      caseId: firstCaseId,
+      summary: {
+        canUseWatchlist: true,
+        watchlistLimit: 100,
+        watchlistCount: 1,
+      },
+    });
+
+    const statusRes = await app.inject({
+      method: 'GET',
+      url: `/v1/watchlist/me/status?caseId=${encodeURIComponent(firstCaseId)}`,
+      headers: { authorization: `Bearer ${registered.accessToken}` },
+    });
+    expect(statusRes.statusCode).toBe(200);
+    expect(JSON.parse(statusRes.body)).toMatchObject({
+      caseId: firstCaseId,
+      saved: true,
+      summary: {
+        canUseWatchlist: true,
+      },
+    });
+
+    const removeRes = await app.inject({
+      method: 'DELETE',
+      url: `/v1/watchlist/items/${encodeURIComponent(firstCaseId)}`,
+      headers: { authorization: `Bearer ${registered.accessToken}` },
+    });
+    expect(removeRes.statusCode).toBe(200);
+    expect(JSON.parse(removeRes.body)).toMatchObject({
+      ok: true,
+      saved: false,
+      caseId: firstCaseId,
+      summary: {
+        watchlistCount: 0,
+      },
+    });
+  });
+
   it('GET /v1/admin/audit is disabled when ADMIN_API_KEY is unset', async () => {
     const res = await app.inject({ method: 'GET', url: '/v1/admin/audit?limit=5' });
     expect(res.statusCode).toBe(503);

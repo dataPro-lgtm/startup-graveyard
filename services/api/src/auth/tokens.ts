@@ -1,12 +1,13 @@
 import jwt from 'jsonwebtoken';
 import crypto from 'node:crypto';
+import type { SubscriptionTier } from '@sg/shared/billing';
 import { config } from '../config/index.js';
 
 export interface AccessTokenPayload {
   sub: string; // user id
   email: string;
   role: 'user' | 'admin';
-  subscription: 'free' | 'pro';
+  subscription: SubscriptionTier;
 }
 
 const ACCESS_TTL = 15 * 60; // 15 minutes in seconds

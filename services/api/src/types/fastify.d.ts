@@ -6,6 +6,8 @@ import type { CopilotSessionsRepository } from '../repositories/copilotSessionsR
 import type { IngestionJobsRepository } from '../repositories/ingestionJobsRepository.js';
 import type { ReviewsRepository } from '../repositories/reviewsRepository.js';
 import type { SourceSnapshotsRepository } from '../repositories/sourceSnapshotsRepository.js';
+import type { UsersRepository } from '../repositories/usersRepository.js';
+import type { WatchlistsRepository } from '../repositories/watchlistRepository.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -17,5 +19,7 @@ declare module 'fastify' {
     ingestionJobsRepo: IngestionJobsRepository;
     sourceSnapshotsRepo: SourceSnapshotsRepository;
     copilotSessionsRepo: CopilotSessionsRepository;
+    usersRepo: UsersRepository;
+    watchlistsRepo: WatchlistsRepository;
   }
 }

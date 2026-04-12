@@ -5,3 +5,4 @@ coverage
 .turbo
 pnpm-lock.yaml
 *.sql
+apps/web/next-env.d.ts
