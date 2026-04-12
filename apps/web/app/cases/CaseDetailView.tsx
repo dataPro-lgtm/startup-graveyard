@@ -17,6 +17,7 @@ import {
   primaryFailureReasonLabel,
   timelineEventTypeLabel,
 } from '@sg/shared/taxonomy';
+import { TeamWorkspaceShareButton } from './TeamWorkspaceShareButton';
 import { WatchlistButton } from './WatchlistButton';
 
 const sectionTitle = {
@@ -200,7 +201,10 @@ export async function CaseDetailView({
           }}
         >
           <h1 style={{ margin: 0, fontSize: 36 }}>{item.companyName}</h1>
-          <WatchlistButton caseId={item.id} />
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <WatchlistButton caseId={item.id} />
+            <TeamWorkspaceShareButton caseId={item.id} />
+          </div>
         </div>
         <div
           style={{

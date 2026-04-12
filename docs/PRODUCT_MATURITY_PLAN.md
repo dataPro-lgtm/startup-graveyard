@@ -44,9 +44,9 @@
 
 ### P1 产品能力
 
-- Topic/专题研究页、趋势看板、个人 watchlist、saved views 和基础 Markdown 导出已经上线，但更完整的报告交付、团队协作仍未落地。
+- Topic/专题研究页、趋势看板、个人 watchlist、saved views、基础 Markdown 导出和 Team Workspace 协作基础已经上线，但更完整的报告交付、seat 级权益和订阅运营仍未落地。
 - 首页仍偏“案例站”，离“研究入口 / 决策面板”还有距离。
-- Free / Pro / Team 的权益边界已经有了基础模型，但商业化能力目前只覆盖到 watchlist + saved views + Markdown export；更完整的导出、Team workspace 和订阅运营闭环还没跟上。
+- Free / Pro / Team 的权益边界已经有了基础模型，但商业化能力目前只覆盖到 watchlist + saved views + Markdown export + Team Workspace foundation；更完整的导出、seat entitlement 和订阅运营闭环还没跟上。
 
 ### P2 平台化与运营
 
@@ -208,3 +208,9 @@
 
 - Pro / Team 用户现在可以把当前筛选或已保存视图导出成 Markdown research brief，包含筛选摘要、样本快照和案例列表。
 - 导出逻辑已经进入正式 API 契约与前端工作流，而不是停留在后台手工复制粘贴阶段；后续 PDF、分享页和客户交付会沿用这套 report generator 继续演进。
+
+已完成 M3 第三段（team workspace foundation）：
+
+- Team 用户现在可以在账户页创建团队工作区，邀请成员，并查看成员、待接受邀请、共享 Saved Views 和共享案例。
+- 公开 API、shared schema、数据库模型已经补齐 `team_workspaces / members / invites / shared_saved_views / shared_cases`，mock / PostgreSQL 两套仓库都支持同一套协作闭环。
+- 案例详情页与 Saved Views 列表已经接入“共享到 Team Workspace”入口，这让 M3 从个人研究资产沉淀，升级成了基础团队协作资产层。

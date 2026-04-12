@@ -13,12 +13,20 @@ import {
 import { getAccessToken } from '@/lib/authApi';
 import { casesListPath, type CasesSearchParams } from '@/lib/casesApi';
 import { exportResearchReport, isApiError as isReportApiError } from '@/lib/reportExportsApi';
+import {
+  TEAM_WORKSPACE_REFRESH_EVENT,
+  fetchTeamWorkspaceContext,
+  isApiError as isTeamWorkspaceApiError,
+  notifyTeamWorkspaceUpdated,
+  shareSavedViewToWorkspace,
+} from '@/lib/teamWorkspaceApi';
 import { useAuth } from './AuthProvider';
 import type {
   SavedViewFilters,
   SavedViewItem,
   SavedViewSummary,
 } from '@sg/shared/schemas/savedViews';
+import type { TeamWorkspaceContextResponse } from '@sg/shared/schemas/teamWorkspace';
 import {
   businessModelLabel,
   countryLabel,
@@ -66,12 +74,15 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
   const [fetching, setFetching] = useState(false);
   const [saving, setSaving] = useState(false);
   const [exportingKey, setExportingKey] = useState<string | null>(null);
+  const [sharingId, setSharingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState(suggestedName ?? '全部案例');
+  const [teamWorkspaceContext, setTeamWorkspaceContext] =
+    useState<TeamWorkspaceContextResponse | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -102,6 +113,36 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
       cancelled = true;
     };
   }, [user]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadWorkspaceContext() {
+      if (!user || mode !== 'full') {
+        setTeamWorkspaceContext(null);
+        return;
+      }
+      const token = getAccessToken();
+      if (!token) return;
+      const res = await fetchTeamWorkspaceContext(token);
+      if (cancelled) return;
+      if (isTeamWorkspaceApiError(res)) {
+        setTeamWorkspaceContext(null);
+        return;
+      }
+      setTeamWorkspaceContext(res);
+    }
+
+    void loadWorkspaceContext();
+    const onRefresh = () => {
+      void loadWorkspaceContext();
+    };
+    window.addEventListener(TEAM_WORKSPACE_REFRESH_EVENT, onRefresh);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(TEAM_WORKSPACE_REFRESH_EVENT, onRefresh);
+    };
+  }, [mode, user]);
 
   const displaySummary = useMemo(() => {
     if (summary) return summary;
@@ -201,6 +242,37 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
     anchor.remove();
     URL.revokeObjectURL(url);
     setMessage(`已导出 ${res.filename}`);
+  }
+
+  async function handleShare(savedViewId: string) {
+    if (!user) return;
+    const token = getAccessToken();
+    if (!token) return;
+    setSharingId(savedViewId);
+    setError(null);
+    setMessage(null);
+    const res = await shareSavedViewToWorkspace(token, savedViewId);
+    setSharingId(null);
+    if (isTeamWorkspaceApiError(res)) {
+      setError(`共享失败：${res.error}`);
+      return;
+    }
+    setTeamWorkspaceContext((prev) =>
+      prev
+        ? {
+            ...prev,
+            hasWorkspace: true,
+            workspace: res.workspace,
+          }
+        : {
+            canCreateWorkspace: false,
+            hasWorkspace: true,
+            pendingInvites: [],
+            workspace: res.workspace,
+          },
+    );
+    setMessage(res.added ? 'Saved View 已共享到团队工作区。' : '这个 Saved View 已经在团队工作区里。');
+    notifyTeamWorkspaceUpdated();
   }
 
   if (loading) return null;
@@ -331,6 +403,11 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
       ) : null}
 
       {fetching ? <p style={{ color: '#8a96b0' }}>正在同步 Saved Views…</p> : null}
+      {mode === 'full' && teamWorkspaceContext?.workspace ? (
+        <p style={{ color: '#8a96b0', fontSize: 13 }}>
+          当前团队工作区：{teamWorkspaceContext.workspace.name}。你可以把任意 Saved View 共享给团队成员。
+        </p>
+      ) : null}
       {message ? <p style={{ color: '#7dffb3' }}>{message}</p> : null}
       {error ? <p style={{ color: '#fda4af' }}>{error}</p> : null}
 
@@ -472,6 +549,15 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
                           style={ghostMiniButton}
                         >
                           {exportingKey === item.id ? '导出中…' : '导出'}
+                        </button>
+                      ) : null}
+                      {teamWorkspaceContext?.workspace ? (
+                        <button
+                          onClick={() => void handleShare(item.id)}
+                          disabled={sharingId === item.id}
+                          style={ghostMiniButton}
+                        >
+                          {sharingId === item.id ? '共享中…' : '共享到 Team'}
                         </button>
                       ) : null}
                     </>

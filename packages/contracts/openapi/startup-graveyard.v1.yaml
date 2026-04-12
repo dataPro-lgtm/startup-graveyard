@@ -553,6 +553,121 @@ components:
         sampleSize: { type: integer, minimum: 0 }
         generatedAt: { type: string }
         content: { type: string }
+    TeamWorkspaceRole:
+      type: string
+      enum: [owner, admin, member]
+    TeamWorkspaceInviteStatus:
+      type: string
+      enum: [pending, accepted, revoked]
+    TeamWorkspaceMember:
+      type: object
+      required: [userId, email, displayName, role, joinedAt]
+      properties:
+        userId: { type: string, format: uuid }
+        email: { type: string, format: email }
+        displayName: { type: string, nullable: true }
+        role:
+          $ref: '#/components/schemas/TeamWorkspaceRole'
+        joinedAt: { type: string }
+    TeamWorkspaceInvite:
+      type: object
+      required: [id, workspaceId, workspaceName, email, role, status, createdAt, acceptedAt]
+      properties:
+        id: { type: string, format: uuid }
+        workspaceId: { type: string, format: uuid }
+        workspaceName: { type: string }
+        email: { type: string, format: email }
+        role:
+          type: string
+          enum: [admin, member]
+        status:
+          $ref: '#/components/schemas/TeamWorkspaceInviteStatus'
+        createdAt: { type: string }
+        acceptedAt: { type: string, nullable: true }
+    TeamWorkspaceSharedSavedView:
+      allOf:
+        - $ref: '#/components/schemas/SavedViewItem'
+        - type: object
+          required: [sourceSavedViewId, sharedByUserId, sharedByName, sharedAt]
+          properties:
+            sourceSavedViewId: { type: string, format: uuid }
+            sharedByUserId: { type: string, format: uuid }
+            sharedByName: { type: string, nullable: true }
+            sharedAt: { type: string }
+    TeamWorkspaceSharedCase:
+      allOf:
+        - $ref: '#/components/schemas/CaseListItem'
+        - type: object
+          required: [sharedByUserId, sharedByName, sharedAt]
+          properties:
+            sharedByUserId: { type: string, format: uuid }
+            sharedByName: { type: string, nullable: true }
+            sharedAt: { type: string }
+    TeamWorkspace:
+      type: object
+      required:
+        [
+          id,
+          name,
+          role,
+          canManageMembers,
+          memberCount,
+          sharedSavedViewCount,
+          sharedCaseCount,
+          createdAt,
+          members,
+          invites,
+          sharedSavedViews,
+          sharedCases,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        role:
+          $ref: '#/components/schemas/TeamWorkspaceRole'
+        canManageMembers: { type: boolean }
+        memberCount: { type: integer, minimum: 0 }
+        sharedSavedViewCount: { type: integer, minimum: 0 }
+        sharedCaseCount: { type: integer, minimum: 0 }
+        createdAt: { type: string }
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/TeamWorkspaceMember'
+        invites:
+          type: array
+          items:
+            $ref: '#/components/schemas/TeamWorkspaceInvite'
+        sharedSavedViews:
+          type: array
+          items:
+            $ref: '#/components/schemas/TeamWorkspaceSharedSavedView'
+        sharedCases:
+          type: array
+          items:
+            $ref: '#/components/schemas/TeamWorkspaceSharedCase'
+    TeamWorkspaceContextResponse:
+      type: object
+      required: [canCreateWorkspace, hasWorkspace, workspace, pendingInvites]
+      properties:
+        canCreateWorkspace: { type: boolean }
+        hasWorkspace: { type: boolean }
+        workspace:
+          allOf:
+            - $ref: '#/components/schemas/TeamWorkspace'
+          nullable: true
+        pendingInvites:
+          type: array
+          items:
+            $ref: '#/components/schemas/TeamWorkspaceInvite'
+    TeamWorkspaceMutationResponse:
+      type: object
+      required: [ok, workspace]
+      properties:
+        ok: { type: boolean, enum: [true] }
+        added: { type: boolean }
+        workspace:
+          $ref: '#/components/schemas/TeamWorkspace'
     CopilotCitation:
       type: object
       required: [caseId, slug, companyName, relevantText]
@@ -1723,6 +1838,168 @@ paths:
           description: Entitlement required
         '404':
           description: User not found
+  /v1/team-workspace/me:
+    get:
+      summary: Fetch the current user's team workspace context and pending invites
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Team workspace context
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamWorkspaceContextResponse'
+        '401':
+          description: Unauthorized
+        '404':
+          description: User not found
+  /v1/team-workspace:
+    post:
+      summary: Create a team workspace for the current Team user
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 2, maxLength: 80 }
+      responses:
+        '200':
+          description: Team workspace created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamWorkspaceMutationResponse'
+        '400':
+          description: Invalid body
+        '401':
+          description: Unauthorized
+        '403':
+          description: Entitlement required
+        '404':
+          description: User not found
+        '409':
+          description: User already belongs to a workspace
+  /v1/team-workspace/invites:
+    post:
+      summary: Invite a member into the current team workspace
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, role]
+              properties:
+                email: { type: string, format: email }
+                role:
+                  type: string
+                  enum: [admin, member]
+      responses:
+        '200':
+          description: Invite created or updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamWorkspaceMutationResponse'
+        '400':
+          description: Invalid body
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Workspace or user not found
+        '409':
+          description: User already belongs to a workspace
+  /v1/team-workspace/invites/{inviteId}/accept:
+    post:
+      summary: Accept a pending team workspace invite
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: inviteId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Invite accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamWorkspaceMutationResponse'
+        '400':
+          description: Invalid path parameter
+        '401':
+          description: Unauthorized
+        '403':
+          description: Invite email mismatch
+        '404':
+          description: Invite or user not found
+        '409':
+          description: User already belongs to a workspace
+  /v1/team-workspace/shared-saved-views:
+    post:
+      summary: Share one of the current user's saved views into the current team workspace
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [savedViewId]
+              properties:
+                savedViewId: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Saved view shared into workspace
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamWorkspaceMutationResponse'
+        '400':
+          description: Invalid body
+        '401':
+          description: Unauthorized
+        '404':
+          description: Workspace, user, or saved view not found
+  /v1/team-workspace/shared-cases:
+    post:
+      summary: Share a published case into the current team workspace
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [caseId]
+              properties:
+                caseId: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Case shared into workspace
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamWorkspaceMutationResponse'
+        '400':
+          description: Invalid body
+        '401':
+          description: Unauthorized
+        '404':
+          description: Workspace, user, or case not found
   /v1/admin/reviews:
     get:
       summary: List reviews

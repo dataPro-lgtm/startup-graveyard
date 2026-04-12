@@ -7,6 +7,7 @@ import { PLAN_LABELS, PLAN_SUMMARIES } from '@sg/shared/billing';
 import { industryLabel, primaryFailureReasonLabel } from '@sg/shared/taxonomy';
 import { useAuth } from '@/app/components/AuthProvider';
 import { SavedViewsManager } from '@/app/components/SavedViewsManager';
+import { TeamWorkspacePanel } from '@/app/components/TeamWorkspacePanel';
 import { API_BASE_URL } from '@/lib/api';
 import { getAccessToken, isApiError } from '@/lib/authApi';
 import { caseListHref } from '@/lib/casesApi';
@@ -305,9 +306,9 @@ export default function AccountPage() {
             sub="PDF / 分享材料 / 客户交付"
           />
           <MetricCard
-            label="API Access"
-            value={user.entitlements.canUseApiAccess ? '可用' : '未开放'}
-            sub="结构化研究与内部集成"
+            label="团队工作区"
+            value={user.entitlements.canUseTeamWorkspace ? '可创建' : '邀请加入'}
+            sub="成员 / 共享视图 / 共享案例"
           />
         </div>
       </section>
@@ -385,6 +386,8 @@ export default function AccountPage() {
           />
         </div>
       </section>
+
+      <TeamWorkspacePanel />
 
       <section
         style={{
