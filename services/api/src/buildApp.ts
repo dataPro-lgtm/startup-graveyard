@@ -65,6 +65,7 @@ import { authRoutes } from './routes/public/auth.js';
 import { caseRoutes } from './routes/public/cases.js';
 import { copilotRoutes } from './routes/public/copilot.js';
 import { paymentsRoutes } from './routes/public/payments.js';
+import { reportsRoutes } from './routes/public/reports.js';
 import { savedViewsRoutes } from './routes/public/savedViews.js';
 import { watchlistRoutes } from './routes/public/watchlist.js';
 import { metaRoutes } from './routes/public/meta.js';
@@ -171,6 +172,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
   await server.register(metaRoutes, { prefix: '/v1/meta' });
   await server.register(copilotRoutes, { prefix: '/v1/copilot' });
   await server.register(paymentsRoutes, { prefix: '/v1/payments' });
+  await server.register(reportsRoutes, { prefix: '/v1/reports' });
   await server.register(savedViewsRoutes, { prefix: '/v1/saved-views' });
   await server.register(watchlistRoutes, { prefix: '/v1/watchlist' });
   await server.register(registerAdminRoutes, { prefix: '/v1/admin' });

@@ -536,6 +536,76 @@ describe('public API (mock DB)', () => {
     });
   });
 
+  it('report exports unlock with Pro and return markdown research briefs', async () => {
+    const email = `report-export-${Date.now()}@example.com`;
+    const registerRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        email,
+        password: 'password123',
+        displayName: 'Report Export User',
+      },
+    });
+    expect(registerRes.statusCode).toBe(201);
+    const registered = JSON.parse(registerRes.body) as {
+      user: { id: string };
+      accessToken: string;
+    };
+
+    const blockedRes = await app.inject({
+      method: 'POST',
+      url: '/v1/reports/exports/markdown',
+      headers: {
+        authorization: `Bearer ${registered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        name: 'Marketplace memo',
+        filters: { businessModelKey: 'marketplace' },
+      },
+    });
+    expect(blockedRes.statusCode).toBe(403);
+    expect(JSON.parse(blockedRes.body)).toMatchObject({
+      error: 'entitlement_required',
+    });
+
+    await app.usersRepo.updateBillingAccount(registered.user.id, {
+      subscription: 'pro',
+      billingStatus: 'active',
+      billingInterval: 'month',
+    });
+
+    const exportRes = await app.inject({
+      method: 'POST',
+      url: '/v1/reports/exports/markdown',
+      headers: {
+        authorization: `Bearer ${registered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        name: 'Marketplace memo',
+        filters: { businessModelKey: 'marketplace' },
+      },
+    });
+    expect(exportRes.statusCode).toBe(200);
+    const exported = JSON.parse(exportRes.body) as {
+      filename: string;
+      mimeType: string;
+      caseCount: number;
+      sampleSize: number;
+      content: string;
+    };
+    expect(exported.filename).toBe('marketplace-memo.md');
+    expect(exported.mimeType).toBe('text/markdown');
+    expect(exported.caseCount).toBeGreaterThan(0);
+    expect(exported.sampleSize).toBeGreaterThan(0);
+    expect(exported.content).toContain('# Marketplace memo');
+    expect(exported.content).toContain('## Snapshot');
+    expect(exported.content).toContain('## Matching Cases');
+    expect(exported.content).toContain('Airlift');
+  });
+
   it('GET /v1/admin/audit is disabled when ADMIN_API_KEY is unset', async () => {
     const res = await app.inject({ method: 'GET', url: '/v1/admin/audit?limit=5' });
     expect(res.statusCode).toBe(503);

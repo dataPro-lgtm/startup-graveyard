@@ -541,6 +541,18 @@ components:
         summary:
           $ref: '#/components/schemas/SavedViewSummary'
         savedViewId: { type: string, format: uuid }
+    ExportResearchReportResponse:
+      type: object
+      required: [ok, filename, mimeType, title, caseCount, sampleSize, generatedAt, content]
+      properties:
+        ok: { type: boolean, enum: [true] }
+        filename: { type: string }
+        mimeType: { type: string, enum: ['text/markdown'] }
+        title: { type: string }
+        caseCount: { type: integer, minimum: 0 }
+        sampleSize: { type: integer, minimum: 0 }
+        generatedAt: { type: string }
+        content: { type: string }
     CopilotCitation:
       type: object
       required: [caseId, slug, companyName, relevantText]
@@ -1569,6 +1581,37 @@ paths:
           description: Invalid path parameter
         '401':
           description: Unauthorized
+        '404':
+          description: User not found
+  /v1/reports/exports/markdown:
+    post:
+      summary: Export the current filters as a Markdown research brief
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, filters]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 80 }
+                filters:
+                  $ref: '#/components/schemas/SavedViewFilters'
+      responses:
+        '200':
+          description: Markdown research brief generated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExportResearchReportResponse'
+        '400':
+          description: Invalid body
+        '401':
+          description: Unauthorized
+        '403':
+          description: Entitlement required
         '404':
           description: User not found
   /v1/admin/reviews:

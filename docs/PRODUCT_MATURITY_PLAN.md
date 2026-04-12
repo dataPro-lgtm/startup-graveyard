@@ -44,9 +44,9 @@
 
 ### P1 产品能力
 
-- Topic/专题研究页、趋势看板、个人 watchlist 和 saved views 已经上线，但导出报告、团队协作仍未落地。
+- Topic/专题研究页、趋势看板、个人 watchlist、saved views 和基础 Markdown 导出已经上线，但更完整的报告交付、团队协作仍未落地。
 - 首页仍偏“案例站”，离“研究入口 / 决策面板”还有距离。
-- Free / Pro / Team 的权益边界已经有了基础模型，但商业化能力还只覆盖到 watchlist + saved views；导出、Team workspace 和订阅运营闭环还没跟上。
+- Free / Pro / Team 的权益边界已经有了基础模型，但商业化能力目前只覆盖到 watchlist + saved views + Markdown export；更完整的导出、Team workspace 和订阅运营闭环还没跟上。
 
 ### P2 平台化与运营
 
@@ -197,3 +197,8 @@
 - 首页现在支持把当前筛选直接保存成个人研究视图，用户不再只能靠 URL 或浏览器书签回到同一组研究上下文。
 - API、shared schema、数据库模型已经补齐 `saved views` 的 list / create / rename / delete 闭环，并复用现有 entitlement gating、账户体系和账单升级入口。
 - 账户页现在除了 watchlist，还会沉淀第二层个人研究资产 Saved Views，这让 M3 从“只有商业化基础设施”升级成“有真实可感知的个人付费工作流”。
+
+已完成 M3 第二段补充（Markdown export foundation）：
+
+- Pro / Team 用户现在可以把当前筛选或已保存视图导出成 Markdown research brief，包含筛选摘要、样本快照和案例列表。
+- 导出逻辑已经进入正式 API 契约与前端工作流，而不是停留在后台手工复制粘贴阶段；后续 PDF、分享页和客户交付会沿用这套 report generator 继续演进。

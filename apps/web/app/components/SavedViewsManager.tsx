@@ -12,6 +12,7 @@ import {
 } from '@/lib/savedViewsApi';
 import { getAccessToken } from '@/lib/authApi';
 import { casesListPath, type CasesSearchParams } from '@/lib/casesApi';
+import { exportResearchReport, isApiError as isReportApiError } from '@/lib/reportExportsApi';
 import { useAuth } from './AuthProvider';
 import type {
   SavedViewFilters,
@@ -64,6 +65,7 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
   const [summary, setSummary] = useState<SavedViewSummary | null>(null);
   const [fetching, setFetching] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [exportingKey, setExportingKey] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
@@ -176,6 +178,31 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
     setMessage('Saved view 已删除。');
   }
 
+  async function handleExport(exportName: string, filters: SavedViewFilters, key: string) {
+    if (!user) return;
+    const token = getAccessToken();
+    if (!token) return;
+    setExportingKey(key);
+    setError(null);
+    setMessage(null);
+    const res = await exportResearchReport(token, { name: exportName, filters });
+    setExportingKey(null);
+    if (isReportApiError(res)) {
+      setError(apiErrorMessage(res));
+      return;
+    }
+    const blob = new Blob([res.content], { type: `${res.mimeType};charset=utf-8` });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = res.filename;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    setMessage(`已导出 ${res.filename}`);
+  }
+
   if (loading) return null;
 
   return (
@@ -279,6 +306,21 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
                 <button onClick={handleCreate} disabled={saving} style={primaryButton(saving)}>
                   {saving ? '保存中…' : '保存当前视图'}
                 </button>
+                {user.entitlements.canExportReports ? (
+                  <button
+                    onClick={() =>
+                      void handleExport(
+                        name.trim() || suggestedName || '全部案例',
+                        currentFilters,
+                        'current',
+                      )
+                    }
+                    disabled={exportingKey === 'current'}
+                    style={ghostMiniButton}
+                  >
+                    {exportingKey === 'current' ? '导出中…' : '导出 Markdown Brief'}
+                  </button>
+                ) : null}
                 <span style={{ color: '#6b7fa8', fontSize: 12 }}>
                   会保留当前筛选，不含分页和临时浏览位置。
                 </span>
@@ -420,6 +462,19 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
                     >
                       重命名
                     </button>
+                  ) : null}
+                  {mode === 'full' ? (
+                    <>
+                      {user?.entitlements.canExportReports ? (
+                        <button
+                          onClick={() => void handleExport(item.name, item.filters, item.id)}
+                          disabled={exportingKey === item.id}
+                          style={ghostMiniButton}
+                        >
+                          {exportingKey === item.id ? '导出中…' : '导出'}
+                        </button>
+                      ) : null}
+                    </>
                   ) : null}
                   {mode === 'full' ? (
                     <button

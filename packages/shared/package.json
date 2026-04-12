@@ -38,6 +38,11 @@
       "import": "./dist/schemas/savedViews.js",
       "default": "./dist/schemas/savedViews.js"
     },
+    "./schemas/reportExports": {
+      "types": "./dist/schemas/reportExports.d.ts",
+      "import": "./dist/schemas/reportExports.js",
+      "default": "./dist/schemas/reportExports.js"
+    },
     "./schemas/meta": {
       "types": "./dist/schemas/meta.d.ts",
       "import": "./dist/schemas/meta.js",
