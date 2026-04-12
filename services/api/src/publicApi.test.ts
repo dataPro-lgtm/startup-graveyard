@@ -16,6 +16,13 @@ describe('public API (mock DB)', () => {
   it('GET /health', async () => {
     const res = await app.inject({ method: 'GET', url: '/health' });
     expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body) as {
+      ok: boolean;
+      features: { adminEnabled: boolean; mockMode: boolean };
+    };
+    expect(body.ok).toBe(true);
+    expect(body.features.adminEnabled).toBe(false);
+    expect(body.features.mockMode).toBe(true);
   });
 
   it('GET /v1/cases returns slug + extended fields', async () => {
@@ -53,6 +60,25 @@ describe('public API (mock DB)', () => {
     };
     expect(body.businessModels.marketplace).toBeDefined();
     expect(body.primaryFailureReasons.premature_scaling).toBeDefined();
+  });
+
+  it('GET /v1/meta/home-summary returns published aggregates', async () => {
+    const res = await app.inject({ method: 'GET', url: '/v1/meta/home-summary' });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body) as {
+      totalCases: number;
+      totalFundingUsd: number;
+      failurePatterns: number;
+    };
+    expect(body.totalCases).toBe(2);
+    expect(body.totalFundingUsd).toBe(109_000_000);
+    expect(body.failurePatterns).toBe(1);
+  });
+
+  it('GET /v1/admin/audit is disabled when ADMIN_API_KEY is unset', async () => {
+    const res = await app.inject({ method: 'GET', url: '/v1/admin/audit?limit=5' });
+    expect(res.statusCode).toBe(503);
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'admin_api_disabled' });
   });
 
   it('GET /v1/cases filters by businessModelKey', async () => {

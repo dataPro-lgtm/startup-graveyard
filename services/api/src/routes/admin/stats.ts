@@ -150,7 +150,7 @@ async function fetchStats(pool: Pool): Promise<StatsResult> {
       pending: ingestionMap['pending'] ?? 0,
       running: ingestionMap['running'] ?? 0,
       failed: ingestionMap['failed'] ?? 0,
-      completed: ingestionMap['completed'] ?? 0,
+      completed: ingestionMap['succeeded'] ?? ingestionMap['completed'] ?? 0,
     },
   };
 }

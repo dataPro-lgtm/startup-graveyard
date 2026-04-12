@@ -79,6 +79,21 @@ export type ListCasesResult = {
   total: number;
 };
 
+export type HomeSummary = {
+  totalCases: number;
+  totalFundingUsd: number;
+  failurePatterns: number;
+};
+
+export type AdminCaseReviewSnapshot = {
+  caseId: string;
+  slug: string;
+  companyName: string;
+  status: string;
+  evidenceCount: number;
+  failureFactorCount: number;
+};
+
 export interface CasesRepository {
   list(params: ListCasesParams): Promise<ListCasesResult>;
   getById(id: string): Promise<CaseDetail | null>;
@@ -86,6 +101,7 @@ export interface CasesRepository {
   getByIds(ids: string[]): Promise<CaseDetail[]>;
   /** Published only; case-insensitive slug match (citext). */
   getPublishedBySlug(slug: string): Promise<CaseDetail | null>;
+  getHomeSummary(): Promise<HomeSummary>;
   /** Any status (draft / rejected / published). */
   caseExists(id: string): Promise<boolean>;
   /** Published only; returns [] when anchor has no embedding. */
@@ -340,6 +356,21 @@ export class MockCasesRepository implements CasesRepository {
       primaryFailureReasonKey: null,
       keyLessons: null,
     },
+    {
+      id: 'c3333333-3333-4333-8333-333333333333',
+      slug: 'mock-draft',
+      status: 'draft',
+      companyName: 'Mock Draft Inc',
+      industry: 'saas',
+      country: 'US',
+      closedYear: null,
+      summary: '用于本地开发的草稿案例，默认没有证据与失败因子，方便演示发布 gate。',
+      businessModelKey: 'subscription',
+      foundedYear: 2023,
+      totalFundingUsd: null,
+      primaryFailureReasonKey: null,
+      keyLessons: null,
+    },
   ];
 
   async list(params: ListCasesParams): Promise<ListCasesResult> {
@@ -369,6 +400,17 @@ export class MockCasesRepository implements CasesRepository {
 
   async getTimeline(_caseId: string): Promise<TimelineEventItem[]> {
     return [];
+  }
+
+  async getHomeSummary(): Promise<HomeSummary> {
+    const published = this.rows.filter((r) => r.status === 'published');
+    return {
+      totalCases: published.length,
+      totalFundingUsd: published.reduce((sum, item) => sum + (item.totalFundingUsd ?? 0), 0),
+      failurePatterns: new Set(
+        published.map((item) => item.primaryFailureReasonKey).filter(Boolean),
+      ).size,
+    };
   }
 
   async getById(id: string): Promise<CaseDetail | null> {
@@ -444,6 +486,28 @@ export class MockCasesRepository implements CasesRepository {
     });
     return { ok: true, caseId: id };
   }
+
+  adminGetReviewSnapshot(caseId: string): AdminCaseReviewSnapshot | null {
+    const row = this.rows.find((item) => item.id === caseId);
+    if (!row) return null;
+    const builtinEvidence = caseId === AIRLIFT_MOCK_ID ? AIRLIFT_BUILTIN_EVIDENCE.length : 0;
+    const builtinFactors = caseId === AIRLIFT_MOCK_ID ? AIRLIFT_BUILTIN_FACTORS.length : 0;
+    return {
+      caseId: row.id,
+      slug: row.slug,
+      companyName: row.companyName,
+      status: row.status,
+      evidenceCount: builtinEvidence + getMockExtraEvidence(caseId).length,
+      failureFactorCount: builtinFactors + getMockExtraFactors(caseId).length,
+    };
+  }
+
+  adminSetStatus(caseId: string, status: string): boolean {
+    const idx = this.rows.findIndex((item) => item.id === caseId);
+    if (idx < 0) return false;
+    this.rows[idx] = { ...this.rows[idx], status };
+    return true;
+  }
 }
 
 export class PgCasesRepository implements CasesRepository {
@@ -452,6 +516,30 @@ export class PgCasesRepository implements CasesRepository {
   async caseExists(id: string): Promise<boolean> {
     const r = await this.pool.query(`SELECT 1 FROM cases WHERE id = $1 LIMIT 1`, [id]);
     return (r.rowCount ?? 0) > 0;
+  }
+
+  async getHomeSummary(): Promise<HomeSummary> {
+    const res = await this.pool.query<{
+      total_cases: string;
+      total_funding_usd: string;
+      failure_patterns: string;
+    }>(
+      `
+      SELECT
+        COUNT(*)::bigint AS total_cases,
+        COALESCE(SUM(total_funding_usd), 0)::numeric AS total_funding_usd,
+        COUNT(DISTINCT primary_failure_reason_key)::bigint
+          FILTER (WHERE primary_failure_reason_key IS NOT NULL) AS failure_patterns
+      FROM cases
+      WHERE status = 'published'
+      `,
+    );
+    const row = res.rows[0];
+    return {
+      totalCases: Number(row?.total_cases ?? 0),
+      totalFundingUsd: Number(row?.total_funding_usd ?? 0),
+      failurePatterns: Number(row?.failure_patterns ?? 0),
+    };
   }
 
   // ---------------------------------------------------------------------------

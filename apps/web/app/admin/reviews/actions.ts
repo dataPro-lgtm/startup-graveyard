@@ -101,8 +101,59 @@ export async function approveReview(formData: FormData) {
   });
   revalidatePath('/admin/reviews');
   if (res.status === 404) redirect('/admin/reviews?err=notfound');
+  if (res.status === 409) redirect('/admin/reviews?err=approve_gate');
   if (!res.ok) redirect('/admin/reviews?err=approve');
   redirect('/admin/reviews?ok=approve');
+}
+
+export async function requestChangesReview(formData: FormData) {
+  const id = formData.get('reviewId');
+  if (typeof id !== 'string') redirect('/admin/reviews?err=invalid');
+  const noteRaw = formData.get('decisionNote');
+  const decisionNote = typeof noteRaw === 'string' ? noteRaw.trim() : '';
+  if (!decisionNote) redirect('/admin/reviews?err=changes_note');
+
+  let h: HeadersInit;
+  try {
+    h = adminHeaders();
+  } catch {
+    redirect('/admin/reviews?err=config');
+  }
+
+  const res = await fetch(
+    `${API_BASE_URL}/v1/admin/reviews/${encodeURIComponent(id)}/request-changes`,
+    {
+      method: 'POST',
+      headers: { ...h, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ decisionNote }),
+    },
+  );
+  revalidatePath('/admin/reviews');
+  if (res.status === 404) redirect('/admin/reviews?err=notfound');
+  if (res.status === 400) redirect('/admin/reviews?err=changes_note');
+  if (!res.ok) redirect('/admin/reviews?err=request_changes');
+  redirect('/admin/reviews?ok=changes_requested');
+}
+
+export async function resubmitReview(formData: FormData) {
+  const id = formData.get('reviewId');
+  if (typeof id !== 'string') redirect('/admin/reviews?err=invalid');
+
+  let h: HeadersInit;
+  try {
+    h = adminHeaders();
+  } catch {
+    redirect('/admin/reviews?err=config');
+  }
+
+  const res = await fetch(`${API_BASE_URL}/v1/admin/reviews/${encodeURIComponent(id)}/resubmit`, {
+    method: 'POST',
+    headers: h,
+  });
+  revalidatePath('/admin/reviews');
+  if (res.status === 404) redirect('/admin/reviews?err=notfound');
+  if (!res.ok) redirect('/admin/reviews?err=resubmit');
+  redirect('/admin/reviews?ok=resubmitted');
 }
 
 export async function rejectReview(formData: FormData) {

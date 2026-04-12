@@ -10,6 +10,10 @@ components:
       type: apiKey
       in: header
       name: X-Admin-Key
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
   schemas:
     CaseListItem:
       type: object
@@ -122,6 +126,230 @@ components:
         primaryFailureReasons:
           type: object
           additionalProperties: { type: string }
+    HomeSummary:
+      type: object
+      required: [totalCases, totalFundingUsd, failurePatterns]
+      properties:
+        totalCases: { type: integer, minimum: 0 }
+        totalFundingUsd: { type: number, minimum: 0 }
+        failurePatterns: { type: integer, minimum: 0 }
+    ReviewPublishReadiness:
+      type: object
+      required: [ready, evidenceCount, failureFactorCount, missing]
+      properties:
+        ready: { type: boolean }
+        evidenceCount: { type: integer, minimum: 0 }
+        failureFactorCount: { type: integer, minimum: 0 }
+        missing:
+          type: array
+          items:
+            type: string
+            enum: [evidence_sources, failure_factors]
+    ReviewListItem:
+      type: object
+      required:
+        - id
+        - caseId
+        - slug
+        - companyName
+        - reviewStatus
+        - assignedTo
+        - decisionNote
+        - createdAt
+        - approvedAt
+        - publishReadiness
+      properties:
+        id: { type: string, format: uuid }
+        caseId: { type: string, format: uuid }
+        slug: { type: string }
+        companyName: { type: string }
+        reviewStatus:
+          type: string
+          enum: [pending, changes_requested, approved, rejected]
+        assignedTo: { type: string, nullable: true }
+        decisionNote: { type: string, nullable: true }
+        createdAt: { type: string }
+        approvedAt: { type: string, nullable: true }
+        publishReadiness:
+          $ref: '#/components/schemas/ReviewPublishReadiness'
+    ListReviewsResponse:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReviewListItem'
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1 }
+        total: { type: integer, minimum: 0 }
+    ApproveReviewSuccess:
+      type: object
+      required: [ok, reviewId, caseId, status, approvedAt]
+      properties:
+        ok: { type: boolean, const: true }
+        reviewId: { type: string, format: uuid }
+        caseId: { type: string, format: uuid }
+        status: { type: string, const: approved }
+        approvedAt: { type: string }
+    ApproveReviewBlocked:
+      type: object
+      required: [error, caseId, publishReadiness]
+      properties:
+        error: { type: string, const: publish_requirements_not_met }
+        caseId: { type: string, format: uuid }
+        publishReadiness:
+          $ref: '#/components/schemas/ReviewPublishReadiness'
+    ReviewRequestChangesBody:
+      type: object
+      required: [decisionNote]
+      properties:
+        decisionNote: { type: string, minLength: 1, maxLength: 4000 }
+    ReviewRequestChangesResponse:
+      type: object
+      required: [reviewId, caseId, status]
+      properties:
+        reviewId: { type: string, format: uuid }
+        caseId: { type: string, format: uuid }
+        status: { type: string, const: changes_requested }
+    ReviewResubmitResponse:
+      type: object
+      required: [reviewId, caseId, status]
+      properties:
+        reviewId: { type: string, format: uuid }
+        caseId: { type: string, format: uuid }
+        status: { type: string, const: pending }
+    ReviewRejectResponse:
+      type: object
+      required: [reviewId, caseId, status]
+      properties:
+        reviewId: { type: string, format: uuid }
+        caseId: { type: string, format: uuid }
+        status: { type: string, const: rejected }
+    UserProfile:
+      type: object
+      required: [id, email, displayName, subscription, role, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        displayName: { type: string, nullable: true }
+        subscription:
+          type: string
+          enum: [free, pro]
+        role:
+          type: string
+          enum: [user, admin]
+        createdAt: { type: string }
+    AuthResponse:
+      type: object
+      required: [user, accessToken, refreshToken, expiresIn]
+      properties:
+        user:
+          $ref: '#/components/schemas/UserProfile'
+        accessToken: { type: string }
+        refreshToken: { type: string }
+        expiresIn: { type: integer, minimum: 1 }
+    CopilotCitation:
+      type: object
+      required: [caseId, slug, companyName, relevantText]
+      properties:
+        caseId: { type: string }
+        slug: { type: string }
+        companyName: { type: string }
+        relevantText: { type: string }
+    CopilotAnswerResponse:
+      type: object
+      required: [answer, citations, grounded]
+      properties:
+        answer: { type: string }
+        citations:
+          type: array
+          items:
+            $ref: '#/components/schemas/CopilotCitation'
+        model: { type: string }
+        grounded: { type: boolean }
+    AdminStatsResponse:
+      type: object
+      required:
+        - totalPublished
+        - totalFundingUsd
+        - totalDraft
+        - avgFundingUsd
+        - byIndustry
+        - byCountry
+        - byYear
+        - byFailureReason
+        - recentlyAdded
+        - pendingReviews
+        - ingestionStats
+      properties:
+        totalPublished: { type: integer, minimum: 0 }
+        totalFundingUsd: { type: number, minimum: 0 }
+        totalDraft: { type: integer, minimum: 0 }
+        avgFundingUsd: { type: number, minimum: 0 }
+        byIndustry:
+          type: array
+          items:
+            type: object
+            required: [industry, count, totalFunding]
+            properties:
+              industry: { type: string }
+              count: { type: integer, minimum: 0 }
+              totalFunding: { type: number, minimum: 0 }
+        byCountry:
+          type: array
+          items:
+            type: object
+            required: [country, count]
+            properties:
+              country: { type: string }
+              count: { type: integer, minimum: 0 }
+        byYear:
+          type: array
+          items:
+            type: object
+            required: [year, count]
+            properties:
+              year: { type: integer }
+              count: { type: integer, minimum: 0 }
+        byFailureReason:
+          type: array
+          items:
+            type: object
+            required: [reason, count]
+            properties:
+              reason: { type: string }
+              count: { type: integer, minimum: 0 }
+        recentlyAdded:
+          type: array
+          items:
+            type: object
+            required: [id, slug, companyName, createdAt]
+            properties:
+              id: { type: string, format: uuid }
+              slug: { type: string }
+              companyName: { type: string }
+              createdAt: { type: string }
+        pendingReviews: { type: integer, minimum: 0 }
+        ingestionStats:
+          type: object
+          required: [pending, running, failed, completed]
+          properties:
+            pending: { type: integer, minimum: 0 }
+            running: { type: integer, minimum: 0 }
+            failed: { type: integer, minimum: 0 }
+            completed: { type: integer, minimum: 0 }
+    SchedulerJob:
+      type: object
+      required: [id, name, source_name, cron_expr, enabled]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        source_name: { type: string }
+        cron_expr: { type: string }
+        enabled: { type: boolean }
+        last_run_at: { type: string, nullable: true }
+        next_run_at: { type: string, nullable: true }
 paths:
   /health:
     get:
@@ -258,6 +486,178 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TaxonomyResponse'
+  /v1/meta/home-summary:
+    get:
+      summary: Homepage aggregate metrics for the public discovery view
+      responses:
+        '200':
+          description: Published case summary metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HomeSummary'
+  /v1/auth/register:
+    post:
+      summary: Register a new user account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 8, maxLength: 128 }
+                displayName: { type: string, minLength: 1, maxLength: 100 }
+      responses:
+        '201':
+          description: Authenticated session payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Invalid body
+        '409':
+          description: Email already registered
+  /v1/auth/login:
+    post:
+      summary: Login with email and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 1 }
+      responses:
+        '200':
+          description: Authenticated session payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Invalid body
+        '401':
+          description: Invalid credentials
+  /v1/auth/refresh:
+    post:
+      summary: Rotate refresh token and issue a new access token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string, minLength: 1 }
+      responses:
+        '200':
+          description: Authenticated session payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Invalid body
+        '401':
+          description: Token expired or not found
+  /v1/auth/logout:
+    post:
+      summary: Logout current user session
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Logged out
+        '401':
+          description: Unauthorized
+  /v1/auth/me:
+    get:
+      summary: Get current user profile
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Current user profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '401':
+          description: Unauthorized
+        '404':
+          description: User not found
+  /v1/copilot/answer:
+    post:
+      summary: Grounded failure-intelligence answer over the published case corpus
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [question]
+              properties:
+                question: { type: string, minLength: 2, maxLength: 1000 }
+                topK: { type: integer, minimum: 1, maximum: 10, default: 5 }
+      responses:
+        '200':
+          description: Answer with citations and groundedness flag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CopilotAnswerResponse'
+        '400':
+          description: Invalid body
+  /v1/payments/checkout:
+    post:
+      summary: Create a Stripe checkout session for Pro subscription
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId]
+              properties:
+                userId: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Checkout session URL
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url]
+                properties:
+                  url: { type: string }
+        '400':
+          description: Invalid body
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '503':
+          description: Stripe not configured
+  /v1/payments/webhook:
+    post:
+      summary: Stripe webhook endpoint for subscription state changes
+      responses:
+        '200':
+          description: Event accepted
+        '400':
+          description: Missing or invalid Stripe signature
+        '503':
+          description: Stripe or database unavailable
   /v1/admin/reviews:
     get:
       summary: List reviews
@@ -266,7 +666,7 @@ paths:
       parameters:
         - in: query
           name: status
-          schema: { type: string, enum: [pending, approved, rejected] }
+          schema: { type: string, enum: [pending, changes_requested, approved, rejected] }
         - in: query
           name: page
           schema: { type: integer, minimum: 1, default: 1 }
@@ -276,8 +676,14 @@ paths:
       responses:
         '200':
           description: Review list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListReviewsResponse'
         '401':
           description: When ADMIN_API_KEY is set but missing/invalid
+        '503':
+          description: Admin API disabled because ADMIN_API_KEY is unset
   /v1/admin/reviews/{id}/approve:
     post:
       summary: Approve a review
@@ -291,8 +697,68 @@ paths:
       responses:
         '200':
           description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApproveReviewSuccess'
+        '409':
+          description: Publish requirements are not met
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApproveReviewBlocked'
         '401':
           description: Unauthorized
+        '503':
+          description: Admin API disabled
+  /v1/admin/reviews/{id}/request-changes:
+    post:
+      summary: Mark a review as changes requested
+      security:
+        - AdminKey: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewRequestChangesBody'
+      responses:
+        '200':
+          description: Changes requested
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewRequestChangesResponse'
+        '401':
+          description: Unauthorized
+        '503':
+          description: Admin API disabled
+  /v1/admin/reviews/{id}/resubmit:
+    post:
+      summary: Move a changes_requested review back to pending
+      security:
+        - AdminKey: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Resubmitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewResubmitResponse'
+        '401':
+          description: Unauthorized
+        '503':
+          description: Admin API disabled
   /v1/admin/reviews/{id}/reject:
     post:
       summary: Reject a review
@@ -314,8 +780,14 @@ paths:
       responses:
         '200':
           description: Rejected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewRejectResponse'
         '401':
           description: Unauthorized
+        '503':
+          description: Admin API disabled
   /v1/admin/cases:
     post:
       summary: Create draft case and pending review
@@ -349,6 +821,8 @@ paths:
           description: Unauthorized
         '409':
           description: Duplicate slug
+        '503':
+          description: Admin API disabled
   /v1/admin/cases/{caseId}/evidence:
     post:
       summary: Add evidence source to a case
@@ -383,6 +857,8 @@ paths:
           description: Unauthorized
         '404':
           description: Case not found
+        '503':
+          description: Admin API disabled
   /v1/admin/cases/{caseId}/failure-factors:
     post:
       summary: Add failure factor to a case
@@ -415,6 +891,8 @@ paths:
           description: Unauthorized
         '404':
           description: Case not found
+        '503':
+          description: Admin API disabled
   /v1/admin/audit:
     get:
       summary: Recent admin audit events
@@ -429,6 +907,24 @@ paths:
           description: Audit list
         '401':
           description: Unauthorized
+        '503':
+          description: Admin API disabled
+  /v1/admin/stats:
+    get:
+      summary: Admin dashboard aggregate statistics
+      security:
+        - AdminKey: []
+      responses:
+        '200':
+          description: Admin metrics payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminStatsResponse'
+        '401':
+          description: Unauthorized
+        '503':
+          description: Admin API disabled
   /v1/admin/ingestion-jobs/{id}:
     get:
       summary: Get one ingestion job by id
@@ -448,6 +944,8 @@ paths:
           description: Unauthorized
         '404':
           description: Not found
+        '503':
+          description: Admin API disabled
   /v1/admin/ingestion-jobs/{id}/requeue:
     post:
       summary: Requeue a failed job back to queued (audit ingestion.job_requeued)
@@ -467,6 +965,8 @@ paths:
           description: Unauthorized
         '404':
           description: Not failed or not found
+        '503':
+          description: Admin API disabled
   /v1/admin/ingestion-jobs:
     get:
       summary: Recent ingestion jobs
@@ -486,6 +986,8 @@ paths:
           description: Job list
         '401':
           description: Unauthorized
+        '503':
+          description: Admin API disabled
     post:
       summary: Enqueue ingestion job (queued status)
       security:
@@ -508,6 +1010,8 @@ paths:
           description: Invalid body
         '401':
           description: Unauthorized
+        '503':
+          description: Admin API disabled
   /v1/admin/ingestion-jobs/reclaim-stale:
     post:
       summary: >-
@@ -526,6 +1030,8 @@ paths:
           description: Invalid query
         '401':
           description: Unauthorized
+        '503':
+          description: Admin API disabled
   /v1/admin/ingestion-jobs/process-next:
     post:
       summary: >-
@@ -540,3 +1046,95 @@ paths:
             Either { ok:true, job } after success, or { ok:false, reason:empty_queue }
         '401':
           description: Unauthorized
+        '503':
+          description: Admin API disabled
+  /v1/admin/scheduler:
+    get:
+      summary: List scheduled ingestion/maintenance jobs
+      security:
+        - AdminKey: []
+      responses:
+        '200':
+          description: Scheduler jobs
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [jobs]
+                properties:
+                  jobs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SchedulerJob'
+        '401':
+          description: Unauthorized
+        '503':
+          description: Admin API disabled
+  /v1/admin/scheduler/trigger:
+    post:
+      summary: Trigger a scheduled job immediately by job name or source name
+      security:
+        - AdminKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                jobName: { type: string, minLength: 1 }
+                sourceName: { type: string, minLength: 1 }
+                payload:
+                  type: object
+                  additionalProperties: true
+      responses:
+        '200':
+          description: Ingestion trigger result
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    required: [ok]
+                    properties:
+                      ok: { type: boolean, enum: [true] }
+                      detail: { type: string }
+                  - type: object
+                    required: [ok, error]
+                    properties:
+                      ok: { type: boolean, enum: [false] }
+                      error: { type: string }
+        '400':
+          description: Invalid body
+        '401':
+          description: Unauthorized
+        '404':
+          description: Job not found
+        '503':
+          description: Admin API disabled
+  /v1/admin/scheduler/{id}/toggle:
+    patch:
+      summary: Enable or disable a scheduled job
+      security:
+        - AdminKey: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Updated scheduler enabled state
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [enabled]
+                properties:
+                  enabled: { type: boolean }
+        '401':
+          description: Unauthorized
+        '404':
+          description: Job not found
+        '503':
+          description: Admin API disabled

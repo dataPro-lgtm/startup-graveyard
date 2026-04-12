@@ -67,7 +67,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
     ingestionJobsRepo = new PgIngestionJobsRepository(pgPool, adminWriteRepo);
   } else {
     const mc = new MockCasesRepository();
-    const mr = new MockReviewsRepository();
+    const mr = new MockReviewsRepository(mc);
     casesRepo = mc;
     reviewsRepo = mr;
     adminWriteRepo = new MockAdminWriteRepository(mc, mr);
@@ -106,7 +106,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
   await server.register(paymentsRoutes, { prefix: '/v1/payments' });
   await server.register(registerAdminRoutes, { prefix: '/v1/admin' });
   if (!process.env.ADMIN_API_KEY) {
-    server.log.warn('ADMIN_API_KEY unset; /v1/admin/* is open');
+    server.log.warn('ADMIN_API_KEY unset; /v1/admin/* is disabled');
   }
 
   return server;

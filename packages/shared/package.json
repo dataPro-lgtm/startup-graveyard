@@ -27,6 +27,11 @@
       "types": "./dist/schemas/auth.d.ts",
       "import": "./dist/schemas/auth.js",
       "default": "./dist/schemas/auth.js"
+    },
+    "./schemas/meta": {
+      "types": "./dist/schemas/meta.d.ts",
+      "import": "./dist/schemas/meta.js",
+      "default": "./dist/schemas/meta.js"
     }
   },
   "files": [

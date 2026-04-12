@@ -28,7 +28,11 @@ jobs:
       - name: Get version
         id: get_version
         run: |
-          VERSION=$(node -p "require('./package.json').version || '0.0.0'")
+          VERSION=$(node -p "require('./package.json').version || ''")
+          if [[ -z "$VERSION" ]]; then
+            echo "Root package.json is missing a version field"
+            exit 1
+          fi
           echo "version=v${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Check if tag exists

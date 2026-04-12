@@ -10,16 +10,22 @@ import {
   enqueueIngestionJob,
   processNextIngestionJob,
   reclaimStaleIngestionJobs,
+  requestChangesReview,
   rejectReview,
   requeueIngestionJob,
+  resubmitReview,
 } from './actions';
 
-type ReviewTab = 'pending' | 'all' | 'approved' | 'rejected';
+type ReviewTab = 'pending' | 'changes_requested' | 'all' | 'approved' | 'rejected';
 
 function tabFromRaw(raw: Record<string, string | string[] | undefined>): ReviewTab {
   const s = pickSearchParam(raw.status);
-  if (s === 'all' || s === 'approved' || s === 'rejected') return s;
+  if (s === 'all' || s === 'changes_requested' || s === 'approved' || s === 'rejected') return s;
   return 'pending';
+}
+
+function publishMissingLabel(key: 'evidence_sources' | 'failure_factors'): string {
+  return key === 'evidence_sources' ? '至少 1 条证据来源' : '至少 1 个失败因子';
 }
 
 /** API 请求 query（不含路径） */
@@ -67,6 +73,7 @@ function adminReviewsHref(
   const sp = new URLSearchParams();
   const tab = tabFromRaw(raw);
   if (tab === 'all') sp.set('status', 'all');
+  else if (tab === 'changes_requested') sp.set('status', 'changes_requested');
   else if (tab === 'approved') sp.set('status', 'approved');
   else if (tab === 'rejected') sp.set('status', 'rejected');
   const page = pickSearchParam(raw.page);
@@ -226,6 +233,7 @@ export default async function AdminReviewsPage({
         {(
           [
             ['pending', '待审核'],
+            ['changes_requested', '待补充'],
             ['all', '全部'],
             ['approved', '已通过'],
             ['rejected', '已驳回'],
@@ -238,6 +246,14 @@ export default async function AdminReviewsPage({
       </nav>
 
       {ok === 'approve' ? <p style={{ color: '#7dffb3', marginBottom: 16 }}>已通过审核。</p> : null}
+      {ok === 'changes_requested' ? (
+        <p style={{ color: '#7dffb3', marginBottom: 16 }}>
+          已标记为待补充，case 保持 draft，补充后可重新提交审核。
+        </p>
+      ) : null}
+      {ok === 'resubmitted' ? (
+        <p style={{ color: '#7dffb3', marginBottom: 16 }}>已重新提交审核。</p>
+      ) : null}
       {ok === 'reject' ? <p style={{ color: '#7dffb3', marginBottom: 16 }}>已驳回。</p> : null}
       {ok === 'draft' ? (
         <p style={{ color: '#7dffb3', marginBottom: 16 }}>已创建草稿案例并进入待审核队列。</p>
@@ -272,13 +288,23 @@ export default async function AdminReviewsPage({
           密钥与 API 不一致（检查两端 ADMIN_API_KEY）。
         </p>
       ) : null}
-      {err === 'approve' || err === 'reject' ? (
+      {err === 'approve' || err === 'reject' || err === 'request_changes' || err === 'resubmit' ? (
         <p style={{ color: '#ff8a8a', marginBottom: 16 }}>操作失败，请重试。</p>
       ) : null}
+      {err === 'approve_gate' ? (
+        <p style={{ color: '#ffb47d', marginBottom: 16 }}>
+          当前案例还不能发布：至少需要 1 条证据来源和 1 个失败因子。
+        </p>
+      ) : null}
       {err === 'notfound' ? (
-        <p style={{ color: '#ff8a8a', marginBottom: 16 }}>记录已不是 pending（可能已处理）。</p>
+        <p style={{ color: '#ff8a8a', marginBottom: 16 }}>
+          记录当前状态不允许该操作（可能已处理或尚未重新提交）。
+        </p>
       ) : null}
       {err === 'invalid' ? <p style={{ color: '#ff8a8a', marginBottom: 16 }}>无效请求。</p> : null}
+      {err === 'changes_note' ? (
+        <p style={{ color: '#ff8a8a', marginBottom: 16 }}>要求修改时必须填写明确的补充说明。</p>
+      ) : null}
       {err === 'draft_fields' ? (
         <p style={{ color: '#ff8a8a', marginBottom: 16 }}>
           新建草稿：请填写 slug、公司名、摘要、行业 key。
@@ -348,7 +374,11 @@ export default async function AdminReviewsPage({
         <section style={{ display: 'grid', gap: 16 }}>
           {result.data.items.length === 0 ? (
             <p style={{ color: '#c8d0e5' }}>
-              {tab === 'pending' ? '当前没有待审核项。' : '当前筛选下没有记录。'}
+              {tab === 'pending'
+                ? '当前没有待审核项。'
+                : tab === 'changes_requested'
+                  ? '当前没有待补充项。'
+                  : '当前筛选下没有记录。'}
             </p>
           ) : null}
           {result.data.items.map((item) => (
@@ -387,6 +417,27 @@ export default async function AdminReviewsPage({
                   备注：{item.decisionNote}
                 </p>
               ) : null}
+              <div
+                style={{
+                  marginBottom: 16,
+                  padding: '12px 14px',
+                  borderRadius: 12,
+                  border: `1px solid ${item.publishReadiness.ready ? '#254636' : '#5a4d2f'}`,
+                  background: item.publishReadiness.ready ? '#102118' : '#221c12',
+                  color: item.publishReadiness.ready ? '#9fe7b8' : '#ffd39a',
+                  fontSize: 13,
+                }}
+              >
+                发布检查：证据 {item.publishReadiness.evidenceCount} 条，失败因子{' '}
+                {item.publishReadiness.failureFactorCount} 个，
+                {item.publishReadiness.ready ? '可发布' : '未达标'}。
+                {!item.publishReadiness.ready ? (
+                  <>
+                    <br />
+                    缺少：{item.publishReadiness.missing.map(publishMissingLabel).join('、')}
+                  </>
+                ) : null}
+              </div>
               {item.reviewStatus === 'pending' ? (
                 <div
                   style={{
@@ -413,15 +464,15 @@ export default async function AdminReviewsPage({
                       通过
                     </button>
                   </form>
-                  <form action={rejectReview} style={{ flex: '1 1 240px' }}>
+                  <form style={{ flex: '1 1 320px' }}>
                     <input type="hidden" name="reviewId" value={item.id} />
                     <textarea
                       name="decisionNote"
-                      placeholder="驳回原因（可选）"
+                      placeholder="要求补充的内容，或驳回原因"
                       rows={2}
                       style={{
                         width: '100%',
-                        maxWidth: 400,
+                        maxWidth: 460,
                         marginBottom: 8,
                         padding: 10,
                         borderRadius: 10,
@@ -431,19 +482,76 @@ export default async function AdminReviewsPage({
                         resize: 'vertical',
                       }}
                     />
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                      <button
+                        formAction={requestChangesReview}
+                        style={{
+                          padding: '10px 18px',
+                          borderRadius: 10,
+                          border: '1px solid #6c5b2d',
+                          background: '#2a2412',
+                          color: '#ffd39a',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        要求修改
+                      </button>
+                      <button
+                        formAction={rejectReview}
+                        style={{
+                          padding: '10px 18px',
+                          borderRadius: 10,
+                          border: '1px solid #5c3d3d',
+                          background: '#2a1818',
+                          color: '#ffb4b4',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        驳回
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              ) : item.reviewStatus === 'changes_requested' ? (
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: 12,
+                    alignItems: 'center',
+                  }}
+                >
+                  <Link
+                    href={`/admin/cases/${item.caseId}`}
+                    style={{
+                      padding: '10px 18px',
+                      borderRadius: 10,
+                      border: '1px solid #2a3658',
+                      background: '#0b1020',
+                      color: '#9fb3ff',
+                      textDecoration: 'none',
+                      fontWeight: 600,
+                    }}
+                  >
+                    去补证据 / 因子
+                  </Link>
+                  <form action={resubmitReview}>
+                    <input type="hidden" name="reviewId" value={item.id} />
                     <button
                       type="submit"
                       style={{
                         padding: '10px 18px',
                         borderRadius: 10,
-                        border: '1px solid #5c3d3d',
-                        background: '#2a1818',
-                        color: '#ffb4b4',
+                        border: '1px solid #2a6b4a',
+                        background: '#183124',
+                        color: '#9fe7b8',
                         fontWeight: 600,
                         cursor: 'pointer',
                       }}
                     >
-                      驳回
+                      重新提交审核
                     </button>
                   </form>
                 </div>

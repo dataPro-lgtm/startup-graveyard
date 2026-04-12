@@ -6,6 +6,7 @@ import {
   INDUSTRY_LABELS,
   PRIMARY_FAILURE_REASON_LABELS,
 } from '@sg/shared/taxonomy';
+import { homeSummarySchema, type HomeSummary } from '@sg/shared/schemas/meta';
 
 const taxonomySchema = z.object({
   industries: z.record(z.string()),
@@ -52,5 +53,19 @@ export async function fetchTaxonomy(): Promise<TaxonomyLabels> {
     return parsed.success ? normalizeTaxonomy(parsed.data) : fb;
   } catch {
     return fb;
+  }
+}
+
+export async function fetchHomeSummary(): Promise<HomeSummary | null> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/v1/meta/home-summary`, {
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    const json: unknown = await res.json();
+    const parsed = homeSummarySchema.safeParse(json);
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
   }
 }

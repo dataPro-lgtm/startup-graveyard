@@ -20,7 +20,9 @@ function extractAdminKey(request: FastifyRequest): string | undefined {
 export async function registerAdminRoutes(app: FastifyInstance) {
   app.addHook('onRequest', async (request, reply) => {
     const required = process.env.ADMIN_API_KEY;
-    if (!required) return;
+    if (!required) {
+      return reply.code(503).send({ error: 'admin_api_disabled' });
+    }
     const got = extractAdminKey(request);
     if (got === required) return;
     return reply.code(401).send({ error: 'unauthorized' });

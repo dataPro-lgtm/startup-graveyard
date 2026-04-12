@@ -1,4 +1,5 @@
 import { loadRootEnv } from './env/loadEnv.js';
+import { validateRuntimeEnv } from './env/runtime.js';
 import { buildApp } from './buildApp.js';
 import { getPool } from './db/pool.js';
 import { PgIngestionJobsRepository } from './repositories/ingestionJobsRepository.js';
@@ -7,6 +8,7 @@ import { startScheduler } from './ingestion/scheduler.js';
 import { config } from './config/index.js';
 
 loadRootEnv();
+validateRuntimeEnv();
 
 const server = await buildApp();
 

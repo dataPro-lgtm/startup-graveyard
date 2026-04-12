@@ -1,5 +1,6 @@
 {
   "name": "startup-graveyard",
+  "version": "1.3.0",
   "private": true,
   "packageManager": "pnpm@10.0.0",
   "scripts": {

@@ -7,7 +7,7 @@ import {
   fetchCasesList,
 } from '@/lib/casesApi';
 import { formatUsd } from '@/lib/formatUsd';
-import { fetchTaxonomy } from '@/lib/metaApi';
+import { fetchHomeSummary, fetchTaxonomy } from '@/lib/metaApi';
 import { countryLabel, industryLabel } from '@sg/shared/taxonomy';
 import { pickSearchParam } from '@/lib/searchParams';
 
@@ -36,7 +36,20 @@ export default async function HomePage({
         ? 'relevance'
         : 'updated_at';
 
-  const [data, taxonomy] = await Promise.all([fetchCasesList(params), fetchTaxonomy()]);
+  const hasFilters = Boolean(
+    params.q ||
+    params.industry ||
+    params.country ||
+    params.closedYear ||
+    params.businessModelKey ||
+    params.primaryFailureReasonKey,
+  );
+
+  const [data, taxonomy, homeSummary] = await Promise.all([
+    fetchCasesList(params),
+    fetchTaxonomy(),
+    hasFilters ? Promise.resolve(null) : fetchHomeSummary(),
+  ]);
 
   const industryEntries = Object.entries(taxonomy.industries).sort(([a], [b]) =>
     a.localeCompare(b),
@@ -74,15 +87,13 @@ export default async function HomePage({
     page: String(nextPage),
   });
 
-  const totalCases = data?.total ?? 0;
-  const totalFundingUsd = (data?.items ?? []).reduce(
-    (sum, it) => sum + (it.totalFundingUsd ?? 0),
-    0,
-  );
-  // Count distinct failure reason keys
-  const failurePatterns = new Set(
-    (data?.items ?? []).map((it) => it.primaryFailureReasonKey).filter(Boolean),
-  ).size;
+  const totalCases = homeSummary?.totalCases ?? data?.total ?? 0;
+  const totalFundingUsd =
+    homeSummary?.totalFundingUsd ??
+    (data?.items ?? []).reduce((sum, it) => sum + (it.totalFundingUsd ?? 0), 0);
+  const failurePatterns =
+    homeSummary?.failurePatterns ??
+    new Set((data?.items ?? []).map((it) => it.primaryFailureReasonKey).filter(Boolean)).size;
 
   return (
     <main style={{ maxWidth: 1120, margin: '0 auto', padding: '48px 24px 80px' }}>
@@ -115,7 +126,7 @@ export default async function HomePage({
       </section>
 
       {/* 统计横幅 */}
-      {!params.q && !params.industry && !params.country && (
+      {!hasFilters && (
         <section
           style={{
             display: 'grid',
@@ -437,7 +448,10 @@ export default async function HomePage({
               }}
             >
               <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, lineHeight: 1.25 }}>
-                <Link href={caseListHref(item)} style={{ color: '#f5f7fb', textDecoration: 'none' }}>
+                <Link
+                  href={caseListHref(item)}
+                  style={{ color: '#f5f7fb', textDecoration: 'none' }}
+                >
                   {item.companyName}
                 </Link>
               </h2>
@@ -468,14 +482,8 @@ export default async function HomePage({
 
             {/* bottom tag row */}
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              {item.industry && (
-                <span style={tagStyle}>
-                  {industryLabel(item.industry)}
-                </span>
-              )}
-              {item.country && (
-                <span style={tagStyle}>{countryLabel(item.country)}</span>
-              )}
+              {item.industry && <span style={tagStyle}>{industryLabel(item.industry)}</span>}
+              {item.country && <span style={tagStyle}>{countryLabel(item.country)}</span>}
               {item.primaryFailureReasonKey && (
                 <span style={chipStyle('#2a1a1a', '#f87171')}>
                   {taxonomy.primaryFailureReasons[item.primaryFailureReasonKey.toLowerCase()] ??
