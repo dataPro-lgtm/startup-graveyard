@@ -3,6 +3,7 @@ import { adminCaseRoutes } from '../routes/admin/cases.js';
 import { auditRoutes } from '../routes/admin/audit.js';
 import { ingestionJobRoutes } from '../routes/admin/ingestionJobs.js';
 import { reviewRoutes } from '../routes/admin/reviews.js';
+import { adminStatsRoutes } from '../routes/admin/stats.js';
 
 function extractAdminKey(request: FastifyRequest): string | undefined {
   const raw = request.headers['x-admin-key'];
@@ -27,4 +28,5 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   await app.register(auditRoutes, { prefix: '/audit' });
   await app.register(ingestionJobRoutes, { prefix: '/ingestion-jobs' });
   await app.register(adminCaseRoutes, { prefix: '/cases' });
+  await app.register(adminStatsRoutes, { prefix: '/stats' });
 }
