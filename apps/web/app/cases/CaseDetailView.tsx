@@ -30,10 +30,14 @@ const card = {
 } as const;
 
 const EVENT_TYPE_META: Record<string, { label: string; color: string; dot: string }> = {
+  // canonical keys
   founded: { label: '成立', color: '#5b7cff', dot: '#5b7cff' },
+  founding: { label: '成立', color: '#5b7cff', dot: '#5b7cff' },
   funding: { label: '融资', color: '#34d399', dot: '#34d399' },
   product_launch: { label: '产品上线', color: '#60a5fa', dot: '#60a5fa' },
+  milestone: { label: '里程碑', color: '#60a5fa', dot: '#60a5fa' },
   pivot: { label: '战略转型', color: '#fbbf24', dot: '#fbbf24' },
+  problem: { label: '问题暴露', color: '#f97316', dot: '#f97316' },
   layoff: { label: '裁员', color: '#f97316', dot: '#f97316' },
   shutdown: { label: '关闭', color: '#f87171', dot: '#f87171' },
   acquisition: { label: '收购', color: '#a78bfa', dot: '#a78bfa' },
@@ -118,6 +122,23 @@ function pickLabel(
   if (!key) return '—';
   const k = key.toLowerCase();
   return map[k] ?? fallback(key);
+}
+
+/** Handles both JSON array strings and plain newline-separated text. */
+function parseKeyLessons(raw: string): string[] {
+  const trimmed = raw.trim();
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
+    } catch {
+      // fall through
+    }
+  }
+  return trimmed
+    .split('\n')
+    .map((l) => l.replace(/^\d+\.\s*/, '').trim())
+    .filter(Boolean);
 }
 
 export async function CaseDetailView({
@@ -238,60 +259,36 @@ export async function CaseDetailView({
               ...card,
               background: '#0a1428',
               border: '1px solid #2a3a5e',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 14,
             }}
           >
-            {item.keyLessons
-              .split('\n')
-              .filter((line) => line.trim().length > 0)
-              .map((line, i) => {
-                const isNumbered = /^\d+\./.test(line.trim());
-                return (
-                  <div
-                    key={i}
-                    style={{
-                      display: 'flex',
-                      gap: 12,
-                      marginBottom:
-                        i < item.keyLessons!.split('\n').filter((l) => l.trim()).length - 1
-                          ? 14
-                          : 0,
-                      alignItems: 'flex-start',
-                    }}
-                  >
-                    {isNumbered && (
-                      <span
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          width: 22,
-                          height: 22,
-                          borderRadius: '50%',
-                          background: '#1d3060',
-                          color: '#9fb3ff',
-                          fontSize: 12,
-                          fontWeight: 700,
-                          flexShrink: 0,
-                          marginTop: 2,
-                        }}
-                      >
-                        {line.trim().match(/^(\d+)\./)?.[1]}
-                      </span>
-                    )}
-                    <p
-                      style={{
-                        margin: 0,
-                        color: '#c8d0e5',
-                        fontSize: 15,
-                        lineHeight: 1.7,
-                        flex: 1,
-                      }}
-                    >
-                      {isNumbered ? line.trim().replace(/^\d+\.\s*/, '') : line.trim()}
-                    </p>
-                  </div>
-                );
-              })}
+            {parseKeyLessons(item.keyLessons).map((lesson, i) => (
+              <div key={i} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: 22,
+                    height: 22,
+                    borderRadius: '50%',
+                    background: '#1d3060',
+                    color: '#9fb3ff',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    flexShrink: 0,
+                    marginTop: 2,
+                  }}
+                >
+                  {i + 1}
+                </span>
+                <p style={{ margin: 0, color: '#c8d0e5', fontSize: 15, lineHeight: 1.7, flex: 1 }}>
+                  {lesson}
+                </p>
+              </div>
+            ))}
           </div>
         </section>
       )}
