@@ -39,6 +39,7 @@ import { healthRoutes } from './routes/health.js';
 import { authRoutes } from './routes/public/auth.js';
 import { caseRoutes } from './routes/public/cases.js';
 import { copilotRoutes } from './routes/public/copilot.js';
+import { paymentsRoutes } from './routes/public/payments.js';
 import { metaRoutes } from './routes/public/meta.js';
 
 export type BuildAppOptions = {
@@ -102,6 +103,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
   await server.register(caseRoutes, { prefix: '/v1/cases' });
   await server.register(metaRoutes, { prefix: '/v1/meta' });
   await server.register(copilotRoutes, { prefix: '/v1/copilot' });
+  await server.register(paymentsRoutes, { prefix: '/v1/payments' });
   await server.register(registerAdminRoutes, { prefix: '/v1/admin' });
   if (!process.env.ADMIN_API_KEY) {
     server.log.warn('ADMIN_API_KEY unset; /v1/admin/* is open');

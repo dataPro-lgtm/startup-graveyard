@@ -45,4 +45,15 @@ export const config = {
   get hasAnthropic(): boolean {
     return (process.env.ANTHROPIC_API_KEY?.trim() ?? '').length > 0;
   },
+
+  get stripe() {
+    return {
+      secretKey: process.env.STRIPE_SECRET_KEY ?? '',
+      webhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? '',
+      proPriceId: process.env.STRIPE_PRO_PRICE_ID ?? '',
+    };
+  },
+  get hasStripe(): boolean {
+    return (process.env.STRIPE_SECRET_KEY?.trim() ?? '').startsWith('sk_');
+  },
 };
