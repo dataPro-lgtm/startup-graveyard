@@ -89,6 +89,9 @@ export async function teamWorkspaceRoutes(app: FastifyInstance) {
     if (result === 'already_in_workspace') {
       return reply.code(409).send({ error: 'already_in_workspace' });
     }
+    if (result === 'workspace_plan_inactive') {
+      return reply.code(409).send({ error: 'workspace_plan_inactive' });
+    }
     return teamWorkspaceContextMutationResponseSchema.parse({ ok: true, workspace: result });
   });
 

@@ -1070,6 +1070,99 @@ describe('public API (mock DB)', () => {
     });
   });
 
+  it('team workspace blocks accepting pending invites after workspace billing is downgraded', async () => {
+    const ownerEmail = `invite-owner-${Date.now()}@example.com`;
+    const memberEmail = `invite-member-${Date.now()}@example.com`;
+
+    const [ownerRegisterRes, memberRegisterRes] = await Promise.all([
+      app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: ownerEmail,
+          password: 'password123',
+          displayName: 'Invite Owner',
+        },
+      }),
+      app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: memberEmail,
+          password: 'password123',
+          displayName: 'Invite Member',
+        },
+      }),
+    ]);
+    expect(ownerRegisterRes.statusCode).toBe(201);
+    expect(memberRegisterRes.statusCode).toBe(201);
+
+    const ownerRegistered = JSON.parse(ownerRegisterRes.body) as {
+      user: { id: string };
+      accessToken: string;
+    };
+    const memberRegistered = JSON.parse(memberRegisterRes.body) as {
+      accessToken: string;
+    };
+
+    await app.usersRepo.updateBillingAccount(ownerRegistered.user.id, {
+      subscription: 'team',
+      billingStatus: 'active',
+      billingInterval: 'month',
+    });
+
+    const createWorkspaceRes = await app.inject({
+      method: 'POST',
+      url: '/v1/team-workspace',
+      headers: {
+        authorization: `Bearer ${ownerRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: { name: 'Invite Guard Desk' },
+    });
+    expect(createWorkspaceRes.statusCode).toBe(200);
+
+    const inviteRes = await app.inject({
+      method: 'POST',
+      url: '/v1/team-workspace/invites',
+      headers: {
+        authorization: `Bearer ${ownerRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        email: memberEmail,
+        role: 'member',
+      },
+    });
+    expect(inviteRes.statusCode).toBe(200);
+    const inviteId = (
+      JSON.parse(inviteRes.body) as {
+        workspace: { invites: Array<{ id: string; email: string }> };
+      }
+    ).workspace.invites[0]!.id;
+
+    await app.usersRepo.updateBillingAccount(ownerRegistered.user.id, {
+      subscription: 'pro',
+      billingStatus: 'active',
+      billingInterval: 'month',
+      cancelAtPeriodEnd: true,
+    });
+
+    const acceptInviteRes = await app.inject({
+      method: 'POST',
+      url: `/v1/team-workspace/invites/${inviteId}/accept`,
+      headers: {
+        authorization: `Bearer ${memberRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {},
+    });
+    expect(acceptInviteRes.statusCode).toBe(409);
+    expect(JSON.parse(acceptInviteRes.body)).toMatchObject({
+      error: 'workspace_plan_inactive',
+    });
+  });
+
   it('GET /v1/admin/audit is disabled when ADMIN_API_KEY is unset', async () => {
     const res = await app.inject({ method: 'GET', url: '/v1/admin/audit?limit=5' });
     expect(res.statusCode).toBe(503);

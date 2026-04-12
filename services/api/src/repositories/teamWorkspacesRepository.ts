@@ -346,7 +346,13 @@ export interface TeamWorkspacesRepository {
   acceptInvite(
     user: UserProfile,
     inviteId: string,
-  ): Promise<TeamWorkspace | 'invite_not_found' | 'email_mismatch' | 'already_in_workspace'>;
+  ): Promise<
+    | TeamWorkspace
+    | 'invite_not_found'
+    | 'email_mismatch'
+    | 'already_in_workspace'
+    | 'workspace_plan_inactive'
+  >;
   shareSavedView(
     actorUserId: string,
     savedViewId: string,
@@ -535,11 +541,35 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
   async acceptInvite(
     user: UserProfile,
     inviteId: string,
-  ): Promise<TeamWorkspace | 'invite_not_found' | 'email_mismatch' | 'already_in_workspace'> {
+  ): Promise<
+    | TeamWorkspace
+    | 'invite_not_found'
+    | 'email_mismatch'
+    | 'already_in_workspace'
+    | 'workspace_plan_inactive'
+  > {
     if (this.membershipByUserId.has(user.id)) return 'already_in_workspace';
     const invite = this.invites.get(inviteId);
     if (!invite || invite.status !== 'pending') return 'invite_not_found';
     if (invite.email !== user.email.toLowerCase()) return 'email_mismatch';
+    const workspace = this.workspaces.get(invite.workspaceId);
+    if (!workspace) return 'invite_not_found';
+    const owner = await this.usersRepo.getById(workspace.ownerUserId);
+    if (!owner) return 'invite_not_found';
+    const seatsUsed = [...this.membershipByUserId.values()].filter(
+      (item) => item.workspaceId === invite.workspaceId,
+    ).length;
+    const pendingInviteCount = [...this.invites.values()].filter(
+      (item) => item.workspaceId === invite.workspaceId && item.status === 'pending',
+    ).length;
+    const billing = buildWorkspaceBilling({
+      owner,
+      seatsUsed,
+      pendingInviteCount,
+    });
+    if (billing.warningCodes.includes('workspace_plan_inactive')) {
+      return 'workspace_plan_inactive';
+    }
 
     this.membershipByUserId.set(user.id, {
       workspaceId: invite.workspaceId,
@@ -955,7 +985,13 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
   async acceptInvite(
     user: UserProfile,
     inviteId: string,
-  ): Promise<TeamWorkspace | 'invite_not_found' | 'email_mismatch' | 'already_in_workspace'> {
+  ): Promise<
+    | TeamWorkspace
+    | 'invite_not_found'
+    | 'email_mismatch'
+    | 'already_in_workspace'
+    | 'workspace_plan_inactive'
+  > {
     if (await this.findMembership(user.id)) return 'already_in_workspace';
 
     const { rows } = await this.pool.query<PgWorkspaceInviteRow>(
@@ -977,6 +1013,63 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
     const invite = rows[0];
     if (!invite || invite.status !== 'pending') return 'invite_not_found';
     if (invite.email.toLowerCase() !== user.email.toLowerCase()) return 'email_mismatch';
+
+    const [ownerRows, memberCountRows, pendingInviteCountRows] = await Promise.all([
+      this.pool.query<{
+        id: string;
+        email: string;
+        display_name: string | null;
+        subscription: SubscriptionTier;
+        billing_status: BillingStatus;
+        current_period_end: Date | string | null;
+        cancel_at_period_end: boolean;
+      }>(
+        `SELECT
+           u.id,
+           u.email,
+           u.display_name,
+           u.subscription,
+           u.billing_status,
+           u.current_period_end,
+           u.cancel_at_period_end
+         FROM team_workspaces w
+         JOIN users u ON u.id = w.owner_user_id
+         WHERE w.id = $1
+         LIMIT 1`,
+        [invite.workspace_id],
+      ),
+      this.pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count
+         FROM team_workspace_members
+         WHERE workspace_id = $1`,
+        [invite.workspace_id],
+      ),
+      this.pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count
+         FROM team_workspace_invites
+         WHERE workspace_id = $1
+           AND status = 'pending'`,
+        [invite.workspace_id],
+      ),
+    ]);
+    const owner = ownerRows.rows[0];
+    if (!owner) return 'invite_not_found';
+    const billing = buildWorkspaceBilling({
+      owner: {
+        id: owner.id,
+        email: owner.email,
+        displayName: owner.display_name,
+        subscription: owner.subscription,
+        billingStatus: owner.billing_status,
+        currentPeriodEnd: owner.current_period_end ? toIso(owner.current_period_end) : null,
+        cancelAtPeriodEnd: owner.cancel_at_period_end,
+      },
+      seatsUsed: Number(memberCountRows.rows[0]?.count ?? 0),
+      pendingInviteCount: Number(pendingInviteCountRows.rows[0]?.count ?? 0),
+    });
+    if (billing.warningCodes.includes('workspace_plan_inactive')) {
+      return 'workspace_plan_inactive';
+    }
 
     const client = await this.pool.connect();
     try {
