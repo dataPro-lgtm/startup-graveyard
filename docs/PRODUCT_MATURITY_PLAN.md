@@ -185,13 +185,6 @@
 - Copilot repo 补了 mock / PostgreSQL 两套 `getAdminMetrics()`，后台 dashboard 在 mock 和真实库模式下都能展示研究助手运营数据。
 - Admin dashboard 新增 Copilot KPI、prompt version regression 视图和 recent flagged runs 列表，运营能直接看到哪个 prompt 版本、哪类 fallback、哪些回答最需要修正。
 
-已完成 M3 第一段（commercial foundation / watchlist）：
-
-- 用户模型已经从简单的 `free/pro` 扩展成 `free/pro/team + billingStatus + billingInterval + currentPeriodEnd + cancelAtPeriodEnd`，并且 shared 层新增了统一 entitlement helper。
-- Stripe 不再只是 checkout：现在支持 customer 绑定、billing portal、`checkout.session.completed` / `customer.subscription.*` 生命周期同步，以及账户页账单状态展示。
-- 产品里已经出现第一个真正被付费权益驱动的能力：个人 watchlist。Free 用户会被 entitlement gate 拦住，Pro/Team 可保存案例并在账户页查看自己的研究清单。
-- OpenAPI、shared schema、mock route tests 已同步覆盖新的 profile / billing / watchlist 契约，后续实现 saved views 和导出可以沿着这套 entitlement 层继续扩展。
-
 已完成 M2 第五段（replayable eval dataset / nightly regression baseline）：
 
 - 新增 `copilot_eval_cases / copilot_eval_batches / copilot_eval_results`，把 Copilot 回放样本、批次摘要和失败样本持久化。

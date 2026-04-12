@@ -266,8 +266,6 @@ pnpm --filter @sg/api test:pg
 ## 当前限制
 
 - 仍是 alpha，数据规模和研究工作流还不够深
-- Copilot 已有 session、上下文 pin、反馈回路、prompt version、token/cost 追踪和后台 regression dashboard，但评测集、自动回放和告警还没补齐
-- 商业化已经有 billing profile、portal 和 watchlist gating，但 saved views、导出报告、团队协作还没补齐
 - Copilot 已有 session、上下文 pin、反馈回路、prompt version、token/cost 追踪、可回放 eval dataset、batch regression 和 nightly scheduler baseline，但还缺 answer grading、自动告警和 CI 级 prompt replay
 - 商业化已经有 billing profile、portal 和 watchlist gating，但 saved views、导出报告、团队协作还没补齐
 - 平台化能力还没有上独立 worker / Redis / 对象存储 / OTel
