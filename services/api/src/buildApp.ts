@@ -50,6 +50,11 @@ import {
   PgWatchlistsRepository,
 } from './repositories/watchlistRepository.js';
 import {
+  type SavedViewsRepository,
+  MockSavedViewsRepository,
+  PgSavedViewsRepository,
+} from './repositories/savedViewsRepository.js';
+import {
   type ReviewsRepository,
   MockReviewsRepository,
   PgReviewsRepository,
@@ -60,6 +65,7 @@ import { authRoutes } from './routes/public/auth.js';
 import { caseRoutes } from './routes/public/cases.js';
 import { copilotRoutes } from './routes/public/copilot.js';
 import { paymentsRoutes } from './routes/public/payments.js';
+import { savedViewsRoutes } from './routes/public/savedViews.js';
 import { watchlistRoutes } from './routes/public/watchlist.js';
 import { metaRoutes } from './routes/public/meta.js';
 
@@ -83,6 +89,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
   let copilotSessionsRepo: CopilotSessionsRepository;
   let usersRepo: UsersRepository;
   let watchlistsRepo: WatchlistsRepository;
+  let savedViewsRepo: SavedViewsRepository;
   const queueApprovedCaseIndex = async (caseId: string) => {
     await ingestionJobsRepo.enqueue({
       sourceName: 'rebuild_case_search_index',
@@ -102,6 +109,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
     copilotSessionsRepo = new PgCopilotSessionsRepository(pgPool);
     usersRepo = new PgUsersRepository(pgPool);
     watchlistsRepo = new PgWatchlistsRepository(pgPool);
+    savedViewsRepo = new PgSavedViewsRepository(pgPool);
     ingestionJobsRepo = new PgIngestionJobsRepository(
       pgPool,
       adminWriteRepo,
@@ -121,6 +129,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
     copilotSessionsRepo = new MockCopilotSessionsRepository();
     usersRepo = new MockUsersRepository();
     watchlistsRepo = new MockWatchlistsRepository(casesRepo);
+    savedViewsRepo = new MockSavedViewsRepository();
     ingestionJobsRepo = new MockIngestionJobsRepository(
       adminWriteRepo,
       adminAttachmentsRepo,
@@ -137,6 +146,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
   server.decorate('copilotSessionsRepo', copilotSessionsRepo as CopilotSessionsRepository);
   server.decorate('usersRepo', usersRepo as UsersRepository);
   server.decorate('watchlistsRepo', watchlistsRepo as WatchlistsRepository);
+  server.decorate('savedViewsRepo', savedViewsRepo as SavedViewsRepository);
   const auditRepo = pgPool ? new PgAuditRepository(pgPool) : new MockAuditRepository();
   server.decorate('auditRepo', auditRepo as AuditRepository);
   if (!pgPool) {
@@ -161,6 +171,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
   await server.register(metaRoutes, { prefix: '/v1/meta' });
   await server.register(copilotRoutes, { prefix: '/v1/copilot' });
   await server.register(paymentsRoutes, { prefix: '/v1/payments' });
+  await server.register(savedViewsRoutes, { prefix: '/v1/saved-views' });
   await server.register(watchlistRoutes, { prefix: '/v1/watchlist' });
   await server.register(registerAdminRoutes, { prefix: '/v1/admin' });
   if (!process.env.ADMIN_API_KEY) {

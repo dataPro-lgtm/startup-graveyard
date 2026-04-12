@@ -362,6 +362,180 @@ describe('public API (mock DB)', () => {
     });
   });
 
+  it('saved views unlock with Pro and support create, dedupe, rename, delete', async () => {
+    const email = `saved-views-${Date.now()}@example.com`;
+    const registerRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        email,
+        password: 'password123',
+        displayName: 'Saved Views User',
+      },
+    });
+    expect(registerRes.statusCode).toBe(201);
+    const registered = JSON.parse(registerRes.body) as {
+      user: {
+        id: string;
+        entitlements: { canUseSavedSearches: boolean; savedSearchLimit: number };
+      };
+      accessToken: string;
+    };
+    expect(registered.user.entitlements.canUseSavedSearches).toBe(false);
+    expect(registered.user.entitlements.savedSearchLimit).toBe(0);
+
+    const listRes = await app.inject({
+      method: 'GET',
+      url: '/v1/saved-views/me',
+      headers: { authorization: `Bearer ${registered.accessToken}` },
+    });
+    expect(listRes.statusCode).toBe(200);
+    expect(JSON.parse(listRes.body)).toMatchObject({
+      summary: {
+        canUseSavedViews: false,
+        savedViewLimit: 0,
+      },
+      items: [],
+    });
+
+    const blockedCreateRes = await app.inject({
+      method: 'POST',
+      url: '/v1/saved-views/items',
+      headers: {
+        authorization: `Bearer ${registered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        name: 'Marketplace collapse',
+        filters: { businessModelKey: 'marketplace' },
+      },
+    });
+    expect(blockedCreateRes.statusCode).toBe(403);
+    expect(JSON.parse(blockedCreateRes.body)).toMatchObject({
+      error: 'entitlement_required',
+    });
+
+    await app.usersRepo.updateBillingAccount(registered.user.id, {
+      subscription: 'pro',
+      billingStatus: 'active',
+      billingInterval: 'month',
+    });
+
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/v1/saved-views/items',
+      headers: {
+        authorization: `Bearer ${registered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        name: 'Marketplace collapse',
+        filters: {
+          businessModelKey: 'marketplace',
+          primaryFailureReasonKey: 'premature_scaling',
+        },
+      },
+    });
+    expect(createRes.statusCode).toBe(200);
+    const created = JSON.parse(createRes.body) as {
+      created: boolean;
+      item: { id: string; caseCount: number; name: string; queryString: string };
+      summary: { savedViewCount: number; canUseSavedViews: boolean };
+    };
+    expect(created).toMatchObject({
+      created: true,
+      item: {
+        name: 'Marketplace collapse',
+        queryString: 'businessModelKey=marketplace&primaryFailureReasonKey=premature_scaling',
+      },
+      summary: {
+        savedViewCount: 1,
+        canUseSavedViews: true,
+      },
+    });
+    expect(created.item.caseCount).toBeGreaterThan(0);
+
+    const duplicateRes = await app.inject({
+      method: 'POST',
+      url: '/v1/saved-views/items',
+      headers: {
+        authorization: `Bearer ${registered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        name: 'Duplicate name ignored',
+        filters: {
+          businessModelKey: 'marketplace',
+          primaryFailureReasonKey: 'premature_scaling',
+        },
+      },
+    });
+    expect(duplicateRes.statusCode).toBe(200);
+    expect(JSON.parse(duplicateRes.body)).toMatchObject({
+      ok: true,
+      created: false,
+      item: {
+        id: created.item.id,
+      },
+      summary: {
+        savedViewCount: 1,
+      },
+    });
+
+    const renameRes = await app.inject({
+      method: 'PATCH',
+      url: `/v1/saved-views/items/${created.item.id}`,
+      headers: {
+        authorization: `Bearer ${registered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        name: 'Marketplace burn',
+      },
+    });
+    expect(renameRes.statusCode).toBe(200);
+    expect(JSON.parse(renameRes.body)).toMatchObject({
+      ok: true,
+      item: {
+        id: created.item.id,
+        name: 'Marketplace burn',
+      },
+    });
+
+    const refreshedListRes = await app.inject({
+      method: 'GET',
+      url: '/v1/saved-views/me',
+      headers: { authorization: `Bearer ${registered.accessToken}` },
+    });
+    expect(refreshedListRes.statusCode).toBe(200);
+    expect(JSON.parse(refreshedListRes.body)).toMatchObject({
+      summary: {
+        canUseSavedViews: true,
+        savedViewCount: 1,
+      },
+      items: [
+        {
+          id: created.item.id,
+          name: 'Marketplace burn',
+        },
+      ],
+    });
+
+    const deleteRes = await app.inject({
+      method: 'DELETE',
+      url: `/v1/saved-views/items/${created.item.id}`,
+      headers: { authorization: `Bearer ${registered.accessToken}` },
+    });
+    expect(deleteRes.statusCode).toBe(200);
+    expect(JSON.parse(deleteRes.body)).toMatchObject({
+      ok: true,
+      savedViewId: created.item.id,
+      summary: {
+        savedViewCount: 0,
+      },
+    });
+  });
+
   it('GET /v1/admin/audit is disabled when ADMIN_API_KEY is unset', async () => {
     const res = await app.inject({ method: 'GET', url: '/v1/admin/audit?limit=5' });
     expect(res.statusCode).toBe(503);

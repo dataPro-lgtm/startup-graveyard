@@ -33,6 +33,11 @@
       "import": "./dist/schemas/watchlist.js",
       "default": "./dist/schemas/watchlist.js"
     },
+    "./schemas/savedViews": {
+      "types": "./dist/schemas/savedViews.d.ts",
+      "import": "./dist/schemas/savedViews.js",
+      "default": "./dist/schemas/savedViews.js"
+    },
     "./schemas/meta": {
       "types": "./dist/schemas/meta.d.ts",
       "import": "./dist/schemas/meta.js",

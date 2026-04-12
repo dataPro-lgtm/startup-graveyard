@@ -44,9 +44,9 @@
 
 ### P1 产品能力
 
-- Topic/专题研究页、趋势看板和个人 watchlist 已经上线，但保存筛选、导出报告、团队协作仍未落地。
+- Topic/专题研究页、趋势看板、个人 watchlist 和 saved views 已经上线，但导出报告、团队协作仍未落地。
 - 首页仍偏“案例站”，离“研究入口 / 决策面板”还有距离。
-- Free / Pro / Team 的权益边界已经有了基础模型，但只有 watchlist 完成了真正的付费 gating；saved views、导出、Team workspace 还没跟上。
+- Free / Pro / Team 的权益边界已经有了基础模型，但商业化能力还只覆盖到 watchlist + saved views；导出、Team workspace 和订阅运营闭环还没跟上。
 
 ### P2 平台化与运营
 
@@ -191,3 +191,9 @@
 - Stripe 不再只是 checkout：现在支持 customer 绑定、billing portal、`checkout.session.completed` / `customer.subscription.*` 生命周期同步，以及账户页账单状态展示。
 - 产品里已经出现第一个真正被付费权益驱动的能力：个人 watchlist。Free 用户会被 entitlement gate 拦住，Pro/Team 可保存案例并在账户页查看自己的研究清单。
 - OpenAPI、shared schema、mock route tests 已同步覆盖新的 profile / billing / watchlist 契约，后续实现 saved views 和导出可以沿着这套 entitlement 层继续扩展。
+
+已完成 M3 第二段（saved views / personal paid workflow）：
+
+- 首页现在支持把当前筛选直接保存成个人研究视图，用户不再只能靠 URL 或浏览器书签回到同一组研究上下文。
+- API、shared schema、数据库模型已经补齐 `saved views` 的 list / create / rename / delete 闭环，并复用现有 entitlement gating、账户体系和账单升级入口。
+- 账户页现在除了 watchlist，还会沉淀第二层个人研究资产 Saved Views，这让 M3 从“只有商业化基础设施”升级成“有真实可感知的个人付费工作流”。
