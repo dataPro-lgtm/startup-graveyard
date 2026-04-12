@@ -1,0 +1,89 @@
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { FastifyInstance } from 'fastify';
+import { buildApp } from './buildApp.js';
+
+describe('public API (mock DB)', () => {
+  let app: FastifyInstance;
+
+  beforeAll(async () => {
+    app = await buildApp({ logger: false });
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('GET /health', async () => {
+    const res = await app.inject({ method: 'GET', url: '/health' });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('GET /v1/cases returns slug + extended fields', async () => {
+    const res = await app.inject({ method: 'GET', url: '/v1/cases?limit=5' });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body) as {
+      items: Array<{
+        slug: string;
+        businessModelKey: string | null;
+        foundedYear: number | null;
+      }>;
+    };
+    expect(body.items.length).toBeGreaterThan(0);
+    expect(body.items[0]).toHaveProperty('slug');
+    expect(body.items[0]).toHaveProperty('businessModelKey');
+  });
+
+  it('GET /v1/cases/by-slug/airlift', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/cases/by-slug/airlift',
+    });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body) as { companyName: string; slug: string };
+    expect(body.slug).toBe('airlift');
+    expect(body.companyName).toBe('Airlift');
+  });
+
+  it('GET /v1/meta/taxonomy includes businessModels', async () => {
+    const res = await app.inject({ method: 'GET', url: '/v1/meta/taxonomy' });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body) as {
+      businessModels: Record<string, string>;
+      primaryFailureReasons: Record<string, string>;
+    };
+    expect(body.businessModels.marketplace).toBeDefined();
+    expect(body.primaryFailureReasons.premature_scaling).toBeDefined();
+  });
+
+  it('GET /v1/cases filters by businessModelKey', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/cases?businessModelKey=marketplace&limit=20',
+    });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body) as {
+      items: Array<{ businessModelKey: string | null }>;
+    };
+    expect(body.items.length).toBeGreaterThan(0);
+    for (const row of body.items) {
+      expect((row.businessModelKey ?? '').toLowerCase()).toBe('marketplace');
+    }
+  });
+
+  it('GET /v1/cases filters by primaryFailureReasonKey', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/cases?primaryFailureReasonKey=premature_scaling&limit=20',
+    });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body) as {
+      items: Array<{ primaryFailureReasonKey: string | null }>;
+    };
+    expect(body.items.length).toBeGreaterThan(0);
+    for (const row of body.items) {
+      expect((row.primaryFailureReasonKey ?? '').toLowerCase()).toBe(
+        'premature_scaling',
+      );
+    }
+  });
+});

@@ -1,0 +1,17 @@
+import type { AdminCaseAttachmentsRepository } from '../repositories/adminCaseAttachmentsRepository.js';
+import type { AdminWriteRepository } from '../repositories/adminWriteRepository.js';
+import type { AuditRepository } from '../repositories/auditRepository.js';
+import type { CasesRepository } from '../repositories/casesRepository.js';
+import type { IngestionJobsRepository } from '../repositories/ingestionJobsRepository.js';
+import type { ReviewsRepository } from '../repositories/reviewsRepository.js';
+
+declare module 'fastify' {
+  interface FastifyInstance {
+    casesRepo: CasesRepository;
+    reviewsRepo: ReviewsRepository;
+    auditRepo: AuditRepository;
+    adminWriteRepo: AdminWriteRepository;
+    adminAttachmentsRepo: AdminCaseAttachmentsRepository;
+    ingestionJobsRepo: IngestionJobsRepository;
+  }
+}

@@ -1,0 +1,542 @@
+openapi: 3.1.0
+info:
+  title: Startup Graveyard API
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+components:
+  securitySchemes:
+    AdminKey:
+      type: apiKey
+      in: header
+      name: X-Admin-Key
+  schemas:
+    CaseListItem:
+      type: object
+      required:
+        - id
+        - slug
+        - companyName
+        - industry
+        - country
+        - closedYear
+        - summary
+        - businessModelKey
+        - foundedYear
+        - totalFundingUsd
+        - primaryFailureReasonKey
+      properties:
+        id: { type: string, format: uuid }
+        slug: { type: string }
+        companyName: { type: string }
+        industry: { type: string }
+        country: { type: string, nullable: true }
+        closedYear: { type: integer, nullable: true }
+        summary: { type: string }
+        businessModelKey: { type: string, nullable: true }
+        foundedYear: { type: integer, nullable: true }
+        totalFundingUsd: { type: number, nullable: true }
+        primaryFailureReasonKey: { type: string, nullable: true }
+    EvidenceSource:
+      type: object
+      required:
+        - id
+        - sourceType
+        - title
+        - url
+        - publisher
+        - publishedAt
+        - credibilityLevel
+        - excerpt
+      properties:
+        id: { type: string, format: uuid }
+        sourceType: { type: string }
+        title: { type: string }
+        url: { type: string }
+        publisher: { type: string, nullable: true }
+        publishedAt: { type: string, nullable: true }
+        credibilityLevel: { type: string }
+        excerpt: { type: string, nullable: true }
+    FailureFactor:
+      type: object
+      required:
+        - id
+        - level1Key
+        - level2Key
+        - level3Key
+        - weight
+        - explanation
+      properties:
+        id: { type: string, format: uuid }
+        level1Key: { type: string }
+        level2Key: { type: string }
+        level3Key: { type: string, nullable: true }
+        weight: { type: number }
+        explanation: { type: string, nullable: true }
+    CaseDetail:
+      allOf:
+        - $ref: '#/components/schemas/CaseListItem'
+        - type: object
+          required: [evidenceSources, failureFactors]
+          properties:
+            evidenceSources:
+              type: array
+              items: { $ref: '#/components/schemas/EvidenceSource' }
+            failureFactors:
+              type: array
+              items: { $ref: '#/components/schemas/FailureFactor' }
+    ListCasesResponse:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CaseListItem' }
+        page: { type: integer }
+        pageSize: { type: integer }
+        total: { type: integer }
+    SimilarCasesResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/CaseListItem' }
+    TaxonomyResponse:
+      type: object
+      required:
+        - industries
+        - countries
+        - businessModels
+        - primaryFailureReasons
+      properties:
+        industries:
+          type: object
+          additionalProperties: { type: string }
+        countries:
+          type: object
+          additionalProperties: { type: string }
+        businessModels:
+          type: object
+          additionalProperties: { type: string }
+        primaryFailureReasons:
+          type: object
+          additionalProperties: { type: string }
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: ok
+  /health/ready:
+    get:
+      summary: Readiness (PostgreSQL ping when configured)
+      responses:
+        '200':
+          description: ok or db skipped
+        '503':
+          description: database unreachable
+  /v1/cases:
+    get:
+      summary: List cases
+      parameters:
+        - in: query
+          name: q
+          schema: { type: string }
+        - in: query
+          name: industry
+          schema: { type: string }
+        - in: query
+          name: country
+          description: ISO 3166-1 alpha-2
+          schema: { type: string, minLength: 2, maxLength: 2 }
+        - in: query
+          name: closedYear
+          schema: { type: integer }
+        - in: query
+          name: businessModelKey
+          description: 与 cases.business_model_key 精确匹配（小写）
+          schema: { type: string, minLength: 1, maxLength: 100 }
+        - in: query
+          name: primaryFailureReasonKey
+          description: 与 cases.primary_failure_reason_key 精确匹配（小写）
+          schema: { type: string, minLength: 1, maxLength: 100 }
+        - in: query
+          name: sort
+          description: >-
+            有关键词 q 时默认按相关度：服务端若配置 OPENAI_API_KEY 且 case 有向量，
+            则混合 pg_trgm 与向量余弦（各约 0.5 权重）；否则仅 trgm。可改为 updated_at。
+            无 q 时默认按更新时间。
+          schema:
+            type: string
+            enum: [relevance, updated_at]
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200':
+          description: Case list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListCasesResponse'
+  /v1/cases/by-slug/{slug}:
+    get:
+      summary: Get published case by URL slug
+      description: >-
+        Same response shape as GET /v1/cases/{id}. Slug is case-insensitive
+        (stored as citext).
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 200 }
+      responses:
+        '200':
+          description: Case detail with evidence + failure factors
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaseDetail'
+        '400':
+          description: Invalid slug
+        '404':
+          description: Not found
+  /v1/cases/{id}:
+    get:
+      summary: Get case detail
+      description: >-
+        Includes evidenceSources[] and failureFactors[] for structured
+        failure intelligence.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Case detail with evidence + failure factors
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaseDetail'
+        '404':
+          description: Not found
+  /v1/cases/{id}/similar:
+    get:
+      summary: Similar published cases (vector cosine distance)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 20, default: 6 }
+      responses:
+        '200':
+          description: List of similar cases (empty if anchor has no embedding)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SimilarCasesResponse'
+        '400':
+          description: Invalid id or query
+  /v1/meta/taxonomy:
+    get:
+      summary: >-
+        Label maps for industries, countries, business models, and primary
+        failure reasons (shared with web)
+      responses:
+        '200':
+          description: Taxonomy label maps
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaxonomyResponse'
+  /v1/admin/reviews:
+    get:
+      summary: List reviews
+      security:
+        - AdminKey: []
+      parameters:
+        - in: query
+          name: status
+          schema: { type: string, enum: [pending, approved, rejected] }
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200':
+          description: Review list
+        '401':
+          description: When ADMIN_API_KEY is set but missing/invalid
+  /v1/admin/reviews/{id}/approve:
+    post:
+      summary: Approve a review
+      security:
+        - AdminKey: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Approved
+        '401':
+          description: Unauthorized
+  /v1/admin/reviews/{id}/reject:
+    post:
+      summary: Reject a review
+      security:
+        - AdminKey: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                decisionNote: { type: string, maxLength: 4000 }
+      responses:
+        '200':
+          description: Rejected
+        '401':
+          description: Unauthorized
+  /v1/admin/cases:
+    post:
+      summary: Create draft case and pending review
+      security:
+        - AdminKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [slug, companyName, summary, industryKey]
+              properties:
+                slug: { type: string, maxLength: 200 }
+                companyName: { type: string, maxLength: 500 }
+                summary: { type: string, maxLength: 20000 }
+                industryKey: { type: string, maxLength: 100 }
+                countryCode: { type: string, minLength: 2, maxLength: 2 }
+                businessModelKey: { type: string, maxLength: 100 }
+                foundedYear: { type: integer }
+                closedYear: { type: integer }
+                totalFundingUsd: { type: integer, minimum: 0 }
+                primaryFailureReasonKey: { type: string, maxLength: 100 }
+                assignedTo: { type: string, maxLength: 320 }
+      responses:
+        '200':
+          description: Created draft + review
+        '400':
+          description: Invalid body
+        '401':
+          description: Unauthorized
+        '409':
+          description: Duplicate slug
+  /v1/admin/cases/{caseId}/evidence:
+    post:
+      summary: Add evidence source to a case
+      security:
+        - AdminKey: []
+      parameters:
+        - in: path
+          name: caseId
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sourceType, title, url]
+              properties:
+                sourceType: { type: string, maxLength: 80 }
+                title: { type: string, maxLength: 500 }
+                url: { type: string, maxLength: 2000 }
+                publisher: { type: string, maxLength: 200 }
+                publishedAt: { type: string, maxLength: 40 }
+                credibilityLevel: { type: string, enum: [low, medium, high] }
+                excerpt: { type: string, maxLength: 8000 }
+      responses:
+        '200':
+          description: Created row id
+        '400':
+          description: Invalid body
+        '401':
+          description: Unauthorized
+        '404':
+          description: Case not found
+  /v1/admin/cases/{caseId}/failure-factors:
+    post:
+      summary: Add failure factor to a case
+      security:
+        - AdminKey: []
+      parameters:
+        - in: path
+          name: caseId
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [level1Key, level2Key]
+              properties:
+                level1Key: { type: string, maxLength: 100 }
+                level2Key: { type: string, maxLength: 100 }
+                level3Key: { type: string, maxLength: 100 }
+                weight: { type: number, minimum: 0, maximum: 100 }
+                explanation: { type: string, maxLength: 8000 }
+      responses:
+        '200':
+          description: Created row id
+        '400':
+          description: Invalid body
+        '401':
+          description: Unauthorized
+        '404':
+          description: Case not found
+  /v1/admin/audit:
+    get:
+      summary: Recent admin audit events
+      security:
+        - AdminKey: []
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 30 }
+      responses:
+        '200':
+          description: Audit list
+        '401':
+          description: Unauthorized
+  /v1/admin/ingestion-jobs/{id}:
+    get:
+      summary: Get one ingestion job by id
+      security:
+        - AdminKey: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Job row
+        '400':
+          description: Invalid id
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not found
+  /v1/admin/ingestion-jobs/{id}/requeue:
+    post:
+      summary: Requeue a failed job back to queued (audit ingestion.job_requeued)
+      security:
+        - AdminKey: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Updated job row
+        '400':
+          description: Invalid id
+        '401':
+          description: Unauthorized
+        '404':
+          description: Not failed or not found
+  /v1/admin/ingestion-jobs:
+    get:
+      summary: Recent ingestion jobs
+      security:
+        - AdminKey: []
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 30 }
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [queued, running, succeeded, failed]
+      responses:
+        '200':
+          description: Job list
+        '401':
+          description: Unauthorized
+    post:
+      summary: Enqueue ingestion job (queued status)
+      security:
+        - AdminKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sourceName, triggerType]
+              properties:
+                sourceName: { type: string, maxLength: 200 }
+                triggerType: { type: string, maxLength: 80 }
+                payload: { type: object, additionalProperties: true }
+      responses:
+        '200':
+          description: Created job id
+        '400':
+          description: Invalid body
+        '401':
+          description: Unauthorized
+  /v1/admin/ingestion-jobs/reclaim-stale:
+    post:
+      summary: >-
+        Reset ingestion_jobs stuck in running (started_at older than threshold) back to
+        queued; audit ingestion.jobs_reclaimed_stale
+      security:
+        - AdminKey: []
+      parameters:
+        - in: query
+          name: maxRunningMinutes
+          schema: { type: integer, minimum: 1, maximum: 10080, default: 30 }
+      responses:
+        '200':
+          description: '{ reclaimed, jobIds[] }'
+        '400':
+          description: Invalid query
+        '401':
+          description: Unauthorized
+  /v1/admin/ingestion-jobs/process-next:
+    post:
+      summary: >-
+        Claim next queued job (SKIP LOCKED), run processor (echo / fetch_title /
+        create_draft / pipeline_url_draft / upsert_embedding_stub / noop), then
+        succeeded or failed; audit job_succeeded or job_failed
+      security:
+        - AdminKey: []
+      responses:
+        '200':
+          description: >-
+            Either { ok:true, job } after success, or { ok:false, reason:empty_queue }
+        '401':
+          description: Unauthorized
