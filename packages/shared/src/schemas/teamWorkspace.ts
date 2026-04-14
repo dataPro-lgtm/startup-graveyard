@@ -56,6 +56,8 @@ export const teamWorkspaceBillingSchema = z.object({
   seatsUsed: z.number().int().nonnegative(),
   reservedSeats: z.number().int().nonnegative(),
   seatsRemaining: z.number().int().nonnegative(),
+  fallbackMemberCount: z.number().int().nonnegative(),
+  revokedInviteCount: z.number().int().nonnegative(),
   canInviteMore: z.boolean(),
   warningCodes: z.array(teamWorkspaceBillingWarningSchema),
 });

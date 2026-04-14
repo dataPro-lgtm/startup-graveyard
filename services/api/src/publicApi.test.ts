@@ -1279,11 +1279,14 @@ describe('public API (mock DB)', () => {
     expect(degradedContextRes.statusCode).toBe(200);
     expect(JSON.parse(degradedContextRes.body)).toMatchObject({
       workspace: {
+        invites: [],
         billing: {
           subscription: 'pro',
           billingStatus: 'active',
           seatLimit: 0,
           canInviteMore: false,
+          revokedInviteCount: 4,
+          fallbackMemberCount: 0,
           warningCodes: expect.arrayContaining(['workspace_plan_inactive', 'cancel_at_period_end']),
         },
       },
@@ -1397,6 +1400,156 @@ describe('public API (mock DB)', () => {
     expect(acceptInviteRes.statusCode).toBe(409);
     expect(JSON.parse(acceptInviteRes.body)).toMatchObject({
       error: 'workspace_plan_inactive',
+    });
+
+    const pendingContextRes = await app.inject({
+      method: 'GET',
+      url: '/v1/team-workspace/me',
+      headers: { authorization: `Bearer ${memberRegistered.accessToken}` },
+    });
+    expect(pendingContextRes.statusCode).toBe(200);
+    expect(JSON.parse(pendingContextRes.body)).toMatchObject({
+      hasWorkspace: false,
+      pendingInvites: [],
+    });
+  });
+
+  it('team members fall back to personal entitlements after workspace billing becomes inactive', async () => {
+    const ownerEmail = `fallback-owner-${Date.now()}@example.com`;
+    const memberEmail = `fallback-member-${Date.now()}@example.com`;
+
+    const [ownerRegisterRes, memberRegisterRes] = await Promise.all([
+      app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: ownerEmail,
+          password: 'password123',
+          displayName: 'Fallback Owner',
+        },
+      }),
+      app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: memberEmail,
+          password: 'password123',
+          displayName: 'Fallback Member',
+        },
+      }),
+    ]);
+    expect(ownerRegisterRes.statusCode).toBe(201);
+    expect(memberRegisterRes.statusCode).toBe(201);
+
+    const ownerRegistered = JSON.parse(ownerRegisterRes.body) as {
+      user: { id: string };
+      accessToken: string;
+    };
+    const memberRegistered = JSON.parse(memberRegisterRes.body) as {
+      accessToken: string;
+    };
+
+    await app.usersRepo.updateBillingAccount(ownerRegistered.user.id, {
+      subscription: 'team',
+      billingStatus: 'active',
+      billingInterval: 'month',
+    });
+
+    const createWorkspaceRes = await app.inject({
+      method: 'POST',
+      url: '/v1/team-workspace',
+      headers: {
+        authorization: `Bearer ${ownerRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: { name: 'Fallback Workspace' },
+    });
+    expect(createWorkspaceRes.statusCode).toBe(200);
+
+    const inviteRes = await app.inject({
+      method: 'POST',
+      url: '/v1/team-workspace/invites',
+      headers: {
+        authorization: `Bearer ${ownerRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        email: memberEmail,
+        role: 'member',
+      },
+    });
+    expect(inviteRes.statusCode).toBe(200);
+    const inviteId = (
+      JSON.parse(inviteRes.body) as {
+        workspace: { invites: Array<{ id: string }> };
+      }
+    ).workspace.invites[0]!.id;
+
+    const acceptInviteRes = await app.inject({
+      method: 'POST',
+      url: `/v1/team-workspace/invites/${inviteId}/accept`,
+      headers: {
+        authorization: `Bearer ${memberRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {},
+    });
+    expect(acceptInviteRes.statusCode).toBe(200);
+
+    const memberBeforeDowngradeRes = await app.inject({
+      method: 'GET',
+      url: '/v1/auth/me',
+      headers: { authorization: `Bearer ${memberRegistered.accessToken}` },
+    });
+    expect(memberBeforeDowngradeRes.statusCode).toBe(200);
+    expect(JSON.parse(memberBeforeDowngradeRes.body)).toMatchObject({
+      effectiveSubscription: 'team',
+      entitlements: {
+        canUseSavedSearches: true,
+        canExportReports: true,
+      },
+    });
+
+    await app.usersRepo.updateBillingAccount(ownerRegistered.user.id, {
+      subscription: 'pro',
+      billingStatus: 'active',
+      billingInterval: 'month',
+    });
+
+    const memberAfterDowngradeRes = await app.inject({
+      method: 'GET',
+      url: '/v1/auth/me',
+      headers: { authorization: `Bearer ${memberRegistered.accessToken}` },
+    });
+    expect(memberAfterDowngradeRes.statusCode).toBe(200);
+    expect(JSON.parse(memberAfterDowngradeRes.body)).toMatchObject({
+      subscription: 'free',
+      effectiveSubscription: 'free',
+      workspaceAccess: {
+        source: 'personal',
+        workspaceName: 'Fallback Workspace',
+        warningCodes: expect.arrayContaining(['workspace_plan_inactive']),
+      },
+      entitlements: {
+        canUseSavedSearches: false,
+        canExportReports: false,
+      },
+    });
+
+    const ownerContextRes = await app.inject({
+      method: 'GET',
+      url: '/v1/team-workspace/me',
+      headers: { authorization: `Bearer ${ownerRegistered.accessToken}` },
+    });
+    expect(ownerContextRes.statusCode).toBe(200);
+    expect(JSON.parse(ownerContextRes.body)).toMatchObject({
+      workspace: {
+        billing: {
+          seatLimit: 0,
+          fallbackMemberCount: 1,
+          revokedInviteCount: 0,
+        },
+      },
     });
   });
 

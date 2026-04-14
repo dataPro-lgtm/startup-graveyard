@@ -39,6 +39,10 @@ type WorkspaceRecord = {
 };
 
 type WorkspaceInviteRecord = TeamWorkspaceInvite;
+type WorkspaceInviteRevocationReason =
+  | 'billing_inactive'
+  | 'seat_limit_reduced'
+  | 'accepted_elsewhere';
 
 type WorkspaceSharedSavedViewRecord = {
   workspaceId: string;
@@ -72,6 +76,8 @@ type PgWorkspaceInviteRow = {
   status: 'pending' | 'accepted' | 'revoked';
   created_at: Date | string;
   accepted_at: Date | string | null;
+  revoked_reason: WorkspaceInviteRevocationReason | null;
+  revoked_at: Date | string | null;
 };
 
 type PgWorkspaceMemberRow = {
@@ -132,6 +138,15 @@ type WorkspaceAccessContext = {
   seatsUsed: number;
   pendingInviteCount: number;
 };
+
+type WorkspaceCompensationSummary = {
+  revokedInviteCount: number;
+};
+
+const COMPENSATION_REASONS: ReadonlySet<WorkspaceInviteRevocationReason> = new Set([
+  'billing_inactive',
+  'seat_limit_reduced',
+]);
 
 function toIso(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
@@ -209,6 +224,7 @@ function buildWorkspaceBilling(input: {
   owner: WorkspaceBillingOwner;
   seatsUsed: number;
   pendingInviteCount: number;
+  compensation?: WorkspaceCompensationSummary;
 }): TeamWorkspaceBilling {
   const seatLimit = resolveTeamWorkspaceSeatLimit({
     subscription: input.owner.subscription,
@@ -235,6 +251,8 @@ function buildWorkspaceBilling(input: {
     seatsUsed: input.seatsUsed,
     reservedSeats,
     seatsRemaining,
+    fallbackMemberCount: seatLimit === 0 ? Math.max(0, input.seatsUsed - 1) : 0,
+    revokedInviteCount: input.compensation?.revokedInviteCount ?? 0,
     canInviteMore: seatLimit > 0 && reservedSeats < seatLimit,
     warningCodes,
   };
@@ -327,6 +345,9 @@ export interface TeamWorkspacesRepository {
   resolveEffectiveUserProfile(user: UserProfile): Promise<UserProfile>;
   getContextForUser(user: UserProfile): Promise<TeamWorkspaceContextResponse>;
   getAdminMetrics(): Promise<TeamWorkspaceAdminMetrics>;
+  reconcileBillingForUser(
+    userId: string,
+  ): Promise<{ workspaceIds: string[]; revokedInviteCount: number }>;
   createWorkspace(
     user: UserProfile,
     name: string,
@@ -374,7 +395,13 @@ export interface TeamWorkspacesRepository {
 export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
   private readonly workspaces = new Map<string, WorkspaceRecord>();
   private readonly membershipByUserId = new Map<string, WorkspaceMembershipRecord>();
-  private readonly invites = new Map<string, WorkspaceInviteRecord>();
+  private readonly invites = new Map<
+    string,
+    WorkspaceInviteRecord & {
+      revokedReason?: WorkspaceInviteRevocationReason | null;
+      revokedAt?: string | null;
+    }
+  >();
   private readonly sharedSavedViews: WorkspaceSharedSavedViewRecord[] = [];
   private readonly sharedCases: WorkspaceSharedCaseRecord[] = [];
 
@@ -389,6 +416,8 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
   }
 
   async getContextForUser(user: UserProfile): Promise<TeamWorkspaceContextResponse> {
+    await this.reconcileBillingForUser(user.id);
+    await this.reconcilePendingInvitesForEmail(user.email);
     const workspace = await this.buildWorkspaceForUser(user.id);
     return {
       canCreateWorkspace: user.entitlements.canUseTeamWorkspace && workspace === null,
@@ -396,6 +425,19 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
       workspace,
       pendingInvites: workspace ? [] : this.getPendingInvitesForEmail(user.email),
     };
+  }
+
+  async reconcileBillingForUser(
+    userId: string,
+  ): Promise<{ workspaceIds: string[]; revokedInviteCount: number }> {
+    const workspaceIds = [...this.workspaces.values()]
+      .filter((workspace) => workspace.ownerUserId === userId)
+      .map((workspace) => workspace.id);
+    let revokedInviteCount = 0;
+    for (const workspaceId of workspaceIds) {
+      revokedInviteCount += await this.reconcileWorkspaceBillingState(workspaceId);
+    }
+    return { workspaceIds, revokedInviteCount };
   }
 
   async getAdminMetrics(): Promise<TeamWorkspaceAdminMetrics> {
@@ -408,8 +450,11 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
     let reservedSeats = 0;
     let pendingInvites = 0;
     let inheritedMembers = 0;
+    let revokedInvites = 0;
+    let fallbackMembers = 0;
 
     for (const workspace of workspaces) {
+      await this.reconcileWorkspaceBillingState(workspace.id);
       const owner = await this.usersRepo.getById(workspace.ownerUserId);
       if (!owner) continue;
       const workspaceSeatsUsed = [...this.membershipByUserId.values()].filter(
@@ -418,16 +463,20 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
       const workspacePendingInvites = [...this.invites.values()].filter(
         (invite) => invite.workspaceId === workspace.id && invite.status === 'pending',
       ).length;
+      const compensation = this.getCompensationSummary(workspace.id);
       const billing = buildWorkspaceBilling({
         owner,
         seatsUsed: workspaceSeatsUsed,
         pendingInviteCount: workspacePendingInvites,
+        compensation,
       });
 
       totalSeatCapacity += billing.seatLimit;
       seatsUsed += billing.seatsUsed;
       reservedSeats += billing.reservedSeats;
       pendingInvites += workspacePendingInvites;
+      revokedInvites += compensation.revokedInviteCount;
+      fallbackMembers += billing.fallbackMemberCount;
       if (billing.seatLimit > 0) {
         activeWorkspaces += 1;
         inheritedMembers += Math.max(0, billing.seatsUsed - 1);
@@ -455,6 +504,8 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
       reservedSeats,
       pendingInvites,
       inheritedMembers,
+      revokedInvites,
+      fallbackMembers,
       seatUtilizationRate: totalSeatCapacity > 0 ? reservedSeats / totalSeatCapacity : null,
     };
   }
@@ -550,8 +601,13 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
   > {
     if (this.membershipByUserId.has(user.id)) return 'already_in_workspace';
     const invite = this.invites.get(inviteId);
-    if (!invite || invite.status !== 'pending') return 'invite_not_found';
+    if (!invite) return 'invite_not_found';
     if (invite.email !== user.email.toLowerCase()) return 'email_mismatch';
+    if (invite.status !== 'pending') {
+      return invite.revokedReason === 'billing_inactive'
+        ? 'workspace_plan_inactive'
+        : 'invite_not_found';
+    }
     const workspace = this.workspaces.get(invite.workspaceId);
     if (!workspace) return 'invite_not_found';
     const owner = await this.usersRepo.getById(workspace.ownerUserId);
@@ -568,13 +624,15 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
       pendingInviteCount,
     });
     if (billing.warningCodes.includes('workspace_plan_inactive')) {
+      await this.reconcileWorkspaceBillingState(invite.workspaceId);
       return 'workspace_plan_inactive';
     }
 
+    const acceptedAt = new Date().toISOString();
     this.membershipByUserId.set(user.id, {
       workspaceId: invite.workspaceId,
       role: invite.role,
-      joinedAt: new Date().toISOString(),
+      joinedAt: acceptedAt,
     });
 
     for (const [id, item] of this.invites.entries()) {
@@ -582,7 +640,9 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
       this.invites.set(id, {
         ...item,
         status: id === inviteId ? 'accepted' : 'revoked',
-        acceptedAt: id === inviteId ? new Date().toISOString() : item.acceptedAt,
+        acceptedAt: id === inviteId ? acceptedAt : item.acceptedAt,
+        revokedReason: id === inviteId ? null : 'accepted_elsewhere',
+        revokedAt: id === inviteId ? null : acceptedAt,
       });
     }
 
@@ -654,11 +714,70 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
+  private async reconcilePendingInvitesForEmail(email: string): Promise<void> {
+    const workspaceIds = new Set(
+      [...this.invites.values()]
+        .filter((invite) => invite.email === email.toLowerCase() && invite.status === 'pending')
+        .map((invite) => invite.workspaceId),
+    );
+    for (const workspaceId of workspaceIds) {
+      await this.reconcileWorkspaceBillingState(workspaceId);
+    }
+  }
+
+  private getCompensationSummary(workspaceId: string): WorkspaceCompensationSummary {
+    const revokedInviteCount = [...this.invites.values()].filter(
+      (invite) =>
+        invite.workspaceId === workspaceId &&
+        invite.status === 'revoked' &&
+        invite.revokedReason != null &&
+        COMPENSATION_REASONS.has(invite.revokedReason),
+    ).length;
+    return { revokedInviteCount };
+  }
+
+  private async reconcileWorkspaceBillingState(workspaceId: string): Promise<number> {
+    const workspace = this.workspaces.get(workspaceId);
+    if (!workspace) return 0;
+    const owner = await this.usersRepo.getById(workspace.ownerUserId);
+    if (!owner) return 0;
+
+    const seatsUsed = [...this.membershipByUserId.values()].filter(
+      (item) => item.workspaceId === workspaceId,
+    ).length;
+    const pendingInvites = [...this.invites.values()]
+      .filter((invite) => invite.workspaceId === workspaceId && invite.status === 'pending')
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+
+    const seatLimit = resolveTeamWorkspaceSeatLimit({
+      subscription: owner.subscription,
+      billingStatus: owner.billingStatus,
+    });
+    const allowedPendingInvites = Math.max(0, seatLimit - seatsUsed);
+    const revokeReason: WorkspaceInviteRevocationReason =
+      seatLimit === 0 ? 'billing_inactive' : 'seat_limit_reduced';
+    const invitesToRevoke = pendingInvites.slice(allowedPendingInvites);
+    if (invitesToRevoke.length === 0) return 0;
+
+    const revokedAt = new Date().toISOString();
+    for (const invite of invitesToRevoke) {
+      this.invites.set(invite.id, {
+        ...invite,
+        status: 'revoked',
+        revokedReason: revokeReason,
+        revokedAt,
+        acceptedAt: null,
+      });
+    }
+    return invitesToRevoke.length;
+  }
+
   private async buildWorkspaceAccessForUser(user: UserProfile): Promise<WorkspaceAccess | null> {
     const membership = this.membershipByUserId.get(user.id);
     if (!membership) return null;
     const workspace = this.workspaces.get(membership.workspaceId);
     if (!workspace) return null;
+    await this.reconcileWorkspaceBillingState(workspace.id);
     const owner = await this.usersRepo.getById(workspace.ownerUserId);
     if (!owner) return null;
     const seatsUsed = [...this.membershipByUserId.values()].filter(
@@ -686,6 +805,7 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
     if (!membership) return null;
     const workspace = this.workspaces.get(membership.workspaceId);
     if (!workspace) return null;
+    await this.reconcileWorkspaceBillingState(workspace.id);
 
     const memberEntries = [...this.membershipByUserId.entries()].filter(
       ([, item]) => item.workspaceId === workspace.id,
@@ -762,6 +882,7 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
 
     const owner = await this.usersRepo.getById(workspace.ownerUserId);
     if (!owner) return null;
+    const compensation = this.getCompensationSummary(workspace.id);
 
     return {
       id: workspace.id,
@@ -776,6 +897,7 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
         owner,
         seatsUsed: members.length,
         pendingInviteCount: invites.length,
+        compensation,
       }),
       members,
       invites,
@@ -793,6 +915,8 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
   }
 
   async getContextForUser(user: UserProfile): Promise<TeamWorkspaceContextResponse> {
+    await this.reconcileBillingForUser(user.id);
+    await this.reconcilePendingInvitesForEmail(user.email);
     const workspace = await this.buildWorkspaceForUser(user.id);
     return {
       canCreateWorkspace: user.entitlements.canUseTeamWorkspace && workspace === null,
@@ -802,7 +926,27 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
     };
   }
 
+  async reconcileBillingForUser(
+    userId: string,
+  ): Promise<{ workspaceIds: string[]; revokedInviteCount: number }> {
+    const { rows } = await this.pool.query<{ id: string }>(
+      `SELECT id
+       FROM team_workspaces
+       WHERE owner_user_id = $1`,
+      [userId],
+    );
+    let revokedInviteCount = 0;
+    for (const row of rows) {
+      revokedInviteCount += await this.reconcileWorkspaceBillingState(row.id);
+    }
+    return {
+      workspaceIds: rows.map((row) => row.id),
+      revokedInviteCount,
+    };
+  }
+
   async getAdminMetrics(): Promise<TeamWorkspaceAdminMetrics> {
+    await this.reconcileAllWorkspaces();
     const { rows } = await this.pool.query<{
       workspace_id: string;
       subscription: SubscriptionTier;
@@ -810,6 +954,7 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
       cancel_at_period_end: boolean;
       member_count: string;
       pending_invite_count: string;
+      revoked_invite_count: string;
     }>(
       `WITH member_counts AS (
          SELECT workspace_id, COUNT(*)::int AS member_count
@@ -821,6 +966,13 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
          FROM team_workspace_invites
          WHERE status = 'pending'
          GROUP BY workspace_id
+       ),
+       compensation_counts AS (
+         SELECT workspace_id, COUNT(*)::int AS revoked_invite_count
+         FROM team_workspace_invites
+         WHERE status = 'revoked'
+           AND revoked_reason IN ('billing_inactive', 'seat_limit_reduced')
+         GROUP BY workspace_id
        )
        SELECT
          w.id AS workspace_id,
@@ -828,11 +980,13 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
          owner.billing_status,
          owner.cancel_at_period_end,
          COALESCE(m.member_count, 0)::text AS member_count,
-         COALESCE(i.pending_invite_count, 0)::text AS pending_invite_count
+         COALESCE(i.pending_invite_count, 0)::text AS pending_invite_count,
+         COALESCE(c.revoked_invite_count, 0)::text AS revoked_invite_count
        FROM team_workspaces w
        JOIN users owner ON owner.id = w.owner_user_id
        LEFT JOIN member_counts m ON m.workspace_id = w.id
-       LEFT JOIN invite_counts i ON i.workspace_id = w.id`,
+       LEFT JOIN invite_counts i ON i.workspace_id = w.id
+       LEFT JOIN compensation_counts c ON c.workspace_id = w.id`,
     );
 
     let activeWorkspaces = 0;
@@ -843,6 +997,8 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
     let reservedSeats = 0;
     let pendingInvites = 0;
     let inheritedMembers = 0;
+    let revokedInvites = 0;
+    let fallbackMembers = 0;
 
     for (const row of rows) {
       const workspaceSeatsUsed = Number(row.member_count);
@@ -863,6 +1019,8 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
       seatsUsed += workspaceSeatsUsed;
       reservedSeats += workspaceReservedSeats;
       pendingInvites += workspacePendingInvites;
+      revokedInvites += Number(row.revoked_invite_count);
+      fallbackMembers += seatLimit === 0 ? Math.max(0, workspaceSeatsUsed - 1) : 0;
       if (seatLimit > 0) {
         activeWorkspaces += 1;
         inheritedMembers += Math.max(0, workspaceSeatsUsed - 1);
@@ -890,6 +1048,8 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
       reservedSeats,
       pendingInvites,
       inheritedMembers,
+      revokedInvites,
+      fallbackMembers,
       seatUtilizationRate: totalSeatCapacity > 0 ? reservedSeats / totalSeatCapacity : null,
     };
   }
@@ -976,6 +1136,8 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
          created_by_user_id = EXCLUDED.created_by_user_id,
          accepted_by_user_id = NULL,
          accepted_at = NULL,
+         revoked_reason = NULL,
+         revoked_at = NULL,
          created_at = NOW()`,
       [membership.workspaceId, normalizedEmail, role, actorUserId],
     );
@@ -1003,7 +1165,9 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
          i.role,
          i.status,
          i.created_at,
-         i.accepted_at
+         i.accepted_at,
+         i.revoked_reason,
+         i.revoked_at
        FROM team_workspace_invites i
        JOIN team_workspaces w ON w.id = i.workspace_id
        WHERE i.id = $1
@@ -1011,8 +1175,38 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
       [inviteId],
     );
     const invite = rows[0];
-    if (!invite || invite.status !== 'pending') return 'invite_not_found';
+    if (!invite) return 'invite_not_found';
     if (invite.email.toLowerCase() !== user.email.toLowerCase()) return 'email_mismatch';
+    if (invite.status !== 'pending') {
+      return invite.revoked_reason === 'billing_inactive'
+        ? 'workspace_plan_inactive'
+        : 'invite_not_found';
+    }
+    await this.reconcileWorkspaceBillingState(invite.workspace_id);
+    const refreshedInviteRes = await this.pool.query<PgWorkspaceInviteRow>(
+      `SELECT
+         i.id,
+         i.workspace_id,
+         w.name AS workspace_name,
+         i.email,
+         i.role,
+         i.status,
+         i.created_at,
+         i.accepted_at,
+         i.revoked_reason,
+         i.revoked_at
+       FROM team_workspace_invites i
+       JOIN team_workspaces w ON w.id = i.workspace_id
+       WHERE i.id = $1
+       LIMIT 1`,
+      [inviteId],
+    );
+    const refreshedInvite = refreshedInviteRes.rows[0];
+    if (!refreshedInvite || refreshedInvite.status !== 'pending') {
+      return refreshedInvite?.revoked_reason === 'billing_inactive'
+        ? 'workspace_plan_inactive'
+        : 'invite_not_found';
+    }
 
     const [ownerRows, memberCountRows, pendingInviteCountRows] = await Promise.all([
       this.pool.query<{
@@ -1077,13 +1271,15 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
       await client.query(
         `INSERT INTO team_workspace_members (workspace_id, user_id, role)
          VALUES ($1, $2, $3)`,
-        [invite.workspace_id, user.id, invite.role],
+        [invite.workspace_id, user.id, refreshedInvite.role],
       );
       await client.query(
         `UPDATE team_workspace_invites
          SET status = CASE WHEN id = $1 THEN 'accepted' ELSE 'revoked' END,
              accepted_by_user_id = CASE WHEN id = $1 THEN $2 ELSE accepted_by_user_id END,
              accepted_at = CASE WHEN id = $1 THEN NOW() ELSE accepted_at END
+             , revoked_reason = CASE WHEN id = $1 THEN NULL ELSE 'accepted_elsewhere' END
+             , revoked_at = CASE WHEN id = $1 THEN NULL ELSE NOW() END
          WHERE lower(email) = lower($3)
            AND status = 'pending'`,
         [inviteId, user.id, user.email],
@@ -1189,7 +1385,9 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
          i.role,
          i.status,
          i.created_at,
-         i.accepted_at
+         i.accepted_at,
+         i.revoked_reason,
+         i.revoked_at
        FROM team_workspace_invites i
        JOIN team_workspaces w ON w.id = i.workspace_id
        WHERE lower(i.email) = lower($1)
@@ -1200,9 +1398,105 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
     return rows.map(rowToInvite);
   }
 
+  private async reconcilePendingInvitesForEmail(email: string): Promise<void> {
+    const { rows } = await this.pool.query<{ workspace_id: string }>(
+      `SELECT DISTINCT workspace_id
+       FROM team_workspace_invites
+       WHERE lower(email) = lower($1)
+         AND status = 'pending'`,
+      [email],
+    );
+    for (const row of rows) {
+      await this.reconcileWorkspaceBillingState(row.workspace_id);
+    }
+  }
+
+  private async reconcileAllWorkspaces(): Promise<void> {
+    const { rows } = await this.pool.query<{ id: string }>(
+      `SELECT id
+       FROM team_workspaces`,
+    );
+    for (const row of rows) {
+      await this.reconcileWorkspaceBillingState(row.id);
+    }
+  }
+
+  private async reconcileWorkspaceBillingState(workspaceId: string): Promise<number> {
+    const [ownerRows, memberCountRows, inviteRows] = await Promise.all([
+      this.pool.query<{
+        subscription: SubscriptionTier;
+        billing_status: BillingStatus;
+      }>(
+        `SELECT u.subscription, u.billing_status
+         FROM team_workspaces w
+         JOIN users u ON u.id = w.owner_user_id
+         WHERE w.id = $1
+         LIMIT 1`,
+        [workspaceId],
+      ),
+      this.pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count
+         FROM team_workspace_members
+         WHERE workspace_id = $1`,
+        [workspaceId],
+      ),
+      this.pool.query<{ id: string }>(
+        `SELECT id
+         FROM team_workspace_invites
+         WHERE workspace_id = $1
+           AND status = 'pending'
+         ORDER BY created_at ASC`,
+        [workspaceId],
+      ),
+    ]);
+
+    const owner = ownerRows.rows[0];
+    if (!owner) return 0;
+    const seatLimit = resolveTeamWorkspaceSeatLimit({
+      subscription: owner.subscription,
+      billingStatus: owner.billing_status,
+    });
+    const seatsUsed = Number(memberCountRows.rows[0]?.count ?? 0);
+    const allowedPendingInvites = Math.max(0, seatLimit - seatsUsed);
+    const inviteIdsToRevoke = inviteRows.rows.slice(allowedPendingInvites).map((row) => row.id);
+    if (inviteIdsToRevoke.length === 0) return 0;
+
+    const revokeReason: WorkspaceInviteRevocationReason =
+      seatLimit === 0 ? 'billing_inactive' : 'seat_limit_reduced';
+    const result = await this.pool.query(
+      `UPDATE team_workspace_invites
+       SET status = 'revoked',
+           revoked_reason = $2,
+           revoked_at = NOW(),
+           accepted_by_user_id = NULL,
+           accepted_at = NULL
+       WHERE id = ANY($1::uuid[])
+         AND status = 'pending'`,
+      [inviteIdsToRevoke, revokeReason],
+    );
+    return result.rowCount ?? 0;
+  }
+
+  private async getCompensationSummary(workspaceId: string): Promise<WorkspaceCompensationSummary> {
+    const { rows } = await this.pool.query<{
+      revoked_invite_count: string;
+    }>(
+      `SELECT COUNT(*)::text AS revoked_invite_count
+       FROM team_workspace_invites
+       WHERE workspace_id = $1
+         AND status = 'revoked'
+         AND revoked_reason IN ('billing_inactive', 'seat_limit_reduced')`,
+      [workspaceId],
+    );
+    return {
+      revokedInviteCount: Number(rows[0]?.revoked_invite_count ?? 0),
+    };
+  }
+
   private async buildWorkspaceAccessForUser(user: UserProfile): Promise<WorkspaceAccess | null> {
     const membership = await this.findMembership(user.id);
     if (!membership) return null;
+    await this.reconcileWorkspaceBillingState(membership.workspaceId);
 
     const [workspaceRows, ownerRows, memberCountRows, inviteCountRows] = await Promise.all([
       this.pool.query<{ id: string; name: string; owner_user_id: string }>(
@@ -1291,7 +1585,8 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
     if (!membership) return null;
 
     const workspaceId = membership.workspace_id;
-    const [memberRows, inviteRows, sharedSavedViewRows, sharedCaseRows, ownerRows] =
+    await this.reconcileWorkspaceBillingState(workspaceId);
+    const [memberRows, inviteRows, sharedSavedViewRows, sharedCaseRows, ownerRows, compensation] =
       await Promise.all([
         this.pool.query<PgWorkspaceMemberRow>(
           `SELECT
@@ -1318,10 +1613,12 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
            i.workspace_id,
            w.name AS workspace_name,
            i.email,
-           i.role,
-           i.status,
-           i.created_at,
-           i.accepted_at
+         i.role,
+         i.status,
+         i.created_at,
+         i.accepted_at,
+         i.revoked_reason,
+         i.revoked_at
          FROM team_workspace_invites i
          JOIN team_workspaces w ON w.id = i.workspace_id
          WHERE i.workspace_id = $1
@@ -1396,6 +1693,7 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
          LIMIT 1`,
           [membership.owner_user_id],
         ),
+        this.getCompensationSummary(workspaceId),
       ]);
 
     const owner = ownerRows.rows[0];
@@ -1422,6 +1720,7 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
         },
         seatsUsed: memberRows.rows.length,
         pendingInviteCount: inviteRows.rows.length,
+        compensation,
       }),
       members: memberRows.rows.map(rowToMember),
       invites: inviteRows.rows.map(rowToInvite),

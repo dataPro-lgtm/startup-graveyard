@@ -44,9 +44,9 @@
 
 ### P1 产品能力
 
-- Topic/专题研究页、趋势看板、个人 watchlist、saved views、Markdown / PDF 导出、公开 research brief 分享页、Team Workspace 协作基础，以及 team seat 继承权限和运营指标已经上线，但团队账单生命周期和降级补偿仍未落地。
+- Topic/专题研究页、趋势看板、个人 watchlist、saved views、Markdown / PDF 导出、公开 research brief 分享页、Team Workspace 协作基础，以及 team seat 继承权限、降级补偿和运营指标已经上线，但更完整的团队账单生命周期仍未落地。
 - 首页仍偏“案例站”，离“研究入口 / 决策面板”还有距离。
-- Free / Pro / Team 的权益边界已经有了基础模型，商业化能力现在覆盖到 watchlist + saved views + Markdown / PDF export + public brief share + Team Workspace + seat-aware entitlement；剩余短板集中在 workspace 级账单运营和转化分析闭环。
+- Free / Pro / Team 的权益边界已经有了基础模型，商业化能力现在覆盖到 watchlist + saved views + Markdown / PDF export + public brief share + Team Workspace + seat-aware entitlement + downgrade compensation；剩余短板集中在 workspace 级账单运营和转化分析闭环。
 
 ### P2 平台化与运营
 
@@ -237,3 +237,9 @@
 - 团队成员的有效权限现在不再完全跟随个人套餐，而是会在活跃 Team Workspace 中继承 workspace 级 team entitlement；`/auth/me`、watchlist、saved views 和 Markdown export 都已经切到这套有效权限模型。
 - 用户侧账户页会明确展示“个人账单”和“当前有效权限”的差异，避免成员误以为自己仍然是 Free / Pro；加入但已降级的 workspace 也会显示仍按个人套餐生效。
 - 运营 Dashboard 现在会聚合 Team Workspace 的数量、active workspaces、seat capacity、reserved seats、pending invites、inherited members、seat utilization 和风险工作区，为后续订阅运营和转化分析提供了第一层观测面。
+
+已完成 M3 第四段第三部分（workspace downgrade compensation）：
+
+- Team Workspace 现在会在 owner 账单降级或席位收紧时自动撤销超出的 pending invites，而不是继续保留无效邀请占着席位。
+- 已加入的非 owner 成员在 workspace 不再可继承 Team entitlement 时，会自动回退到各自个人套餐权限；账户页和 Team Workspace 面板都会明确显示这种 fallback，而不是让用户在功能被 gate 后自己猜原因。
+- Stripe webhook、Team Workspace context 读取和 admin metrics 都走同一套 reconciliation 逻辑，因此补偿动作既会即时生效，也能在运营台直接看到撤销邀请数和 fallback 成员数。

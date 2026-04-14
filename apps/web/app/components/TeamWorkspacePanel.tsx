@@ -227,6 +227,10 @@ export function TeamWorkspacePanel() {
               {workspace.billing.seatsUsed}/{workspace.billing.seatLimit} 席位已使用 ·{' '}
               {workspace.sharedSavedViewCount} 个共享视图 · {workspace.sharedCaseCount} 个共享案例
             </div>
+            <div>
+              自动补偿：撤销 {workspace.billing.revokedInviteCount} 条邀请 · 回退{' '}
+              {workspace.billing.fallbackMemberCount} 名成员
+            </div>
           </div>
         ) : null}
       </div>
@@ -332,6 +336,9 @@ export function TeamWorkspacePanel() {
                   席位占用：{workspace.billing.seatsUsed}/{workspace.billing.seatLimit} 已使用，
                   {workspace.billing.reservedSeats} 已保留
                   <br />
+                  自动补偿：{workspace.billing.revokedInviteCount} 条邀请已撤销，{' '}
+                  {workspace.billing.fallbackMemberCount} 名成员已回退到个人权限
+                  <br />
                   剩余可邀请：{workspace.billing.seatsRemaining}
                   {workspace.billing.currentPeriodEnd
                     ? ` · 周期结束 ${new Date(
@@ -365,6 +372,38 @@ export function TeamWorkspacePanel() {
                     {warningMessage(code)}
                   </div>
                 ))}
+                {workspace.billing.revokedInviteCount > 0 ? (
+                  <div
+                    style={{
+                      borderRadius: 12,
+                      border: '1px solid #4b2430',
+                      background: '#23131a',
+                      color: '#fbc5cf',
+                      padding: '10px 12px',
+                      fontSize: 13,
+                      lineHeight: 1.7,
+                    }}
+                  >
+                    系统已根据当前账单 / 席位状态自动撤销 {workspace.billing.revokedInviteCount}{' '}
+                    条待接受邀请，避免无效席位继续被占用。
+                  </div>
+                ) : null}
+                {workspace.billing.fallbackMemberCount > 0 ? (
+                  <div
+                    style={{
+                      borderRadius: 12,
+                      border: '1px solid #4b2430',
+                      background: '#23131a',
+                      color: '#fbc5cf',
+                      padding: '10px 12px',
+                      fontSize: 13,
+                      lineHeight: 1.7,
+                    }}
+                  >
+                    当前 Team entitlement 已不可继承，{workspace.billing.fallbackMemberCount} 名非
+                    owner 成员已自动回退到各自的个人套餐权限。
+                  </div>
+                ) : null}
               </div>
             ) : (
               <div style={{ color: '#8a96b0', fontSize: 13 }}>
@@ -404,7 +443,9 @@ export function TeamWorkspacePanel() {
               <div style={{ color: '#8a96b0', fontSize: 12, lineHeight: 1.7 }}>
                 {workspace.billing.canInviteMore
                   ? `当前还可保留 ${workspace.billing.seatsRemaining} 个席位（已包含待接受邀请）。`
-                  : '当前无法继续邀请，请先释放席位或处理账单状态。'}
+                  : workspace.billing.revokedInviteCount > 0
+                    ? '当前无法继续邀请，系统已经撤销超出的待接受邀请，请先恢复账单或重新分配席位。'
+                    : '当前无法继续邀请，请先释放席位或处理账单状态。'}
               </div>
             </div>
           ) : null}

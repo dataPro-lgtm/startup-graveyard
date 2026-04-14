@@ -130,6 +130,8 @@ export const teamWorkspaceAdminMetricsSchema = z.object({
   reservedSeats: nonnegativeInteger,
   pendingInvites: nonnegativeInteger,
   inheritedMembers: nonnegativeInteger,
+  revokedInvites: nonnegativeInteger,
+  fallbackMembers: nonnegativeInteger,
   seatUtilizationRate: z.number().min(0).max(1).nullable(),
 });
 

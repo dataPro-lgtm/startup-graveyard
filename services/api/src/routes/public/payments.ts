@@ -86,6 +86,7 @@ async function applyStripeSubscriptionToUser(
     currentPeriodEnd: getCurrentPeriodEnd(subscription),
     cancelAtPeriodEnd: subscription.cancel_at_period_end,
   });
+  await app.teamWorkspacesRepo.reconcileBillingForUser(userId);
 }
 
 async function findUserIdFromStripeContext(
@@ -267,6 +268,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
           currentPeriodEnd: null,
           cancelAtPeriodEnd: false,
         });
+        await app.teamWorkspacesRepo.reconcileBillingForUser(userId);
       }
     }
 

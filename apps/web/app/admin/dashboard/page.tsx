@@ -65,6 +65,8 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
     teamStats.reservedSeats,
     teamStats.pendingInvites,
     teamStats.inheritedMembers,
+    teamStats.revokedInvites,
+    teamStats.fallbackMembers,
     1,
   );
   const groundedRate =
@@ -134,6 +136,12 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
           value={String(teamStats.pendingInvites)}
           sub={`继承团队权限成员 ${teamStats.inheritedMembers}`}
           color="#f59e0b"
+        />
+        <KpiCard
+          label="账单补偿"
+          value={String(teamStats.revokedInvites)}
+          sub={`回退成员 ${teamStats.fallbackMembers}`}
+          color="#ef4444"
         />
         <KpiCard
           label="风险工作区"
@@ -209,6 +217,13 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
                 max={maxTeamMetric}
                 color="#f59e0b"
                 sub={`活跃工作区 ${teamStats.activeWorkspaces}`}
+              />
+              <BarRow
+                label="自动撤销邀请"
+                value={teamStats.revokedInvites}
+                max={maxTeamMetric}
+                color="#ef4444"
+                sub={`回退成员 ${teamStats.fallbackMembers}`}
               />
               <BarRow
                 label="风险 / 满席工作区"

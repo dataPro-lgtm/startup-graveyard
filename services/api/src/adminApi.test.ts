@@ -153,6 +153,8 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
           seatsUsed: 1,
           reservedSeats: 2,
           inheritedMembers: 0,
+          revokedInvites: 0,
+          fallbackMembers: 0,
         },
       },
       copilot: {

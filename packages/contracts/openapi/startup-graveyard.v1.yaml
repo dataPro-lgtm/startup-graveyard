@@ -852,6 +852,8 @@ components:
           seatsUsed,
           reservedSeats,
           seatsRemaining,
+          fallbackMemberCount,
+          revokedInviteCount,
           canInviteMore,
           warningCodes,
         ]
@@ -869,6 +871,8 @@ components:
         seatsUsed: { type: integer, minimum: 0 }
         reservedSeats: { type: integer, minimum: 0 }
         seatsRemaining: { type: integer, minimum: 0 }
+        fallbackMemberCount: { type: integer, minimum: 0 }
+        revokedInviteCount: { type: integer, minimum: 0 }
         canInviteMore: { type: boolean }
         warningCodes:
           type: array
@@ -1321,6 +1325,8 @@ components:
           reservedSeats,
           pendingInvites,
           inheritedMembers,
+          revokedInvites,
+          fallbackMembers,
           seatUtilizationRate,
         ]
       properties:
@@ -1333,6 +1339,8 @@ components:
         reservedSeats: { type: integer, minimum: 0 }
         pendingInvites: { type: integer, minimum: 0 }
         inheritedMembers: { type: integer, minimum: 0 }
+        revokedInvites: { type: integer, minimum: 0 }
+        fallbackMembers: { type: integer, minimum: 0 }
         seatUtilizationRate: { type: number, minimum: 0, maximum: 1, nullable: true }
     CommercialAdminMetrics:
       type: object
