@@ -7,6 +7,12 @@ import { useAuth } from './AuthProvider';
 import { getAccessToken } from '@/lib/authApi';
 import { caseListHref, casesListPath, type CasesSearchParams } from '@/lib/casesApi';
 import {
+  createBillingPortalSession,
+  createCheckoutSession,
+  isPaymentUrlResponse,
+  paymentErrorMessage,
+} from '@/lib/paymentsApi';
+import {
   TEAM_WORKSPACE_REFRESH_EVENT,
   acceptTeamWorkspaceInvite,
   createTeamWorkspace,
@@ -67,6 +73,14 @@ function actionSurfaceLabel(surface: TeamWorkspaceBillingRecoveryActionSurface) 
   return '操作入口：当前团队成员 / 邀请管理';
 }
 
+function recoveryActionCtaLabel(code: TeamWorkspaceBilling['recommendedActions'][number]['code']) {
+  if (code === 'upgrade_to_team') return '升级到 Team';
+  if (code === 'resume_team_subscription') return '恢复订阅';
+  if (code === 'update_payment_method') return '更新支付方式';
+  if (code === 'renew_team_subscription') return '恢复续费';
+  return '处理成员与邀请';
+}
+
 function eventTone(severity: TeamWorkspaceBillingEventSeverity) {
   if (severity === 'critical') {
     return {
@@ -101,6 +115,7 @@ export function TeamWorkspacePanel() {
   const [context, setContext] = useState<TeamWorkspaceContextResponse | null>(null);
   const [fetching, setFetching] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [recoveryActionLoading, setRecoveryActionLoading] = useState<string | null>(null);
   const [acceptingInviteId, setAcceptingInviteId] = useState<string | null>(null);
   const [workspaceName, setWorkspaceName] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
@@ -143,6 +158,13 @@ export function TeamWorkspacePanel() {
   }, [user]);
 
   if (loading || !user) return null;
+
+  function scrollToMemberOps() {
+    document.getElementById('team-workspace-member-ops')?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    });
+  }
 
   async function handleCreateWorkspace() {
     const token = getAccessToken();
@@ -223,6 +245,54 @@ export function TeamWorkspacePanel() {
     });
     setMessage('你已经加入团队工作区。');
     notifyTeamWorkspaceUpdated();
+  }
+
+  async function handleRecoveryAction(action: TeamWorkspaceBilling['recommendedActions'][number]) {
+    const token = getAccessToken();
+    const workspace = context?.workspace;
+    if (!token || !workspace || !user) return;
+
+    setError(null);
+    setMessage(null);
+
+    if (action.surface === 'workspace_members') {
+      if (workspace.canManageMembers) {
+        scrollToMemberOps();
+        setMessage('已定位到成员与邀请区域，请先释放席位或清理待接受邀请。');
+      } else {
+        setError('当前角色不能直接管理成员或邀请，请联系团队 owner / admin 处理席位。');
+      }
+      return;
+    }
+
+    if (workspace.role !== 'owner') {
+      setError(
+        `该动作需要账单所有者 ${workspace.billing.ownerDisplayName ?? workspace.billing.ownerEmail} 在账户页处理。`,
+      );
+      return;
+    }
+
+    setRecoveryActionLoading(action.code);
+    try {
+      if (action.surface === 'checkout') {
+        const result = await createCheckoutSession(token, user.id, 'team');
+        if (!isPaymentUrlResponse(result.data)) {
+          setError(paymentErrorMessage({ context: 'checkout', response: result.data }));
+          return;
+        }
+        window.location.href = result.data.url;
+        return;
+      }
+
+      const result = await createBillingPortalSession(token);
+      if (!isPaymentUrlResponse(result.data)) {
+        setError(paymentErrorMessage({ context: 'portal', response: result.data }));
+        return;
+      }
+      window.location.href = result.data.url;
+    } finally {
+      setRecoveryActionLoading(null);
+    }
   }
 
   const workspace = context?.workspace ?? null;
@@ -461,13 +531,32 @@ export function TeamWorkspacePanel() {
                           fontSize: 13,
                           lineHeight: 1.7,
                           display: 'grid',
-                          gap: 4,
+                          gap: 10,
                         }}
                       >
                         <div style={{ fontWeight: 700 }}>{action.title}</div>
                         <div>{action.detail}</div>
-                        <div style={{ color: '#9fb3ff', fontSize: 12 }}>
-                          {actionSurfaceLabel(action.surface)}
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            gap: 10,
+                            flexWrap: 'wrap',
+                            alignItems: 'center',
+                          }}
+                        >
+                          <div style={{ color: '#9fb3ff', fontSize: 12 }}>
+                            {actionSurfaceLabel(action.surface)}
+                          </div>
+                          <button
+                            onClick={() => void handleRecoveryAction(action)}
+                            disabled={recoveryActionLoading !== null}
+                            style={secondaryButton(recoveryActionLoading !== null)}
+                          >
+                            {recoveryActionLoading === action.code
+                              ? '处理中…'
+                              : recoveryActionCtaLabel(action.code)}
+                          </button>
                         </div>
                       </div>
                     ))}
@@ -525,7 +614,7 @@ export function TeamWorkspacePanel() {
           </div>
 
           {workspace.canManageMembers ? (
-            <div style={{ ...cardStyle, display: 'grid', gap: 12 }}>
+            <div id="team-workspace-member-ops" style={{ ...cardStyle, display: 'grid', gap: 12 }}>
               <div style={{ fontSize: 16, fontWeight: 700 }}>邀请成员</div>
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                 <input
@@ -671,6 +760,18 @@ function primaryButton(disabled = false) {
     background: disabled ? '#243255' : '#5b7cff',
     color: '#fff',
     padding: '10px 14px',
+    fontWeight: 700,
+    cursor: disabled ? 'not-allowed' : 'pointer',
+  } as const;
+}
+
+function secondaryButton(disabled = false) {
+  return {
+    borderRadius: 10,
+    border: '1px solid #3557b4',
+    background: disabled ? '#15203a' : '#1d2d57',
+    color: '#dbe6ff',
+    padding: '9px 12px',
     fontWeight: 700,
     cursor: disabled ? 'not-allowed' : 'pointer',
   } as const;

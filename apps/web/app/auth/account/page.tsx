@@ -1,20 +1,24 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { PLAN_LABELS, PLAN_SUMMARIES } from '@sg/shared/billing';
 import { industryLabel, primaryFailureReasonLabel } from '@sg/shared/taxonomy';
 import { useAuth } from '@/app/components/AuthProvider';
 import { SavedViewsManager } from '@/app/components/SavedViewsManager';
 import { TeamWorkspacePanel } from '@/app/components/TeamWorkspacePanel';
-import { API_BASE_URL } from '@/lib/api';
-import { getAccessToken, isApiError } from '@/lib/authApi';
+import { getAccessToken } from '@/lib/authApi';
 import { caseListHref } from '@/lib/casesApi';
+import {
+  createBillingPortalSession,
+  createCheckoutSession,
+  isPaymentUrlResponse,
+  paymentErrorMessage,
+} from '@/lib/paymentsApi';
 import { fetchMyWatchlist, isApiError as isWatchlistApiError } from '@/lib/watchlistApi';
 import type { WatchlistItem, WatchlistSummary } from '@sg/shared/schemas/watchlist';
 
-type PaymentLinkResponse = { url?: string } | { error: string };
 type CheckoutPlan = 'pro' | 'team';
 
 function billingStatusLabel(value: string) {
@@ -35,6 +39,7 @@ function billingStatusColor(value: string) {
 export default function AccountPage() {
   const { user, loading, logout } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [checkoutPlanLoading, setCheckoutPlanLoading] = useState<CheckoutPlan | null>(null);
   const [portalLoading, setPortalLoading] = useState(false);
   const [stripeUnavailable, setStripeUnavailable] = useState(false);
@@ -92,6 +97,17 @@ export default function AccountPage() {
     };
   }, [user]);
 
+  const upgradeNotice = useMemo(() => {
+    const upgraded = searchParams.get('upgraded');
+    if (upgraded === 'team') {
+      return 'Team 套餐已开通。现在可以创建 Team Workspace、邀请成员并共享研究资产。';
+    }
+    if (upgraded === 'pro' || upgraded === '1') {
+      return 'Pro 研究流已解锁。现在可以使用 Watchlist、Saved Views 和导出能力。';
+    }
+    return null;
+  }, [searchParams]);
+
   if (loading || !user || !currentPlan || !personalPlan) {
     return (
       <main style={{ maxWidth: 980, margin: '80px auto', padding: '0 24px' }}>
@@ -115,34 +131,19 @@ export default function AccountPage() {
     setCheckoutPlanLoading(plan);
     setBillingError(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/v1/payments/checkout`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ userId: user.id, plan }),
-      });
-      if (res.status === 503) {
-        const data = (await res.json()) as { error?: string; plan?: string };
-        if (data.error === 'stripe_not_configured') {
+      const result = await createCheckoutSession(token, user.id, plan);
+      if (result.status === 503) {
+        if (result.data?.error === 'stripe_not_configured') {
           setStripeUnavailable(true);
-          setBillingError('Stripe 当前未配置，本地环境暂时无法创建结账会话。');
-        } else if (data.error === 'stripe_price_not_configured') {
-          setBillingError(
-            data.plan === 'team' ? 'Team 套餐价格尚未配置。' : 'Pro 套餐价格尚未配置。',
-          );
         }
+        setBillingError(paymentErrorMessage({ context: 'checkout', response: result.data }));
         return;
       }
-      const data = (await res.json()) as PaymentLinkResponse;
-      if (isApiError(data) || !('url' in data) || !data.url) {
-        setBillingError(
-          isApiError(data) ? `结账会话创建失败：${data.error}` : '结账会话创建失败。',
-        );
+      if (!isPaymentUrlResponse(result.data)) {
+        setBillingError(paymentErrorMessage({ context: 'checkout', response: result.data }));
         return;
       }
-      window.location.href = data.url;
+      window.location.href = result.data.url;
     } finally {
       setCheckoutPlanLoading(null);
     }
@@ -158,27 +159,17 @@ export default function AccountPage() {
     setPortalLoading(true);
     setBillingError(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/v1/payments/portal`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({}),
-      });
-      if (res.status === 503) {
+      const result = await createBillingPortalSession(token);
+      if (result.status === 503) {
         setStripeUnavailable(true);
-        setBillingError('Stripe 当前未配置，本地环境暂时无法打开账单入口。');
+        setBillingError(paymentErrorMessage({ context: 'portal', response: result.data }));
         return;
       }
-      const data = (await res.json()) as PaymentLinkResponse;
-      if (isApiError(data) || !('url' in data) || !data.url) {
-        setBillingError(
-          isApiError(data) ? `账单入口打开失败：${data.error}` : '账单入口打开失败。',
-        );
+      if (!isPaymentUrlResponse(result.data)) {
+        setBillingError(paymentErrorMessage({ context: 'portal', response: result.data }));
         return;
       }
-      window.location.href = data.url;
+      window.location.href = result.data.url;
     } finally {
       setPortalLoading(false);
     }
@@ -196,6 +187,23 @@ export default function AccountPage() {
       <Link href="/" style={{ color: '#9fb3ff', fontSize: 13, textDecoration: 'none' }}>
         ← 返回首页
       </Link>
+
+      {upgradeNotice ? (
+        <section
+          style={{
+            marginTop: 18,
+            marginBottom: 24,
+            borderRadius: 16,
+            border: '1px solid #214635',
+            background: '#0f2018',
+            color: '#9ef0c2',
+            padding: '14px 16px',
+            lineHeight: 1.7,
+          }}
+        >
+          {upgradeNotice}
+        </section>
+      ) : null}
 
       <section
         style={{
