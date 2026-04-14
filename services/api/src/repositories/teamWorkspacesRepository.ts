@@ -10,6 +10,8 @@ import {
 } from '@sg/shared/billing';
 import type {
   TeamWorkspaceBilling,
+  TeamWorkspaceBillingRecoveryAction,
+  TeamWorkspaceBillingRecoveryActionCode,
   TeamWorkspaceBillingEvent,
   TeamWorkspaceBillingEventSeverity,
   TeamWorkspaceBillingEventType,
@@ -160,6 +162,7 @@ type WorkspaceBillingEventDescriptor = {
 };
 
 type AdminBillingEvent = TeamWorkspaceAdminMetrics['recentBillingEvents'][number];
+type AdminRecoveryAction = TeamWorkspaceAdminMetrics['recoveryActions'][number];
 
 type PgWorkspaceBillingEventRow = {
   id: string;
@@ -270,6 +273,8 @@ function buildWorkspaceBilling(input: {
   });
   const reservedSeats = input.seatsUsed + input.pendingInviteCount;
   const seatsRemaining = Math.max(0, seatLimit - reservedSeats);
+  const fallbackMemberCount = seatLimit === 0 ? Math.max(0, input.seatsUsed - 1) : 0;
+  const revokedInviteCount = input.compensation?.revokedInviteCount ?? 0;
   const warningCodes = buildBillingWarnings({
     ownerBillingStatus: input.owner.billingStatus,
     cancelAtPeriodEnd: input.owner.cancelAtPeriodEnd,
@@ -289,10 +294,19 @@ function buildWorkspaceBilling(input: {
     seatsUsed: input.seatsUsed,
     reservedSeats,
     seatsRemaining,
-    fallbackMemberCount: seatLimit === 0 ? Math.max(0, input.seatsUsed - 1) : 0,
-    revokedInviteCount: input.compensation?.revokedInviteCount ?? 0,
+    fallbackMemberCount,
+    revokedInviteCount,
     canInviteMore: seatLimit > 0 && reservedSeats < seatLimit,
     warningCodes,
+    recommendedActions: buildRecoveryActions({
+      subscription: input.owner.subscription,
+      billingStatus: input.owner.billingStatus,
+      warningCodes,
+      seatLimit,
+      seatsRemaining,
+      fallbackMemberCount,
+      revokedInviteCount,
+    }),
   };
 }
 
@@ -423,6 +437,100 @@ function buildBillingWarnings(input: {
   }
 
   return warningCodes;
+}
+
+function buildRecoveryActions(input: {
+  subscription: SubscriptionTier;
+  billingStatus: BillingStatus;
+  warningCodes: TeamWorkspaceBillingWarning[];
+  seatLimit: number;
+  seatsRemaining: number;
+  fallbackMemberCount: number;
+  revokedInviteCount: number;
+}): TeamWorkspaceBillingRecoveryAction[] {
+  const actions: TeamWorkspaceBillingRecoveryAction[] = [];
+  const seenCodes = new Set<TeamWorkspaceBillingRecoveryActionCode>();
+
+  const pushAction = (action: TeamWorkspaceBillingRecoveryAction) => {
+    if (seenCodes.has(action.code)) return;
+    seenCodes.add(action.code);
+    actions.push(action);
+  };
+
+  if (input.warningCodes.includes('workspace_plan_inactive')) {
+    if (input.subscription === 'team') {
+      pushAction({
+        code: 'resume_team_subscription',
+        title: '恢复 Team 订阅',
+        detail:
+          input.fallbackMemberCount > 0
+            ? `当前已有 ${input.fallbackMemberCount} 名成员回退到个人权限。请尽快通过账单入口恢复 Team 订阅，恢复后成员权限会自动重新继承。`
+            : '当前工作区已失去 Team entitlement。请通过账单入口恢复 Team 订阅，恢复后工作区席位和邀请能力会自动恢复。',
+        surface: 'billing_portal',
+      });
+    } else {
+      pushAction({
+        code: 'upgrade_to_team',
+        title: '重新升级到 Team',
+        detail:
+          input.revokedInviteCount > 0
+            ? `当前工作区已不再处于 Team 套餐，系统已经撤销 ${input.revokedInviteCount} 条待接受邀请。重新升级到 Team 后可恢复团队协作能力。`
+            : '当前工作区所有者已不再处于 Team 套餐。重新升级到 Team 后，工作区席位、邀请和共享能力会重新生效。',
+        surface: 'checkout',
+      });
+    }
+  }
+
+  if (input.warningCodes.includes('past_due') && input.subscription === 'team') {
+    pushAction({
+      code: 'update_payment_method',
+      title: '更新支付方式并完成扣款',
+      detail:
+        '当前 Team 订阅处于 past due。优先通过 billing portal 更新付款方式并完成补扣，避免工作区继续进入降级补偿流程。',
+      surface: 'billing_portal',
+    });
+  }
+
+  if (input.warningCodes.includes('cancel_at_period_end') && input.subscription === 'team') {
+    pushAction({
+      code: 'renew_team_subscription',
+      title: '续订 Team 套餐',
+      detail: '当前订阅已设置到期取消。若希望团队协作持续生效，请在当前周期结束前恢复自动续费。',
+      surface: 'billing_portal',
+    });
+  }
+
+  if (input.warningCodes.includes('seat_limit_reached') && input.seatLimit > 0) {
+    pushAction({
+      code: 'free_up_seats',
+      title: '释放或补充团队席位',
+      detail:
+        input.seatsRemaining === 0
+          ? '当前席位已经用满。请先处理待接受邀请或减少团队成员，再继续邀请新成员。'
+          : '当前可用席位已接近耗尽。建议先清理不用的邀请或成员，避免后续团队协作被阻断。',
+      surface: 'workspace_members',
+    });
+  }
+
+  return actions;
+}
+
+function accumulateRecoveryActions(
+  actions: TeamWorkspaceBillingRecoveryAction[],
+  counts: Map<TeamWorkspaceBillingRecoveryActionCode, AdminRecoveryAction>,
+) {
+  for (const action of actions) {
+    const existing = counts.get(action.code);
+    if (existing) {
+      existing.count += 1;
+      continue;
+    }
+    counts.set(action.code, {
+      code: action.code,
+      title: action.title,
+      count: 1,
+    });
+  }
 }
 
 function personalWorkspaceAccess(user: UserProfile): WorkspaceAccess {
@@ -595,6 +703,7 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
     const workspaces = [...this.workspaces.values()];
     let activeWorkspaces = 0;
     let atRiskWorkspaces = 0;
+    let workspacesRequiringAction = 0;
     let fullWorkspaces = 0;
     let totalSeatCapacity = 0;
     let seatsUsed = 0;
@@ -603,6 +712,10 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
     let inheritedMembers = 0;
     let revokedInvites = 0;
     let fallbackMembers = 0;
+    const recoveryActionCounts = new Map<
+      TeamWorkspaceBillingRecoveryActionCode,
+      AdminRecoveryAction
+    >();
 
     for (const workspace of workspaces) {
       await this.reconcileWorkspaceBillingState(workspace.id);
@@ -628,6 +741,10 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
       pendingInvites += workspacePendingInvites;
       revokedInvites += compensation.revokedInviteCount;
       fallbackMembers += billing.fallbackMemberCount;
+      if (billing.recommendedActions.length > 0) {
+        workspacesRequiringAction += 1;
+        accumulateRecoveryActions(billing.recommendedActions, recoveryActionCounts);
+      }
       if (billing.seatLimit > 0) {
         activeWorkspaces += 1;
         inheritedMembers += Math.max(0, billing.seatsUsed - 1);
@@ -649,6 +766,7 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
       totalWorkspaces: workspaces.length,
       activeWorkspaces,
       atRiskWorkspaces,
+      workspacesRequiringAction,
       fullWorkspaces,
       totalSeatCapacity,
       seatsUsed,
@@ -658,6 +776,7 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
       revokedInvites,
       fallbackMembers,
       seatUtilizationRate: totalSeatCapacity > 0 ? reservedSeats / totalSeatCapacity : null,
+      recoveryActions: [...recoveryActionCounts.values()].sort((a, b) => b.count - a.count),
       recentBillingEvents: this.billingEvents.slice(0, 8),
     };
   }
@@ -1190,6 +1309,7 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
 
     let activeWorkspaces = 0;
     let atRiskWorkspaces = 0;
+    let workspacesRequiringAction = 0;
     let fullWorkspaces = 0;
     let totalSeatCapacity = 0;
     let seatsUsed = 0;
@@ -1198,6 +1318,10 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
     let inheritedMembers = 0;
     let revokedInvites = 0;
     let fallbackMembers = 0;
+    const recoveryActionCounts = new Map<
+      TeamWorkspaceBillingRecoveryActionCode,
+      AdminRecoveryAction
+    >();
 
     for (const row of rows) {
       const workspaceSeatsUsed = Number(row.member_count);
@@ -1219,7 +1343,21 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
       reservedSeats += workspaceReservedSeats;
       pendingInvites += workspacePendingInvites;
       revokedInvites += Number(row.revoked_invite_count);
-      fallbackMembers += seatLimit === 0 ? Math.max(0, workspaceSeatsUsed - 1) : 0;
+      const workspaceFallbackMembers = seatLimit === 0 ? Math.max(0, workspaceSeatsUsed - 1) : 0;
+      fallbackMembers += workspaceFallbackMembers;
+      const recommendedActions = buildRecoveryActions({
+        subscription: row.subscription,
+        billingStatus: row.billing_status,
+        warningCodes,
+        seatLimit,
+        seatsRemaining: Math.max(0, seatLimit - workspaceReservedSeats),
+        fallbackMemberCount: workspaceFallbackMembers,
+        revokedInviteCount: Number(row.revoked_invite_count),
+      });
+      if (recommendedActions.length > 0) {
+        workspacesRequiringAction += 1;
+        accumulateRecoveryActions(recommendedActions, recoveryActionCounts);
+      }
       if (seatLimit > 0) {
         activeWorkspaces += 1;
         inheritedMembers += Math.max(0, workspaceSeatsUsed - 1);
@@ -1241,6 +1379,7 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
       totalWorkspaces: rows.length,
       activeWorkspaces,
       atRiskWorkspaces,
+      workspacesRequiringAction,
       fullWorkspaces,
       totalSeatCapacity,
       seatsUsed,
@@ -1250,6 +1389,7 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
       revokedInvites,
       fallbackMembers,
       seatUtilizationRate: totalSeatCapacity > 0 ? reservedSeats / totalSeatCapacity : null,
+      recoveryActions: [...recoveryActionCounts.values()].sort((a, b) => b.count - a.count),
       recentBillingEvents: await this.getRecentBillingEvents(),
     };
   }

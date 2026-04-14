@@ -255,3 +255,15 @@
 - Admin Dashboard 现在除了 Team Workspace 指标，还会展示订阅转化结构：总用户、Free / Pro / Team 分布、活跃付费用户、past_due 和 cancel-at-period-end 用户，以及 paid conversion / team mix 两条核心比率。
 - 已上线的个人付费工作流也被正式收口成运营指标：watchlist 用户数、saved view 用户数、public brief share 用户数、对应资产总量，以及基于活跃付费用户的 research activation / share activation。
 - 这意味着当前商业化闭环第一次拥有了“从订阅到研究资产激活”的统一观测面，后续继续做团队账单自动化和转化实验时不再只能靠零散事件判断效果。
+
+已完成 M3 第四段第六部分（Team checkout / upgrade path）：
+
+- 商业化链路不再停留在“只有 Team 能力，没有 Team 购买入口”。`/v1/payments/checkout` 现在正式支持 `pro / team` 两条订阅结账路径，账户页也有从 Free / Pro 直接升级到 Team 的落点。
+- Stripe 生命周期同步不再只依赖 metadata；现在会优先根据 active price id 识别 `pro / team`，因此用户在 billing portal 中切换套餐后，系统也能稳定识别并同步正确的计划。
+- 这让“个人升级到 Team -> 创建 Team Workspace -> 邀请成员 -> 共享研究资产”第一次成为真正可售卖、可完成支付闭环的产品主链。
+
+已完成 M3 第四段第七部分（workspace recovery actions）：
+
+- Team Workspace 不再只暴露 warning codes 和事件留痕，而是会直接给出推荐恢复动作，例如“重新升级到 Team”“更新支付方式”“恢复自动续费”“释放席位”。
+- 账户页的 Team Workspace 面板现在会把这些恢复动作直接展示给 workspace owner，因此用户看到风险后不必自己判断下一步该点哪里。
+- Admin Dashboard 也会聚合恢复动作分布和需要处理动作的 workspace 数量，让运营从“看到风险工作区”进一步升级到“知道当前最需要推动哪类恢复动作”。

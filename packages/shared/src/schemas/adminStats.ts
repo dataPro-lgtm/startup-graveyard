@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import { copilotFallbackReasonSchema, copilotFeedbackVoteSchema } from './copilot.js';
-import { teamWorkspaceBillingEventSchema } from './teamWorkspace.js';
+import {
+  teamWorkspaceBillingEventSchema,
+  teamWorkspaceBillingRecoveryActionCodeSchema,
+} from './teamWorkspace.js';
 
 const nonnegativeInteger = z.number().int().nonnegative();
 const nonnegativeNumber = z.number().nonnegative();
@@ -125,6 +128,7 @@ export const teamWorkspaceAdminMetricsSchema = z.object({
   totalWorkspaces: nonnegativeInteger,
   activeWorkspaces: nonnegativeInteger,
   atRiskWorkspaces: nonnegativeInteger,
+  workspacesRequiringAction: nonnegativeInteger,
   fullWorkspaces: nonnegativeInteger,
   totalSeatCapacity: nonnegativeInteger,
   seatsUsed: nonnegativeInteger,
@@ -134,6 +138,13 @@ export const teamWorkspaceAdminMetricsSchema = z.object({
   revokedInvites: nonnegativeInteger,
   fallbackMembers: nonnegativeInteger,
   seatUtilizationRate: z.number().min(0).max(1).nullable(),
+  recoveryActions: z.array(
+    z.object({
+      code: teamWorkspaceBillingRecoveryActionCodeSchema,
+      title: z.string(),
+      count: nonnegativeInteger,
+    }),
+  ),
   recentBillingEvents: z.array(
     teamWorkspaceBillingEventSchema.extend({
       workspaceId: z.string().uuid(),

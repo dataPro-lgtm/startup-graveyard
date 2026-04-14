@@ -11,6 +11,18 @@ export const teamWorkspaceBillingWarningSchema = z.enum([
   'cancel_at_period_end',
   'seat_limit_reached',
 ]);
+export const teamWorkspaceBillingRecoveryActionCodeSchema = z.enum([
+  'upgrade_to_team',
+  'resume_team_subscription',
+  'update_payment_method',
+  'renew_team_subscription',
+  'free_up_seats',
+]);
+export const teamWorkspaceBillingRecoveryActionSurfaceSchema = z.enum([
+  'checkout',
+  'billing_portal',
+  'workspace_members',
+]);
 export const teamWorkspaceBillingEventTypeSchema = z.enum([
   'workspace_plan_inactive',
   'workspace_plan_restored',
@@ -75,6 +87,14 @@ export const teamWorkspaceBillingSchema = z.object({
   revokedInviteCount: z.number().int().nonnegative(),
   canInviteMore: z.boolean(),
   warningCodes: z.array(teamWorkspaceBillingWarningSchema),
+  recommendedActions: z.array(
+    z.object({
+      code: teamWorkspaceBillingRecoveryActionCodeSchema,
+      title: z.string(),
+      detail: z.string(),
+      surface: teamWorkspaceBillingRecoveryActionSurfaceSchema,
+    }),
+  ),
 });
 
 export const teamWorkspaceBillingEventSchema = z.object({
@@ -141,6 +161,12 @@ export const teamWorkspaceContextMutationResponseSchema = z.object({
 export type TeamWorkspaceRole = z.infer<typeof teamWorkspaceRoleSchema>;
 export type TeamWorkspaceInviteStatus = z.infer<typeof teamWorkspaceInviteStatusSchema>;
 export type TeamWorkspaceBillingWarning = z.infer<typeof teamWorkspaceBillingWarningSchema>;
+export type TeamWorkspaceBillingRecoveryActionCode = z.infer<
+  typeof teamWorkspaceBillingRecoveryActionCodeSchema
+>;
+export type TeamWorkspaceBillingRecoveryActionSurface = z.infer<
+  typeof teamWorkspaceBillingRecoveryActionSurfaceSchema
+>;
 export type TeamWorkspaceBillingEventType = z.infer<typeof teamWorkspaceBillingEventTypeSchema>;
 export type TeamWorkspaceBillingEventSeverity = z.infer<
   typeof teamWorkspaceBillingEventSeveritySchema
@@ -150,6 +176,7 @@ export type TeamWorkspaceInvite = z.infer<typeof teamWorkspaceInviteSchema>;
 export type TeamWorkspaceSharedSavedView = z.infer<typeof teamWorkspaceSharedSavedViewSchema>;
 export type TeamWorkspaceSharedCase = z.infer<typeof teamWorkspaceSharedCaseSchema>;
 export type TeamWorkspaceBilling = z.infer<typeof teamWorkspaceBillingSchema>;
+export type TeamWorkspaceBillingRecoveryAction = TeamWorkspaceBilling['recommendedActions'][number];
 export type TeamWorkspaceBillingEvent = z.infer<typeof teamWorkspaceBillingEventSchema>;
 export type TeamWorkspace = z.infer<typeof teamWorkspaceSchema>;
 export type TeamWorkspaceContextResponse = z.infer<typeof teamWorkspaceContextResponseSchema>;

@@ -793,6 +793,19 @@ components:
     TeamWorkspaceBillingWarning:
       type: string
       enum: [workspace_plan_inactive, past_due, cancel_at_period_end, seat_limit_reached]
+    TeamWorkspaceBillingRecoveryActionCode:
+      type: string
+      enum:
+        [
+          upgrade_to_team,
+          resume_team_subscription,
+          update_payment_method,
+          renew_team_subscription,
+          free_up_seats,
+        ]
+    TeamWorkspaceBillingRecoveryActionSurface:
+      type: string
+      enum: [checkout, billing_portal, workspace_members]
     TeamWorkspaceBillingEventType:
       type: string
       enum:
@@ -852,6 +865,16 @@ components:
             sharedByUserId: { type: string, format: uuid }
             sharedByName: { type: string, nullable: true }
             sharedAt: { type: string }
+    TeamWorkspaceBillingRecoveryAction:
+      type: object
+      required: [code, title, detail, surface]
+      properties:
+        code:
+          $ref: '#/components/schemas/TeamWorkspaceBillingRecoveryActionCode'
+        title: { type: string }
+        detail: { type: string }
+        surface:
+          $ref: '#/components/schemas/TeamWorkspaceBillingRecoveryActionSurface'
     TeamWorkspaceBilling:
       type: object
       required:
@@ -871,6 +894,7 @@ components:
           revokedInviteCount,
           canInviteMore,
           warningCodes,
+          recommendedActions,
         ]
       properties:
         ownerUserId: { type: string, format: uuid }
@@ -893,6 +917,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/TeamWorkspaceBillingWarning'
+        recommendedActions:
+          type: array
+          items:
+            $ref: '#/components/schemas/TeamWorkspaceBillingRecoveryAction'
     TeamWorkspaceBillingEvent:
       type: object
       required: [id, type, severity, title, detail, count, createdAt]
@@ -1360,6 +1388,7 @@ components:
           totalWorkspaces,
           activeWorkspaces,
           atRiskWorkspaces,
+          workspacesRequiringAction,
           fullWorkspaces,
           totalSeatCapacity,
           seatsUsed,
@@ -1369,12 +1398,14 @@ components:
           revokedInvites,
           fallbackMembers,
           seatUtilizationRate,
+          recoveryActions,
           recentBillingEvents,
         ]
       properties:
         totalWorkspaces: { type: integer, minimum: 0 }
         activeWorkspaces: { type: integer, minimum: 0 }
         atRiskWorkspaces: { type: integer, minimum: 0 }
+        workspacesRequiringAction: { type: integer, minimum: 0 }
         fullWorkspaces: { type: integer, minimum: 0 }
         totalSeatCapacity: { type: integer, minimum: 0 }
         seatsUsed: { type: integer, minimum: 0 }
@@ -1384,6 +1415,16 @@ components:
         revokedInvites: { type: integer, minimum: 0 }
         fallbackMembers: { type: integer, minimum: 0 }
         seatUtilizationRate: { type: number, minimum: 0, maximum: 1, nullable: true }
+        recoveryActions:
+          type: array
+          items:
+            type: object
+            required: [code, title, count]
+            properties:
+              code:
+                $ref: '#/components/schemas/TeamWorkspaceBillingRecoveryActionCode'
+              title: { type: string }
+              count: { type: integer, minimum: 0 }
         recentBillingEvents:
           type: array
           items:
@@ -1966,7 +2007,7 @@ paths:
           description: Message not found
   /v1/payments/checkout:
     post:
-      summary: Create a Stripe checkout session for Pro subscription
+      summary: Create a Stripe checkout session for Pro or Team subscription
       security:
         - BearerAuth: []
       requestBody:
@@ -1978,6 +2019,10 @@ paths:
               required: [userId]
               properties:
                 userId: { type: string, format: uuid }
+                plan:
+                  type: string
+                  enum: [pro, team]
+                  default: pro
       responses:
         '200':
           description: Checkout session URL
@@ -1995,7 +2040,7 @@ paths:
         '403':
           description: Forbidden
         '503':
-          description: Stripe not configured
+          description: Stripe not configured or the selected plan price is unavailable
   /v1/payments/portal:
     post:
       summary: Create a Stripe billing portal session for the current user

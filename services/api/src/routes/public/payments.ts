@@ -4,6 +4,19 @@ import type { BillingInterval, BillingStatus, SubscriptionTier } from '@sg/share
 import { config } from '../../config/index.js';
 import { verifyAccessToken } from '../../auth/tokens.js';
 
+type CheckoutPlan = Extract<SubscriptionTier, 'pro' | 'team'>;
+
+type StripeSubscriptionLike = {
+  metadata: Stripe.Metadata | null | undefined;
+  items: {
+    data: Array<{
+      price: {
+        id: string | null | undefined;
+      };
+    }>;
+  };
+};
+
 function extractBearer(authHeader: string | undefined): string | null {
   if (!authHeader) return null;
   const match = /^Bearer\s+(.+)$/i.exec(authHeader.trim());
@@ -18,8 +31,26 @@ function getAppUrl(): string {
   return process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
 }
 
-function subscriptionFromMetadata(metadata: Stripe.Metadata | null | undefined): SubscriptionTier {
+function subscriptionFromMetadata(metadata: Stripe.Metadata | null | undefined): CheckoutPlan {
   return metadata?.plan === 'team' ? 'team' : 'pro';
+}
+
+export function getCheckoutPriceId(plan: CheckoutPlan): string {
+  return plan === 'team' ? config.stripe.teamPriceId : config.stripe.proPriceId;
+}
+
+export function getCheckoutPlan(input: unknown): CheckoutPlan | null {
+  if (input === 'team' || input === 'pro') return input;
+  return null;
+}
+
+export function subscriptionFromStripeSubscription(
+  subscription: StripeSubscriptionLike,
+): SubscriptionTier {
+  const activePriceId = subscription.items.data[0]?.price.id ?? null;
+  if (activePriceId && activePriceId === config.stripe.teamPriceId) return 'team';
+  if (activePriceId && activePriceId === config.stripe.proPriceId) return 'pro';
+  return subscriptionFromMetadata(subscription.metadata);
 }
 
 function stripeStatusToBillingStatus(status: Stripe.Subscription.Status): BillingStatus {
@@ -76,7 +107,7 @@ async function applyStripeSubscriptionToUser(
   customerId: string | null,
 ) {
   await app.usersRepo.updateBillingAccount(userId, {
-    subscription: subscriptionFromMetadata(subscription.metadata),
+    subscription: subscriptionFromStripeSubscription(subscription),
     billingStatus: stripeStatusToBillingStatus(subscription.status),
     billingInterval: stripeIntervalToBillingInterval(
       subscription.items.data[0]?.price.recurring?.interval,
@@ -114,27 +145,39 @@ export async function paymentsRoutes(app: FastifyInstance) {
     if (!config.hasStripe) {
       return reply.code(503).send({ error: 'stripe_not_configured' });
     }
-    if (!config.stripe.proPriceId) {
-      return reply.code(503).send({ error: 'stripe_price_not_configured' });
-    }
 
     const user = await requireAuthedUser(app, request, reply);
     if (!user) return reply;
 
     const rawBody = request.body as Buffer;
     let userId: string;
+    let plan: CheckoutPlan = 'pro';
     try {
-      const parsed = JSON.parse(rawBody.toString()) as { userId?: unknown };
+      const parsed = JSON.parse(rawBody.toString()) as { userId?: unknown; plan?: unknown };
       if (typeof parsed.userId !== 'string' || !parsed.userId) {
         return reply.code(400).send({ error: 'invalid_body', details: 'userId is required' });
       }
       userId = parsed.userId;
+      if (parsed.plan !== undefined) {
+        const parsedPlan = getCheckoutPlan(parsed.plan);
+        if (!parsedPlan) {
+          return reply
+            .code(400)
+            .send({ error: 'invalid_body', details: 'plan must be pro or team' });
+        }
+        plan = parsedPlan;
+      }
     } catch {
       return reply.code(400).send({ error: 'invalid_body' });
     }
 
     if (user.id !== userId) {
       return reply.code(403).send({ error: 'forbidden' });
+    }
+
+    const priceId = getCheckoutPriceId(plan);
+    if (!priceId) {
+      return reply.code(503).send({ error: 'stripe_price_not_configured', plan });
     }
 
     const stripe = getStripe();
@@ -155,13 +198,13 @@ export async function paymentsRoutes(app: FastifyInstance) {
       mode: 'subscription',
       customer: customerId,
       payment_method_types: ['card'],
-      line_items: [{ price: config.stripe.proPriceId, quantity: 1 }],
+      line_items: [{ price: priceId, quantity: 1 }],
       client_reference_id: user.id,
-      metadata: { userId: user.id, plan: 'pro' },
+      metadata: { userId: user.id, plan },
       subscription_data: {
-        metadata: { userId: user.id, plan: 'pro' },
+        metadata: { userId: user.id, plan },
       },
-      success_url: `${getAppUrl()}/auth/account?upgraded=1`,
+      success_url: `${getAppUrl()}/auth/account?upgraded=${plan}`,
       cancel_url: `${getAppUrl()}/auth/account`,
     });
 

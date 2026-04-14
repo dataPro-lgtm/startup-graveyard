@@ -21,6 +21,7 @@ import type {
   TeamWorkspaceBilling,
   TeamWorkspaceBillingEventSeverity,
   TeamWorkspaceBillingWarning,
+  TeamWorkspaceBillingRecoveryActionSurface,
   TeamWorkspaceContextResponse,
 } from '@sg/shared/schemas/teamWorkspace';
 
@@ -58,6 +59,12 @@ function warningMessage(code: TeamWorkspaceBillingWarning) {
     return '当前订阅已设置到期取消，请在周期结束前确认是否续费。';
   }
   return '当前席位已经用满，新的成员邀请会被阻止。';
+}
+
+function actionSurfaceLabel(surface: TeamWorkspaceBillingRecoveryActionSurface) {
+  if (surface === 'checkout') return '操作入口：上方升级按钮';
+  if (surface === 'billing_portal') return '操作入口：上方管理账单';
+  return '操作入口：当前团队成员 / 邀请管理';
 }
 
 function eventTone(severity: TeamWorkspaceBillingEventSeverity) {
@@ -438,6 +445,32 @@ export function TeamWorkspacePanel() {
                   >
                     当前 Team entitlement 已不可继承，{workspace.billing.fallbackMemberCount} 名非
                     owner 成员已自动回退到各自的个人套餐权限。
+                  </div>
+                ) : null}
+                {workspace.billing.recommendedActions.length > 0 ? (
+                  <div style={{ display: 'grid', gap: 8, marginTop: 4 }}>
+                    {workspace.billing.recommendedActions.map((action) => (
+                      <div
+                        key={action.code}
+                        style={{
+                          borderRadius: 12,
+                          border: '1px solid #2b5bd7',
+                          background: '#101a34',
+                          color: '#dbe6ff',
+                          padding: '12px 14px',
+                          fontSize: 13,
+                          lineHeight: 1.7,
+                          display: 'grid',
+                          gap: 4,
+                        }}
+                      >
+                        <div style={{ fontWeight: 700 }}>{action.title}</div>
+                        <div>{action.detail}</div>
+                        <div style={{ color: '#9fb3ff', fontSize: 12 }}>
+                          {actionSurfaceLabel(action.surface)}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 ) : null}
               </div>

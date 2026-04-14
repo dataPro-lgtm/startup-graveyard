@@ -89,6 +89,10 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
     researchStats.reportShares,
     1,
   );
+  const maxRecoveryActionMetric = Math.max(
+    ...teamStats.recoveryActions.map((item) => item.count),
+    1,
+  );
   const groundedRate =
     stats.copilot.overview.totalRuns > 0
       ? stats.copilot.overview.groundedRuns / stats.copilot.overview.totalRuns
@@ -192,6 +196,12 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
           value={String(teamStats.atRiskWorkspaces)}
           sub={`满席 ${teamStats.fullWorkspaces} 个`}
           color="#f87171"
+        />
+        <KpiCard
+          label="待恢复动作"
+          value={String(teamStats.workspacesRequiringAction)}
+          sub={`${teamStats.recoveryActions.length} 类账单恢复动作`}
+          color="#fb7185"
         />
         <KpiCard
           label="Copilot 运行数"
@@ -313,6 +323,25 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
                 color="#f87171"
                 sub={`满席 ${teamStats.fullWorkspaces} 个`}
               />
+            </div>
+          )}
+        </ChartCard>
+
+        <ChartCard title="Workspace 恢复动作建议">
+          {teamStats.recoveryActions.length === 0 ? (
+            <EmptyState text="当前没有需要处理的 workspace 账单恢复动作。" compact />
+          ) : (
+            <div style={{ display: 'grid', gap: 12 }}>
+              {teamStats.recoveryActions.map((item) => (
+                <BarRow
+                  key={item.code}
+                  label={item.title}
+                  value={item.count}
+                  max={maxRecoveryActionMetric}
+                  color="#fb7185"
+                  sub={item.code}
+                />
+              ))}
             </div>
           )}
         </ChartCard>

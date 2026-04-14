@@ -15,6 +15,7 @@ import { fetchMyWatchlist, isApiError as isWatchlistApiError } from '@/lib/watch
 import type { WatchlistItem, WatchlistSummary } from '@sg/shared/schemas/watchlist';
 
 type PaymentLinkResponse = { url?: string } | { error: string };
+type CheckoutPlan = 'pro' | 'team';
 
 function billingStatusLabel(value: string) {
   if (value === 'active') return '正常订阅';
@@ -34,9 +35,10 @@ function billingStatusColor(value: string) {
 export default function AccountPage() {
   const { user, loading, logout } = useAuth();
   const router = useRouter();
-  const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [checkoutPlanLoading, setCheckoutPlanLoading] = useState<CheckoutPlan | null>(null);
   const [portalLoading, setPortalLoading] = useState(false);
   const [stripeUnavailable, setStripeUnavailable] = useState(false);
+  const [billingError, setBillingError] = useState<string | null>(null);
   const [watchlistLoading, setWatchlistLoading] = useState(false);
   const [watchlistError, setWatchlistError] = useState<string | null>(null);
   const [watchlistItems, setWatchlistItems] = useState<WatchlistItem[]>([]);
@@ -103,14 +105,15 @@ export default function AccountPage() {
     router.push('/');
   }
 
-  async function handleUpgrade() {
+  async function handleCheckout(plan: CheckoutPlan) {
     if (!user) return;
     const token = getAccessToken();
     if (!token) {
       router.push('/auth/login');
       return;
     }
-    setCheckoutLoading(true);
+    setCheckoutPlanLoading(plan);
+    setBillingError(null);
     try {
       const res = await fetch(`${API_BASE_URL}/v1/payments/checkout`, {
         method: 'POST',
@@ -118,19 +121,30 @@ export default function AccountPage() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ userId: user.id }),
+        body: JSON.stringify({ userId: user.id, plan }),
       });
       if (res.status === 503) {
-        setStripeUnavailable(true);
+        const data = (await res.json()) as { error?: string; plan?: string };
+        if (data.error === 'stripe_not_configured') {
+          setStripeUnavailable(true);
+          setBillingError('Stripe 当前未配置，本地环境暂时无法创建结账会话。');
+        } else if (data.error === 'stripe_price_not_configured') {
+          setBillingError(
+            data.plan === 'team' ? 'Team 套餐价格尚未配置。' : 'Pro 套餐价格尚未配置。',
+          );
+        }
         return;
       }
       const data = (await res.json()) as PaymentLinkResponse;
       if (isApiError(data) || !('url' in data) || !data.url) {
+        setBillingError(
+          isApiError(data) ? `结账会话创建失败：${data.error}` : '结账会话创建失败。',
+        );
         return;
       }
       window.location.href = data.url;
     } finally {
-      setCheckoutLoading(false);
+      setCheckoutPlanLoading(null);
     }
   }
 
@@ -142,6 +156,7 @@ export default function AccountPage() {
       return;
     }
     setPortalLoading(true);
+    setBillingError(null);
     try {
       const res = await fetch(`${API_BASE_URL}/v1/payments/portal`, {
         method: 'POST',
@@ -153,10 +168,16 @@ export default function AccountPage() {
       });
       if (res.status === 503) {
         setStripeUnavailable(true);
+        setBillingError('Stripe 当前未配置，本地环境暂时无法打开账单入口。');
         return;
       }
       const data = (await res.json()) as PaymentLinkResponse;
-      if (isApiError(data) || !('url' in data) || !data.url) return;
+      if (isApiError(data) || !('url' in data) || !data.url) {
+        setBillingError(
+          isApiError(data) ? `账单入口打开失败：${data.error}` : '账单入口打开失败。',
+        );
+        return;
+      }
       window.location.href = data.url;
     } finally {
       setPortalLoading(false);
@@ -265,13 +286,51 @@ export default function AccountPage() {
           </div>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 18 }}>
             {user.subscription === 'free' ? (
-              <button
-                onClick={handleUpgrade}
-                disabled={checkoutLoading || stripeUnavailable}
-                style={primaryButton(checkoutLoading || stripeUnavailable)}
-              >
-                {stripeUnavailable ? 'Stripe 暂未配置' : checkoutLoading ? '跳转中…' : '升级到 Pro'}
-              </button>
+              <>
+                <button
+                  onClick={() => void handleCheckout('pro')}
+                  disabled={checkoutPlanLoading !== null || stripeUnavailable}
+                  style={primaryButton(checkoutPlanLoading !== null || stripeUnavailable)}
+                >
+                  {stripeUnavailable
+                    ? 'Stripe 暂未配置'
+                    : checkoutPlanLoading === 'pro'
+                      ? '跳转中…'
+                      : '升级到 Pro'}
+                </button>
+                <button
+                  onClick={() => void handleCheckout('team')}
+                  disabled={checkoutPlanLoading !== null || stripeUnavailable}
+                  style={secondaryButton(checkoutPlanLoading !== null || stripeUnavailable)}
+                >
+                  {stripeUnavailable
+                    ? 'Team 暂不可购'
+                    : checkoutPlanLoading === 'team'
+                      ? '跳转中…'
+                      : '直接升级到 Team'}
+                </button>
+              </>
+            ) : user.subscription === 'pro' ? (
+              <>
+                <button
+                  onClick={() => void handleCheckout('team')}
+                  disabled={checkoutPlanLoading !== null || stripeUnavailable}
+                  style={primaryButton(checkoutPlanLoading !== null || stripeUnavailable)}
+                >
+                  {stripeUnavailable
+                    ? 'Team 暂不可购'
+                    : checkoutPlanLoading === 'team'
+                      ? '跳转中…'
+                      : '升级到 Team'}
+                </button>
+                <button
+                  onClick={handleManageBilling}
+                  disabled={portalLoading || stripeUnavailable}
+                  style={secondaryButton(portalLoading || stripeUnavailable)}
+                >
+                  {stripeUnavailable ? '账单入口暂不可用' : portalLoading ? '跳转中…' : '管理账单'}
+                </button>
+              </>
             ) : (
               <button
                 onClick={handleManageBilling}
@@ -285,6 +344,11 @@ export default function AccountPage() {
               退出登录
             </button>
           </div>
+          {billingError ? (
+            <div style={{ marginTop: 12, color: '#fda4af', fontSize: 13, lineHeight: 1.7 }}>
+              {billingError}
+            </div>
+          ) : null}
         </div>
       </section>
 
@@ -433,12 +497,29 @@ export default function AccountPage() {
             </p>
           </div>
           {user.effectiveSubscription === 'free' ? (
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <button
+                onClick={() => void handleCheckout('pro')}
+                disabled={checkoutPlanLoading !== null || stripeUnavailable}
+                style={primaryButton(checkoutPlanLoading !== null || stripeUnavailable)}
+              >
+                {checkoutPlanLoading === 'pro' ? '跳转中…' : '解锁 Pro 研究流'}
+              </button>
+              <button
+                onClick={() => void handleCheckout('team')}
+                disabled={checkoutPlanLoading !== null || stripeUnavailable}
+                style={secondaryButton(checkoutPlanLoading !== null || stripeUnavailable)}
+              >
+                {checkoutPlanLoading === 'team' ? '跳转中…' : '直接解锁 Team'}
+              </button>
+            </div>
+          ) : user.subscription === 'pro' && !user.entitlements.canUseTeamWorkspace ? (
             <button
-              onClick={handleUpgrade}
-              disabled={checkoutLoading || stripeUnavailable}
-              style={primaryButton(checkoutLoading || stripeUnavailable)}
+              onClick={() => void handleCheckout('team')}
+              disabled={checkoutPlanLoading !== null || stripeUnavailable}
+              style={primaryButton(checkoutPlanLoading !== null || stripeUnavailable)}
             >
-              {checkoutLoading ? '跳转中…' : '解锁 Pro 研究流'}
+              {checkoutPlanLoading === 'team' ? '跳转中…' : '升级到 Team 工作区'}
             </button>
           ) : null}
         </div>
@@ -483,6 +564,32 @@ export default function AccountPage() {
             active={user.entitlements.canUseTeamWorkspace}
           />
         </div>
+        {!user.entitlements.canUseTeamWorkspace ? (
+          <div
+            style={{
+              marginTop: 16,
+              borderRadius: 14,
+              border: '1px dashed #2a3658',
+              background: '#0d1428',
+              padding: '14px 16px',
+              color: '#9fb3ff',
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: 12,
+              flexWrap: 'wrap',
+              alignItems: 'center',
+            }}
+          >
+            <span>Team Workspace 现在已经有正式购买路径，升级后可立即创建工作区并邀请成员。</span>
+            <button
+              onClick={() => void handleCheckout('team')}
+              disabled={checkoutPlanLoading !== null || stripeUnavailable}
+              style={secondaryButton(checkoutPlanLoading !== null || stripeUnavailable)}
+            >
+              {checkoutPlanLoading === 'team' ? '跳转中…' : '购买 Team'}
+            </button>
+          </div>
+        ) : null}
       </section>
 
       <TeamWorkspacePanel />
@@ -711,6 +818,19 @@ function primaryButton(disabled: boolean) {
     border: 'none',
     background: disabled ? '#35446b' : '#5b7cff',
     color: '#fff',
+    fontWeight: 700,
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    fontSize: 14,
+  } as const;
+}
+
+function secondaryButton(disabled: boolean) {
+  return {
+    padding: '10px 18px',
+    borderRadius: 10,
+    border: `1px solid ${disabled ? '#35446b' : '#3c5fc9'}`,
+    background: disabled ? '#1a2441' : '#17254d',
+    color: disabled ? '#9fb3ff' : '#dbe6ff',
     fontWeight: 700,
     cursor: disabled ? 'not-allowed' : 'pointer',
     fontSize: 14,

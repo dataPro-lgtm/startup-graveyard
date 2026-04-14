@@ -362,6 +362,78 @@ describe('public API (mock DB)', () => {
     });
   });
 
+  it('payments checkout surfaces missing team price configuration separately', async () => {
+    const originalStripeSecretKey = process.env.STRIPE_SECRET_KEY;
+    const originalStripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+    const originalStripeProPriceId = process.env.STRIPE_PRO_PRICE_ID;
+    const originalStripeTeamPriceId = process.env.STRIPE_TEAM_PRICE_ID;
+
+    process.env.STRIPE_SECRET_KEY = 'sk_test_team_checkout';
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test_team_checkout';
+    process.env.STRIPE_PRO_PRICE_ID = 'price_pro_test';
+    delete process.env.STRIPE_TEAM_PRICE_ID;
+
+    const paymentsApp = await buildApp({ logger: false });
+    try {
+      const registerRes = await paymentsApp.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: `team-checkout-${Date.now()}@example.com`,
+          password: 'password123',
+          displayName: 'Team Checkout User',
+        },
+      });
+      expect(registerRes.statusCode).toBe(201);
+      const registered = JSON.parse(registerRes.body) as {
+        user: { id: string };
+        accessToken: string;
+      };
+
+      const checkoutRes = await paymentsApp.inject({
+        method: 'POST',
+        url: '/v1/payments/checkout',
+        headers: {
+          authorization: `Bearer ${registered.accessToken}`,
+          'content-type': 'application/json',
+        },
+        payload: {
+          userId: registered.user.id,
+          plan: 'team',
+        },
+      });
+
+      expect(checkoutRes.statusCode).toBe(503);
+      expect(JSON.parse(checkoutRes.body)).toMatchObject({
+        error: 'stripe_price_not_configured',
+        plan: 'team',
+      });
+    } finally {
+      await paymentsApp.close();
+
+      if (originalStripeSecretKey === undefined) {
+        delete process.env.STRIPE_SECRET_KEY;
+      } else {
+        process.env.STRIPE_SECRET_KEY = originalStripeSecretKey;
+      }
+      if (originalStripeWebhookSecret === undefined) {
+        delete process.env.STRIPE_WEBHOOK_SECRET;
+      } else {
+        process.env.STRIPE_WEBHOOK_SECRET = originalStripeWebhookSecret;
+      }
+      if (originalStripeProPriceId === undefined) {
+        delete process.env.STRIPE_PRO_PRICE_ID;
+      } else {
+        process.env.STRIPE_PRO_PRICE_ID = originalStripeProPriceId;
+      }
+      if (originalStripeTeamPriceId === undefined) {
+        delete process.env.STRIPE_TEAM_PRICE_ID;
+      } else {
+        process.env.STRIPE_TEAM_PRICE_ID = originalStripeTeamPriceId;
+      }
+    }
+  });
+
   it('saved views unlock with Pro and support create, dedupe, rename, delete', async () => {
     const email = `saved-views-${Date.now()}@example.com`;
     const registerRes = await app.inject({
@@ -1243,6 +1315,9 @@ describe('public API (mock DB)', () => {
           seatsRemaining: 0,
           canInviteMore: false,
           warningCodes: ['seat_limit_reached'],
+          recommendedActions: expect.arrayContaining([
+            expect.objectContaining({ code: 'free_up_seats' }),
+          ]),
         },
       },
     });
@@ -1288,6 +1363,9 @@ describe('public API (mock DB)', () => {
           revokedInviteCount: 4,
           fallbackMemberCount: 0,
           warningCodes: expect.arrayContaining(['workspace_plan_inactive', 'cancel_at_period_end']),
+          recommendedActions: expect.arrayContaining([
+            expect.objectContaining({ code: 'upgrade_to_team' }),
+          ]),
         },
         recentBillingEvents: expect.arrayContaining([
           expect.objectContaining({ type: 'workspace_plan_inactive' }),
@@ -1552,6 +1630,9 @@ describe('public API (mock DB)', () => {
           seatLimit: 0,
           fallbackMemberCount: 1,
           revokedInviteCount: 0,
+          recommendedActions: expect.arrayContaining([
+            expect.objectContaining({ code: 'upgrade_to_team' }),
+          ]),
         },
         recentBillingEvents: expect.arrayContaining([
           expect.objectContaining({ type: 'workspace_plan_inactive' }),
@@ -1701,6 +1782,7 @@ describe('public API (mock DB)', () => {
           seatLimit: 5,
           fallbackMemberCount: 0,
           canInviteMore: true,
+          recommendedActions: [],
         },
         recentBillingEvents: expect.arrayContaining([
           expect.objectContaining({ type: 'workspace_plan_restored' }),

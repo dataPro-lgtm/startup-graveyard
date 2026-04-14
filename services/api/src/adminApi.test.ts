@@ -114,6 +114,21 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
       },
     });
     expect(inviteRes.statusCode).toBe(200);
+    for (const inviteIndex of [2, 3, 4]) {
+      const extraInviteRes = await app.inject({
+        method: 'POST',
+        url: '/v1/team-workspace/invites',
+        headers: {
+          authorization: `Bearer ${ownerRegistered.accessToken}`,
+          'content-type': 'application/json',
+        },
+        payload: {
+          email: `admin-stats-member-${inviteIndex}-${Date.now()}@example.com`,
+          role: 'member',
+        },
+      });
+      expect(extraInviteRes.statusCode).toBe(200);
+    }
 
     const casesRes = await app.inject({
       method: 'GET',
@@ -197,12 +212,17 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
         teamWorkspaces: {
           totalWorkspaces: 1,
           activeWorkspaces: 1,
-          pendingInvites: 1,
+          workspacesRequiringAction: 1,
+          pendingInvites: 4,
           seatsUsed: 1,
-          reservedSeats: 2,
+          reservedSeats: 5,
           inheritedMembers: 0,
           revokedInvites: 0,
           fallbackMembers: 0,
+          fullWorkspaces: 1,
+          recoveryActions: expect.arrayContaining([
+            expect.objectContaining({ code: 'free_up_seats', count: 1 }),
+          ]),
           recentBillingEvents: [],
         },
       },
