@@ -155,6 +155,7 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
           inheritedMembers: 0,
           revokedInvites: 0,
           fallbackMembers: 0,
+          recentBillingEvents: [],
         },
       },
       copilot: {

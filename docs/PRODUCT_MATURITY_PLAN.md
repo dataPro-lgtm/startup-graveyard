@@ -243,3 +243,9 @@
 - Team Workspace 现在会在 owner 账单降级或席位收紧时自动撤销超出的 pending invites，而不是继续保留无效邀请占着席位。
 - 已加入的非 owner 成员在 workspace 不再可继承 Team entitlement 时，会自动回退到各自个人套餐权限；账户页和 Team Workspace 面板都会明确显示这种 fallback，而不是让用户在功能被 gate 后自己猜原因。
 - Stripe webhook、Team Workspace context 读取和 admin metrics 都走同一套 reconciliation 逻辑，因此补偿动作既会即时生效，也能在运营台直接看到撤销邀请数和 fallback 成员数。
+
+已完成 M3 第四段第四部分（workspace billing event history / recovery visibility）：
+
+- Team Workspace 现在会为账单降级、席位恢复、自动撤销邀请、成员权限回退和成员权限恢复留下统一的 billing events，不再只有“当前状态”而没有“最近发生了什么”。
+- 用户侧 Team Workspace 面板会直接显示最近账单生命周期事件，团队 owner 能看到工作区何时进入降级、何时恢复、撤销了多少邀请、恢复了多少成员权限。
+- Admin Dashboard 也会聚合 recent billing events，因此运营不必手工对照用户反馈和当前 seat 状态去猜测恢复动作是否已经发生。

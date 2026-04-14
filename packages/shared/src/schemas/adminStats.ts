@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { copilotFallbackReasonSchema, copilotFeedbackVoteSchema } from './copilot.js';
+import { teamWorkspaceBillingEventSchema } from './teamWorkspace.js';
 
 const nonnegativeInteger = z.number().int().nonnegative();
 const nonnegativeNumber = z.number().nonnegative();
@@ -133,6 +134,12 @@ export const teamWorkspaceAdminMetricsSchema = z.object({
   revokedInvites: nonnegativeInteger,
   fallbackMembers: nonnegativeInteger,
   seatUtilizationRate: z.number().min(0).max(1).nullable(),
+  recentBillingEvents: z.array(
+    teamWorkspaceBillingEventSchema.extend({
+      workspaceId: z.string().uuid(),
+      workspaceName: z.string(),
+    }),
+  ),
 });
 
 export const commercialAdminMetricsSchema = z.object({

@@ -10,6 +10,9 @@ import {
 } from '@sg/shared/billing';
 import type {
   TeamWorkspaceBilling,
+  TeamWorkspaceBillingEvent,
+  TeamWorkspaceBillingEventSeverity,
+  TeamWorkspaceBillingEventType,
   TeamWorkspaceBillingWarning,
   TeamWorkspace,
   TeamWorkspaceContextResponse,
@@ -143,6 +146,41 @@ type WorkspaceCompensationSummary = {
   revokedInviteCount: number;
 };
 
+type WorkspaceBillingSnapshot = Pick<
+  TeamWorkspaceBilling,
+  'seatLimit' | 'billingStatus' | 'cancelAtPeriodEnd' | 'reservedSeats' | 'fallbackMemberCount'
+>;
+
+type WorkspaceBillingEventDescriptor = {
+  type: TeamWorkspaceBillingEventType;
+  severity: TeamWorkspaceBillingEventSeverity;
+  title: string;
+  detail: string;
+  count: number | null;
+};
+
+type AdminBillingEvent = TeamWorkspaceAdminMetrics['recentBillingEvents'][number];
+
+type PgWorkspaceBillingEventRow = {
+  id: string;
+  workspace_id: string;
+  workspace_name: string;
+  event_type: TeamWorkspaceBillingEventType;
+  severity: TeamWorkspaceBillingEventSeverity;
+  title: string;
+  detail: string;
+  event_count: string | number | null;
+  created_at: Date | string;
+};
+
+type PgWorkspaceBillingStateRow = {
+  seat_limit: number;
+  billing_status: BillingStatus;
+  cancel_at_period_end: boolean;
+  reserved_seats: number;
+  fallback_member_count: number;
+};
+
 const COMPENSATION_REASONS: ReadonlySet<WorkspaceInviteRevocationReason> = new Set([
   'billing_inactive',
   'seat_limit_reduced',
@@ -255,6 +293,117 @@ function buildWorkspaceBilling(input: {
     revokedInviteCount: input.compensation?.revokedInviteCount ?? 0,
     canInviteMore: seatLimit > 0 && reservedSeats < seatLimit,
     warningCodes,
+  };
+}
+
+function billingSnapshotFromBilling(billing: TeamWorkspaceBilling): WorkspaceBillingSnapshot {
+  return {
+    seatLimit: billing.seatLimit,
+    billingStatus: billing.billingStatus,
+    cancelAtPeriodEnd: billing.cancelAtPeriodEnd,
+    reservedSeats: billing.reservedSeats,
+    fallbackMemberCount: billing.fallbackMemberCount,
+  };
+}
+
+function buildBillingEventDescriptors(input: {
+  previous: WorkspaceBillingSnapshot | null;
+  next: WorkspaceBillingSnapshot;
+  revokedInviteCount: number;
+}): WorkspaceBillingEventDescriptor[] {
+  const events: WorkspaceBillingEventDescriptor[] = [];
+  const prev = input.previous;
+  const next = input.next;
+
+  if (!prev) {
+    if (input.revokedInviteCount > 0) {
+      events.push({
+        type: 'invites_auto_revoked',
+        severity: 'warning',
+        title: '工作区邀请已自动撤销',
+        detail: `账单或席位收紧后，系统自动撤销了 ${input.revokedInviteCount} 条待接受邀请。`,
+        count: input.revokedInviteCount,
+      });
+    }
+    return events;
+  }
+
+  if (prev.seatLimit > 0 && next.seatLimit === 0) {
+    events.push({
+      type: 'workspace_plan_inactive',
+      severity: 'critical',
+      title: 'Team Workspace 已进入降级状态',
+      detail: '账单所有者当前不再具备有效 Team entitlement，团队权限已暂停继承。',
+      count: null,
+    });
+  } else if (prev.seatLimit === 0 && next.seatLimit > 0) {
+    events.push({
+      type: 'workspace_plan_restored',
+      severity: 'success',
+      title: 'Team Workspace 已恢复可用',
+      detail: '账单所有者重新恢复了有效 Team entitlement，团队权限可以重新继承。',
+      count: null,
+    });
+  } else if (next.seatLimit > 0 && prev.seatLimit > next.seatLimit) {
+    events.push({
+      type: 'seat_capacity_reduced',
+      severity: 'warning',
+      title: '团队席位上限已收紧',
+      detail: `工作区席位上限从 ${prev.seatLimit} 收紧到 ${next.seatLimit}。`,
+      count: next.seatLimit,
+    });
+  } else if (next.seatLimit > prev.seatLimit && prev.seatLimit > 0) {
+    events.push({
+      type: 'seat_capacity_restored',
+      severity: 'success',
+      title: '团队席位容量已恢复',
+      detail: `工作区席位上限从 ${prev.seatLimit} 恢复到 ${next.seatLimit}。`,
+      count: next.seatLimit,
+    });
+  }
+
+  if (input.revokedInviteCount > 0) {
+    events.push({
+      type: 'invites_auto_revoked',
+      severity: 'warning',
+      title: '工作区邀请已自动撤销',
+      detail: `账单或席位收紧后，系统自动撤销了 ${input.revokedInviteCount} 条待接受邀请。`,
+      count: input.revokedInviteCount,
+    });
+  }
+
+  if (prev.fallbackMemberCount === 0 && next.fallbackMemberCount > 0) {
+    events.push({
+      type: 'members_fallback_started',
+      severity: 'warning',
+      title: '成员权限已回退到个人套餐',
+      detail: `${next.fallbackMemberCount} 名成员当前不再继承 Team 权限，已自动回退到各自个人套餐。`,
+      count: next.fallbackMemberCount,
+    });
+  } else if (prev.fallbackMemberCount > 0 && next.fallbackMemberCount === 0) {
+    events.push({
+      type: 'members_fallback_cleared',
+      severity: 'success',
+      title: '成员 Team 权限已恢复',
+      detail: '此前回退到个人套餐的成员，现在已经重新继承 Team 权限。',
+      count: prev.fallbackMemberCount,
+    });
+  }
+
+  return events;
+}
+
+function rowToBillingEvent(row: PgWorkspaceBillingEventRow): AdminBillingEvent {
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    workspaceName: row.workspace_name,
+    type: row.event_type,
+    severity: row.severity,
+    title: row.title,
+    detail: row.detail,
+    count: numberOrNull(row.event_count),
+    createdAt: toIso(row.created_at),
   };
 }
 
@@ -402,6 +551,8 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
       revokedAt?: string | null;
     }
   >();
+  private readonly billingEvents: AdminBillingEvent[] = [];
+  private readonly billingStateByWorkspaceId = new Map<string, WorkspaceBillingSnapshot>();
   private readonly sharedSavedViews: WorkspaceSharedSavedViewRecord[] = [];
   private readonly sharedCases: WorkspaceSharedCaseRecord[] = [];
 
@@ -507,6 +658,7 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
       revokedInvites,
       fallbackMembers,
       seatUtilizationRate: totalSeatCapacity > 0 ? reservedSeats / totalSeatCapacity : null,
+      recentBillingEvents: this.billingEvents.slice(0, 8),
     };
   }
 
@@ -736,6 +888,33 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
     return { revokedInviteCount };
   }
 
+  private getRecentBillingEvents(workspaceId: string): TeamWorkspaceBillingEvent[] {
+    return this.billingEvents
+      .filter((event) => event.workspaceId === workspaceId)
+      .slice(0, 6)
+      .map(({ workspaceId: _workspaceId, workspaceName: _workspaceName, ...event }) => event);
+  }
+
+  private recordBillingEvents(
+    workspaceId: string,
+    workspaceName: string,
+    descriptors: WorkspaceBillingEventDescriptor[],
+  ) {
+    const createdAt = new Date().toISOString();
+    for (const descriptor of descriptors) {
+      this.billingEvents.unshift({
+        id: randomUUID(),
+        workspaceId,
+        workspaceName,
+        ...descriptor,
+        createdAt,
+      });
+    }
+    if (this.billingEvents.length > 64) {
+      this.billingEvents.length = 64;
+    }
+  }
+
   private async reconcileWorkspaceBillingState(workspaceId: string): Promise<number> {
     const workspace = this.workspaces.get(workspaceId);
     if (!workspace) return 0;
@@ -757,17 +936,36 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
     const revokeReason: WorkspaceInviteRevocationReason =
       seatLimit === 0 ? 'billing_inactive' : 'seat_limit_reduced';
     const invitesToRevoke = pendingInvites.slice(allowedPendingInvites);
-    if (invitesToRevoke.length === 0) return 0;
-
     const revokedAt = new Date().toISOString();
-    for (const invite of invitesToRevoke) {
-      this.invites.set(invite.id, {
-        ...invite,
-        status: 'revoked',
-        revokedReason: revokeReason,
-        revokedAt,
-        acceptedAt: null,
-      });
+    if (invitesToRevoke.length > 0) {
+      for (const invite of invitesToRevoke) {
+        this.invites.set(invite.id, {
+          ...invite,
+          status: 'revoked',
+          revokedReason: revokeReason,
+          revokedAt,
+          acceptedAt: null,
+        });
+      }
+    }
+
+    const compensation = this.getCompensationSummary(workspaceId);
+    const nextBilling = buildWorkspaceBilling({
+      owner,
+      seatsUsed,
+      pendingInviteCount: Math.max(0, pendingInvites.length - invitesToRevoke.length),
+      compensation,
+    });
+    const previousSnapshot = this.billingStateByWorkspaceId.get(workspaceId) ?? null;
+    const nextSnapshot = billingSnapshotFromBilling(nextBilling);
+    const descriptors = buildBillingEventDescriptors({
+      previous: previousSnapshot,
+      next: nextSnapshot,
+      revokedInviteCount: invitesToRevoke.length,
+    });
+    this.billingStateByWorkspaceId.set(workspaceId, nextSnapshot);
+    if (descriptors.length > 0) {
+      this.recordBillingEvents(workspaceId, workspace.name, descriptors);
     }
     return invitesToRevoke.length;
   }
@@ -899,6 +1097,7 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
         pendingInviteCount: invites.length,
         compensation,
       }),
+      recentBillingEvents: this.getRecentBillingEvents(workspace.id),
       members,
       invites,
       sharedSavedViews,
@@ -1051,6 +1250,7 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
       revokedInvites,
       fallbackMembers,
       seatUtilizationRate: totalSeatCapacity > 0 ? reservedSeats / totalSeatCapacity : null,
+      recentBillingEvents: await this.getRecentBillingEvents(),
     };
   }
 
@@ -1411,6 +1611,128 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
     }
   }
 
+  private async getRecentBillingEvents(workspaceId?: string): Promise<AdminBillingEvent[]> {
+    const query = workspaceId
+      ? `SELECT
+           e.id,
+           e.workspace_id,
+           w.name AS workspace_name,
+           e.event_type,
+           e.severity,
+           e.title,
+           e.detail,
+           e.event_count,
+           e.created_at
+         FROM team_workspace_billing_events e
+         JOIN team_workspaces w ON w.id = e.workspace_id
+         WHERE e.workspace_id = $1
+         ORDER BY e.created_at DESC
+         LIMIT 6`
+      : `SELECT
+           e.id,
+           e.workspace_id,
+           w.name AS workspace_name,
+           e.event_type,
+           e.severity,
+           e.title,
+           e.detail,
+           e.event_count,
+           e.created_at
+         FROM team_workspace_billing_events e
+         JOIN team_workspaces w ON w.id = e.workspace_id
+         ORDER BY e.created_at DESC
+         LIMIT 8`;
+    const { rows } = await this.pool.query<PgWorkspaceBillingEventRow>(
+      query,
+      workspaceId ? [workspaceId] : [],
+    );
+    return rows.map(rowToBillingEvent);
+  }
+
+  private async getStoredBillingState(
+    workspaceId: string,
+  ): Promise<WorkspaceBillingSnapshot | null> {
+    const { rows } = await this.pool.query<PgWorkspaceBillingStateRow>(
+      `SELECT
+         seat_limit,
+         billing_status,
+         cancel_at_period_end,
+         reserved_seats,
+         fallback_member_count
+       FROM team_workspace_billing_states
+       WHERE workspace_id = $1
+       LIMIT 1`,
+      [workspaceId],
+    );
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      seatLimit: row.seat_limit,
+      billingStatus: row.billing_status,
+      cancelAtPeriodEnd: row.cancel_at_period_end,
+      reservedSeats: row.reserved_seats,
+      fallbackMemberCount: row.fallback_member_count,
+    };
+  }
+
+  private async persistBillingState(workspaceId: string, snapshot: WorkspaceBillingSnapshot) {
+    await this.pool.query(
+      `INSERT INTO team_workspace_billing_states (
+         workspace_id,
+         seat_limit,
+         billing_status,
+         cancel_at_period_end,
+         reserved_seats,
+         fallback_member_count,
+         updated_at
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())
+       ON CONFLICT (workspace_id)
+       DO UPDATE SET
+         seat_limit = EXCLUDED.seat_limit,
+         billing_status = EXCLUDED.billing_status,
+         cancel_at_period_end = EXCLUDED.cancel_at_period_end,
+         reserved_seats = EXCLUDED.reserved_seats,
+         fallback_member_count = EXCLUDED.fallback_member_count,
+         updated_at = NOW()`,
+      [
+        workspaceId,
+        snapshot.seatLimit,
+        snapshot.billingStatus,
+        snapshot.cancelAtPeriodEnd,
+        snapshot.reservedSeats,
+        snapshot.fallbackMemberCount,
+      ],
+    );
+  }
+
+  private async recordBillingEvents(
+    workspaceId: string,
+    descriptors: WorkspaceBillingEventDescriptor[],
+  ) {
+    for (const descriptor of descriptors) {
+      await this.pool.query(
+        `INSERT INTO team_workspace_billing_events (
+           workspace_id,
+           event_type,
+           severity,
+           title,
+           detail,
+           event_count
+         )
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+          workspaceId,
+          descriptor.type,
+          descriptor.severity,
+          descriptor.title,
+          descriptor.detail,
+          descriptor.count,
+        ],
+      );
+    }
+  }
+
   private async reconcileAllWorkspaces(): Promise<void> {
     const { rows } = await this.pool.query<{ id: string }>(
       `SELECT id
@@ -1422,12 +1744,13 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
   }
 
   private async reconcileWorkspaceBillingState(workspaceId: string): Promise<number> {
-    const [ownerRows, memberCountRows, inviteRows] = await Promise.all([
+    const [ownerRows, memberCountRows, inviteRows, previousSnapshot] = await Promise.all([
       this.pool.query<{
         subscription: SubscriptionTier;
         billing_status: BillingStatus;
+        cancel_at_period_end: boolean;
       }>(
-        `SELECT u.subscription, u.billing_status
+        `SELECT u.subscription, u.billing_status, u.cancel_at_period_end
          FROM team_workspaces w
          JOIN users u ON u.id = w.owner_user_id
          WHERE w.id = $1
@@ -1443,11 +1766,12 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
       this.pool.query<{ id: string }>(
         `SELECT id
          FROM team_workspace_invites
-         WHERE workspace_id = $1
+        WHERE workspace_id = $1
            AND status = 'pending'
          ORDER BY created_at ASC`,
         [workspaceId],
       ),
+      this.getStoredBillingState(workspaceId),
     ]);
 
     const owner = ownerRows.rows[0];
@@ -1459,22 +1783,42 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
     const seatsUsed = Number(memberCountRows.rows[0]?.count ?? 0);
     const allowedPendingInvites = Math.max(0, seatLimit - seatsUsed);
     const inviteIdsToRevoke = inviteRows.rows.slice(allowedPendingInvites).map((row) => row.id);
-    if (inviteIdsToRevoke.length === 0) return 0;
-
     const revokeReason: WorkspaceInviteRevocationReason =
       seatLimit === 0 ? 'billing_inactive' : 'seat_limit_reduced';
-    const result = await this.pool.query(
-      `UPDATE team_workspace_invites
-       SET status = 'revoked',
-           revoked_reason = $2,
-           revoked_at = NOW(),
-           accepted_by_user_id = NULL,
-           accepted_at = NULL
-       WHERE id = ANY($1::uuid[])
-         AND status = 'pending'`,
-      [inviteIdsToRevoke, revokeReason],
-    );
-    return result.rowCount ?? 0;
+    const revokedInviteCount =
+      inviteIdsToRevoke.length === 0
+        ? 0
+        : ((
+            await this.pool.query(
+              `UPDATE team_workspace_invites
+             SET status = 'revoked',
+                 revoked_reason = $2,
+                 revoked_at = NOW(),
+                 accepted_by_user_id = NULL,
+                 accepted_at = NULL
+             WHERE id = ANY($1::uuid[])
+               AND status = 'pending'`,
+              [inviteIdsToRevoke, revokeReason],
+            )
+          ).rowCount ?? 0);
+
+    const nextSnapshot: WorkspaceBillingSnapshot = {
+      seatLimit,
+      billingStatus: owner.billing_status,
+      cancelAtPeriodEnd: owner.cancel_at_period_end,
+      reservedSeats: seatsUsed + Math.max(0, inviteRows.rows.length - revokedInviteCount),
+      fallbackMemberCount: seatLimit === 0 ? Math.max(0, seatsUsed - 1) : 0,
+    };
+    const descriptors = buildBillingEventDescriptors({
+      previous: previousSnapshot,
+      next: nextSnapshot,
+      revokedInviteCount,
+    });
+    await this.persistBillingState(workspaceId, nextSnapshot);
+    if (descriptors.length > 0) {
+      await this.recordBillingEvents(workspaceId, descriptors);
+    }
+    return revokedInviteCount;
   }
 
   private async getCompensationSummary(workspaceId: string): Promise<WorkspaceCompensationSummary> {
@@ -1586,10 +1930,17 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
 
     const workspaceId = membership.workspace_id;
     await this.reconcileWorkspaceBillingState(workspaceId);
-    const [memberRows, inviteRows, sharedSavedViewRows, sharedCaseRows, ownerRows, compensation] =
-      await Promise.all([
-        this.pool.query<PgWorkspaceMemberRow>(
-          `SELECT
+    const [
+      memberRows,
+      inviteRows,
+      sharedSavedViewRows,
+      sharedCaseRows,
+      ownerRows,
+      compensation,
+      recentBillingEvents,
+    ] = await Promise.all([
+      this.pool.query<PgWorkspaceMemberRow>(
+        `SELECT
            u.id AS user_id,
            u.email,
            u.display_name,
@@ -1605,10 +1956,10 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
              ELSE 2
            END,
            m.joined_at ASC`,
-          [workspaceId],
-        ),
-        this.pool.query<PgWorkspaceInviteRow>(
-          `SELECT
+        [workspaceId],
+      ),
+      this.pool.query<PgWorkspaceInviteRow>(
+        `SELECT
            i.id,
            i.workspace_id,
            w.name AS workspace_name,
@@ -1624,10 +1975,10 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
          WHERE i.workspace_id = $1
            AND i.status = 'pending'
          ORDER BY i.created_at DESC`,
-          [workspaceId],
-        ),
-        this.pool.query<PgWorkspaceSavedViewRow>(
-          `SELECT
+        [workspaceId],
+      ),
+      this.pool.query<PgWorkspaceSavedViewRow>(
+        `SELECT
            v.id,
            v.name,
            v.filters,
@@ -1644,10 +1995,10 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
          JOIN users u ON u.id = s.shared_by_user_id
          WHERE s.workspace_id = $1
          ORDER BY s.created_at DESC`,
-          [workspaceId],
-        ),
-        this.pool.query<PgWorkspaceCaseRow>(
-          `SELECT
+        [workspaceId],
+      ),
+      this.pool.query<PgWorkspaceCaseRow>(
+        `SELECT
            c.id,
            c.slug,
            c.company_name,
@@ -1669,18 +2020,18 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
          JOIN users u ON u.id = tc.shared_by_user_id
          WHERE tc.workspace_id = $1
          ORDER BY tc.created_at DESC`,
-          [workspaceId],
-        ),
-        this.pool.query<{
-          id: string;
-          email: string;
-          display_name: string | null;
-          subscription: UserProfile['subscription'];
-          billing_status: UserProfile['billingStatus'];
-          current_period_end: Date | string | null;
-          cancel_at_period_end: boolean;
-        }>(
-          `SELECT
+        [workspaceId],
+      ),
+      this.pool.query<{
+        id: string;
+        email: string;
+        display_name: string | null;
+        subscription: UserProfile['subscription'];
+        billing_status: UserProfile['billingStatus'];
+        current_period_end: Date | string | null;
+        cancel_at_period_end: boolean;
+      }>(
+        `SELECT
            id,
            email,
            display_name,
@@ -1691,10 +2042,11 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
          FROM users
          WHERE id = $1
          LIMIT 1`,
-          [membership.owner_user_id],
-        ),
-        this.getCompensationSummary(workspaceId),
-      ]);
+        [membership.owner_user_id],
+      ),
+      this.getCompensationSummary(workspaceId),
+      this.getRecentBillingEvents(workspaceId),
+    ]);
 
     const owner = ownerRows.rows[0];
     if (!owner) return null;
@@ -1722,6 +2074,9 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
         pendingInviteCount: inviteRows.rows.length,
         compensation,
       }),
+      recentBillingEvents: recentBillingEvents.map(
+        ({ workspaceId: _workspaceId, workspaceName: _workspaceName, ...event }) => event,
+      ),
       members: memberRows.rows.map(rowToMember),
       invites: inviteRows.rows.map(rowToInvite),
       sharedSavedViews: sharedSavedViewRows.rows.map(rowToSharedSavedView),

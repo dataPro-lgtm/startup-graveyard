@@ -793,6 +793,21 @@ components:
     TeamWorkspaceBillingWarning:
       type: string
       enum: [workspace_plan_inactive, past_due, cancel_at_period_end, seat_limit_reached]
+    TeamWorkspaceBillingEventType:
+      type: string
+      enum:
+        [
+          workspace_plan_inactive,
+          workspace_plan_restored,
+          seat_capacity_reduced,
+          seat_capacity_restored,
+          invites_auto_revoked,
+          members_fallback_started,
+          members_fallback_cleared,
+        ]
+    TeamWorkspaceBillingEventSeverity:
+      type: string
+      enum: [info, warning, critical, success]
     TeamWorkspaceMember:
       type: object
       required: [userId, email, displayName, role, joinedAt]
@@ -878,6 +893,27 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/TeamWorkspaceBillingWarning'
+    TeamWorkspaceBillingEvent:
+      type: object
+      required: [id, type, severity, title, detail, count, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        type:
+          $ref: '#/components/schemas/TeamWorkspaceBillingEventType'
+        severity:
+          $ref: '#/components/schemas/TeamWorkspaceBillingEventSeverity'
+        title: { type: string }
+        detail: { type: string }
+        count: { type: integer, minimum: 0, nullable: true }
+        createdAt: { type: string }
+    TeamWorkspaceAdminBillingEvent:
+      allOf:
+        - $ref: '#/components/schemas/TeamWorkspaceBillingEvent'
+        - type: object
+          required: [workspaceId, workspaceName]
+          properties:
+            workspaceId: { type: string, format: uuid }
+            workspaceName: { type: string }
     TeamWorkspace:
       type: object
       required:
@@ -891,6 +927,7 @@ components:
           sharedCaseCount,
           createdAt,
           billing,
+          recentBillingEvents,
           members,
           invites,
           sharedSavedViews,
@@ -908,6 +945,10 @@ components:
         createdAt: { type: string }
         billing:
           $ref: '#/components/schemas/TeamWorkspaceBilling'
+        recentBillingEvents:
+          type: array
+          items:
+            $ref: '#/components/schemas/TeamWorkspaceBillingEvent'
         members:
           type: array
           items:
@@ -1328,6 +1369,7 @@ components:
           revokedInvites,
           fallbackMembers,
           seatUtilizationRate,
+          recentBillingEvents,
         ]
       properties:
         totalWorkspaces: { type: integer, minimum: 0 }
@@ -1342,6 +1384,10 @@ components:
         revokedInvites: { type: integer, minimum: 0 }
         fallbackMembers: { type: integer, minimum: 0 }
         seatUtilizationRate: { type: number, minimum: 0, maximum: 1, nullable: true }
+        recentBillingEvents:
+          type: array
+          items:
+            $ref: '#/components/schemas/TeamWorkspaceAdminBillingEvent'
     CommercialAdminMetrics:
       type: object
       required: [teamWorkspaces]

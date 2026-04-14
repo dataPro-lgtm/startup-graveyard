@@ -272,6 +272,63 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
         </ChartCard>
       </div>
 
+      <ChartCard title="Workspace 账单生命周期事件">
+        {teamStats.recentBillingEvents.length === 0 ? (
+          <EmptyState text="当前还没有团队账单事件。降级补偿、席位恢复和成员权限恢复会在这里留痕。" />
+        ) : (
+          <div style={{ display: 'grid', gap: 12 }}>
+            {teamStats.recentBillingEvents.map((event) => (
+              <div
+                key={event.id}
+                style={{
+                  borderRadius: 12,
+                  border: `1px solid ${
+                    event.severity === 'critical'
+                      ? '#4b2430'
+                      : event.severity === 'warning'
+                        ? '#5b4a19'
+                        : event.severity === 'success'
+                          ? '#214635'
+                          : '#1f325d'
+                  }`,
+                  background:
+                    event.severity === 'critical'
+                      ? '#23131a'
+                      : event.severity === 'warning'
+                        ? '#241d0d'
+                        : event.severity === 'success'
+                          ? '#0f2018'
+                          : '#10192d',
+                  padding: '12px 14px',
+                  display: 'grid',
+                  gap: 6,
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <div style={{ color: '#f5f7fb', fontSize: 13, fontWeight: 600 }}>
+                    {event.workspaceName} · {event.title}
+                  </div>
+                  <div style={{ color: '#8a96b0', fontSize: 12 }}>
+                    {new Date(event.createdAt).toLocaleString('zh-CN')}
+                  </div>
+                </div>
+                <div style={{ color: '#c8d0e5', fontSize: 12, lineHeight: 1.7 }}>
+                  {event.detail}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </ChartCard>
+
       <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 20 }}>
         <ChartCard title="Copilot Eval 回放批次">
           {stats.copilot.evals.recentBatches.length === 0 ? (

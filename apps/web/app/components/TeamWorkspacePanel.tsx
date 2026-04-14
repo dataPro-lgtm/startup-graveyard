@@ -19,6 +19,7 @@ import { PLAN_LABELS } from '@sg/shared/billing';
 import { industryLabel, primaryFailureReasonLabel } from '@sg/shared/taxonomy';
 import type {
   TeamWorkspaceBilling,
+  TeamWorkspaceBillingEventSeverity,
   TeamWorkspaceBillingWarning,
   TeamWorkspaceContextResponse,
 } from '@sg/shared/schemas/teamWorkspace';
@@ -57,6 +58,35 @@ function warningMessage(code: TeamWorkspaceBillingWarning) {
     return '当前订阅已设置到期取消，请在周期结束前确认是否续费。';
   }
   return '当前席位已经用满，新的成员邀请会被阻止。';
+}
+
+function eventTone(severity: TeamWorkspaceBillingEventSeverity) {
+  if (severity === 'critical') {
+    return {
+      border: '1px solid #4b2430',
+      background: '#23131a',
+      color: '#fbc5cf',
+    };
+  }
+  if (severity === 'warning') {
+    return {
+      border: '1px solid #5b4a19',
+      background: '#241d0d',
+      color: '#f9d987',
+    };
+  }
+  if (severity === 'success') {
+    return {
+      border: '1px solid #214635',
+      background: '#0f2018',
+      color: '#9ef0c2',
+    };
+  }
+  return {
+    border: '1px solid #1f325d',
+    background: '#10192d',
+    color: '#b7d4ff',
+  };
 }
 
 export function TeamWorkspacePanel() {
@@ -231,6 +261,12 @@ export function TeamWorkspacePanel() {
               自动补偿：撤销 {workspace.billing.revokedInviteCount} 条邀请 · 回退{' '}
               {workspace.billing.fallbackMemberCount} 名成员
             </div>
+            {workspace.recentBillingEvents[0] ? (
+              <div>
+                最近账单事件：{workspace.recentBillingEvents[0].title} ·{' '}
+                {new Date(workspace.recentBillingEvents[0].createdAt).toLocaleString('zh-CN')}
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -408,6 +444,49 @@ export function TeamWorkspacePanel() {
             ) : (
               <div style={{ color: '#8a96b0', fontSize: 13 }}>
                 当前团队工作区账单和席位状态健康，没有待处理的运营告警。
+              </div>
+            )}
+          </div>
+
+          <div style={{ ...cardStyle, display: 'grid', gap: 12 }}>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>最近账单生命周期事件</div>
+            {workspace.recentBillingEvents.length === 0 ? (
+              <div style={{ color: '#8a96b0', fontSize: 13 }}>
+                当前还没有需要记录的降级或恢复事件。后续账单收紧、恢复、自动撤销邀请和成员权限恢复都会出现在这里。
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gap: 10 }}>
+                {workspace.recentBillingEvents.map((event) => {
+                  const tone = eventTone(event.severity);
+                  return (
+                    <div
+                      key={event.id}
+                      style={{
+                        borderRadius: 12,
+                        padding: '12px 14px',
+                        display: 'grid',
+                        gap: 6,
+                        ...tone,
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          gap: 12,
+                          flexWrap: 'wrap',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <div style={{ fontWeight: 700 }}>{event.title}</div>
+                        <div style={{ fontSize: 12 }}>
+                          {new Date(event.createdAt).toLocaleString('zh-CN')}
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 13, lineHeight: 1.7 }}>{event.detail}</div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
