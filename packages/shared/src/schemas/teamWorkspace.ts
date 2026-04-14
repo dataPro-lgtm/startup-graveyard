@@ -29,6 +29,7 @@ export const teamWorkspaceBillingEventTypeSchema = z.enum([
   'seat_capacity_reduced',
   'seat_capacity_restored',
   'invites_auto_revoked',
+  'invites_auto_restored',
   'members_fallback_started',
   'members_fallback_cleared',
 ]);

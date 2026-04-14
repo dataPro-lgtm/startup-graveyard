@@ -324,6 +324,7 @@ function buildBillingEventDescriptors(input: {
   previous: WorkspaceBillingSnapshot | null;
   next: WorkspaceBillingSnapshot;
   revokedInviteCount: number;
+  restoredInviteCount: number;
 }): WorkspaceBillingEventDescriptor[] {
   const events: WorkspaceBillingEventDescriptor[] = [];
   const prev = input.previous;
@@ -337,6 +338,15 @@ function buildBillingEventDescriptors(input: {
         title: '工作区邀请已自动撤销',
         detail: `账单或席位收紧后，系统自动撤销了 ${input.revokedInviteCount} 条待接受邀请。`,
         count: input.revokedInviteCount,
+      });
+    }
+    if (input.restoredInviteCount > 0) {
+      events.push({
+        type: 'invites_auto_restored',
+        severity: 'success',
+        title: '工作区邀请已自动恢复',
+        detail: `账单或席位恢复后，系统自动恢复了 ${input.restoredInviteCount} 条待接受邀请。`,
+        count: input.restoredInviteCount,
       });
     }
     return events;
@@ -383,6 +393,16 @@ function buildBillingEventDescriptors(input: {
       title: '工作区邀请已自动撤销',
       detail: `账单或席位收紧后，系统自动撤销了 ${input.revokedInviteCount} 条待接受邀请。`,
       count: input.revokedInviteCount,
+    });
+  }
+
+  if (input.restoredInviteCount > 0) {
+    events.push({
+      type: 'invites_auto_restored',
+      severity: 'success',
+      title: '工作区邀请已自动恢复',
+      detail: `账单或席位恢复后，系统自动恢复了 ${input.restoredInviteCount} 条待接受邀请。`,
+      count: input.restoredInviteCount,
     });
   }
 
@@ -1067,12 +1087,42 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
         });
       }
     }
+    const remainingPendingInvites = Math.max(0, pendingInvites.length - invitesToRevoke.length);
+    const recoverableInvites = [...this.invites.values()]
+      .filter(
+        (invite) =>
+          invite.workspaceId === workspaceId &&
+          invite.status === 'revoked' &&
+          invite.revokedReason != null &&
+          COMPENSATION_REASONS.has(invite.revokedReason),
+      )
+      .sort((a, b) => {
+        const revokedAtCompare = (a.revokedAt ?? a.createdAt).localeCompare(
+          b.revokedAt ?? b.createdAt,
+        );
+        return revokedAtCompare !== 0 ? revokedAtCompare : a.createdAt.localeCompare(b.createdAt);
+      });
+    const invitesToRestore =
+      seatLimit > 0
+        ? recoverableInvites.slice(0, Math.max(0, allowedPendingInvites - remainingPendingInvites))
+        : [];
+    if (invitesToRestore.length > 0) {
+      for (const invite of invitesToRestore) {
+        this.invites.set(invite.id, {
+          ...invite,
+          status: 'pending',
+          revokedReason: null,
+          revokedAt: null,
+          acceptedAt: null,
+        });
+      }
+    }
 
     const compensation = this.getCompensationSummary(workspaceId);
     const nextBilling = buildWorkspaceBilling({
       owner,
       seatsUsed,
-      pendingInviteCount: Math.max(0, pendingInvites.length - invitesToRevoke.length),
+      pendingInviteCount: remainingPendingInvites + invitesToRestore.length,
       compensation,
     });
     const previousSnapshot = this.billingStateByWorkspaceId.get(workspaceId) ?? null;
@@ -1081,6 +1131,7 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
       previous: previousSnapshot,
       next: nextSnapshot,
       revokedInviteCount: invitesToRevoke.length,
+      restoredInviteCount: invitesToRestore.length,
     });
     this.billingStateByWorkspaceId.set(workspaceId, nextSnapshot);
     if (descriptors.length > 0) {
@@ -1941,18 +1992,50 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
               [inviteIdsToRevoke, revokeReason],
             )
           ).rowCount ?? 0);
+    const remainingPendingInvites = Math.max(0, inviteRows.rows.length - revokedInviteCount);
+    let restoredInviteCount = 0;
+    if (seatLimit > 0 && remainingPendingInvites < allowedPendingInvites) {
+      const recoverableInviteIdsRes = await this.pool.query<{ id: string }>(
+        `SELECT id
+         FROM team_workspace_invites
+         WHERE workspace_id = $1
+           AND status = 'revoked'
+           AND revoked_reason IN ('billing_inactive', 'seat_limit_reduced')
+         ORDER BY revoked_at ASC NULLS LAST, created_at ASC
+         LIMIT $2`,
+        [workspaceId, Math.max(0, allowedPendingInvites - remainingPendingInvites)],
+      );
+      const recoverableInviteIds = recoverableInviteIdsRes.rows.map((row) => row.id);
+      restoredInviteCount =
+        recoverableInviteIds.length === 0
+          ? 0
+          : ((
+              await this.pool.query(
+                `UPDATE team_workspace_invites
+                 SET status = 'pending',
+                     revoked_reason = NULL,
+                     revoked_at = NULL,
+                     accepted_by_user_id = NULL,
+                     accepted_at = NULL
+                 WHERE id = ANY($1::uuid[])
+                   AND status = 'revoked'`,
+                [recoverableInviteIds],
+              )
+            ).rowCount ?? 0);
+    }
 
     const nextSnapshot: WorkspaceBillingSnapshot = {
       seatLimit,
       billingStatus: owner.billing_status,
       cancelAtPeriodEnd: owner.cancel_at_period_end,
-      reservedSeats: seatsUsed + Math.max(0, inviteRows.rows.length - revokedInviteCount),
+      reservedSeats: seatsUsed + remainingPendingInvites + restoredInviteCount,
       fallbackMemberCount: seatLimit === 0 ? Math.max(0, seatsUsed - 1) : 0,
     };
     const descriptors = buildBillingEventDescriptors({
       previous: previousSnapshot,
       next: nextSnapshot,
       revokedInviteCount,
+      restoredInviteCount,
     });
     await this.persistBillingState(workspaceId, nextSnapshot);
     if (descriptors.length > 0) {

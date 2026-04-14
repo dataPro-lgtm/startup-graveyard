@@ -273,3 +273,9 @@
 - `/v1/payments/checkout` 和 `/v1/payments/portal` 现在会记录来源于账户页或 Team Workspace 的商业化动作，Stripe webhook 还会补记 checkout completed 和 subscription recovered 事件。
 - Admin Dashboard 新增了 checkout 发起、checkout 完成率、billing portal 打开次数和订阅恢复次数，并保留最近商业化动作留痕，运营第一次能直接观察“发起升级 -> 完成支付 -> 恢复订阅”的漏斗。
 - 这让 M3 的下一步重点更明确地收敛到“基于这些漏斗指标做 workspace 级自动化恢复动作和运营实验”，而不是继续盲目加功能。
+
+已完成 M3 第四段第九部分（invite auto-restore after billing recovery）：
+
+- 当 Team Workspace 因账单降级或席位收紧而自动撤销 pending invites 后，系统现在会在账单恢复、席位重新可用时，自动把可恢复的邀请恢复成 pending，而不是要求 owner 手工重新邀请一遍。
+- 这条恢复逻辑已经在 mock 和 PostgreSQL 两套 reconciliation 中保持一致；邀请恢复后，成员侧的 `/v1/team-workspace/me` 会重新看到待接受邀请，并可以直接完成加入。
+- Team Workspace recent billing events 也会留下 `invites_auto_restored` 留痕，因此 owner 和运营都能分辨“这次恢复只是恢复了订阅”还是“系统还顺带恢复了被撤销的邀请”。
