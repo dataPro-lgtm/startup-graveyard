@@ -146,6 +146,12 @@ export const billingFunnelEventSchema = z.object({
   createdAt: z.string(),
 });
 
+export const teamWorkspaceRecoveryStageSchema = z.enum([
+  'needs_outreach',
+  'owner_engaged',
+  'recovered_followup',
+]);
+
 export const teamWorkspaceAdminMetricsSchema = z.object({
   totalWorkspaces: nonnegativeInteger,
   activeWorkspaces: nonnegativeInteger,
@@ -163,6 +169,13 @@ export const teamWorkspaceAdminMetricsSchema = z.object({
   recoveryActions: z.array(
     z.object({
       code: teamWorkspaceBillingRecoveryActionCodeSchema,
+      title: z.string(),
+      count: nonnegativeInteger,
+    }),
+  ),
+  recoveryStages: z.array(
+    z.object({
+      stage: teamWorkspaceRecoveryStageSchema,
       title: z.string(),
       count: nonnegativeInteger,
     }),
@@ -195,6 +208,7 @@ export const teamWorkspaceAdminMetricsSchema = z.object({
       lastCommercialEventAt: z.string().nullable(),
       lastCommercialEventType: billingFunnelEventTypeSchema.nullable(),
       lastCommercialEventSource: billingFunnelEventSourceSchema.nullable(),
+      recoveryStage: teamWorkspaceRecoveryStageSchema,
     }),
   ),
 });

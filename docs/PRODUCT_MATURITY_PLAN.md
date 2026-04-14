@@ -292,3 +292,9 @@
 - Team Workspace 的账单/席位 reconciliation 不再只依赖用户打开账户页或运营打开 dashboard 时被动触发；现在已经有正式的 `reconcile_team_workspace_billing` ingestion handler。
 - 这条 handler 会全量重跑 workspace 级账单补偿、pending invite 自动撤销与自动恢复，并可通过 admin scheduler 手动触发，也可由默认 scheduled job 定时执行。
 - 因此“账单恢复后邀请自己恢复”第一次成为真正的后台自动化能力，而不是页面读取副作用。
+
+已完成 M3 第四段第十二部分（workspace recovery stages + user-facing notices）：
+
+- Admin Dashboard 的高风险 workspace 队列现在不只区分“有没有动作”，还会给每个 workspace 标记恢复阶段：`尚未触达 / Owner 已开始恢复 / 已恢复待收尾`，运营优先级不再只能靠人工判断最近事件。
+- Team Workspace 面板也不再只展示 warning codes。现在会基于当前 viewer 角色生成正式的 recovery notices：owner 会看到恢复订阅、补款、续费、释放席位等明确提示；成员则会看到“当前已回退到个人套餐权限 / 需要联系 owner 恢复”的分层说明。
+- 这让恢复闭环第一次同时覆盖“运营视角”和“用户视角”，避免用户只能看到一串技术状态码，却不知道当前该做什么。

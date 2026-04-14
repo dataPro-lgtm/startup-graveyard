@@ -1614,6 +1614,13 @@ describe('public API (mock DB)', () => {
           seatLimit: 5,
           revokedInviteCount: 0,
           warningCodes: [],
+          recoveryNotices: expect.arrayContaining([
+            expect.objectContaining({
+              code: 'invites_restored',
+              severity: 'success',
+              actionCode: null,
+            }),
+          ]),
         },
         recentBillingEvents: expect.arrayContaining([
           expect.objectContaining({ type: 'workspace_plan_restored' }),
@@ -1793,11 +1800,38 @@ describe('public API (mock DB)', () => {
           recommendedActions: expect.arrayContaining([
             expect.objectContaining({ code: 'upgrade_to_team' }),
           ]),
+          recoveryNotices: expect.arrayContaining([
+            expect.objectContaining({
+              code: 'workspace_plan_inactive',
+              severity: 'critical',
+              actionCode: 'upgrade_to_team',
+            }),
+          ]),
         },
         recentBillingEvents: expect.arrayContaining([
           expect.objectContaining({ type: 'workspace_plan_inactive' }),
           expect.objectContaining({ type: 'members_fallback_started', count: 1 }),
         ]),
+      },
+    });
+
+    const memberWorkspaceRes = await app.inject({
+      method: 'GET',
+      url: '/v1/team-workspace/me',
+      headers: { authorization: `Bearer ${memberRegistered.accessToken}` },
+    });
+    expect(memberWorkspaceRes.statusCode).toBe(200);
+    expect(JSON.parse(memberWorkspaceRes.body)).toMatchObject({
+      workspace: {
+        billing: {
+          recoveryNotices: expect.arrayContaining([
+            expect.objectContaining({
+              code: 'workspace_plan_inactive',
+              severity: 'warning',
+              actionCode: null,
+            }),
+          ]),
+        },
       },
     });
   });
@@ -1943,11 +1977,38 @@ describe('public API (mock DB)', () => {
           fallbackMemberCount: 0,
           canInviteMore: true,
           recommendedActions: [],
+          recoveryNotices: expect.arrayContaining([
+            expect.objectContaining({
+              code: 'team_access_restored',
+              severity: 'success',
+              actionCode: null,
+            }),
+          ]),
         },
         recentBillingEvents: expect.arrayContaining([
           expect.objectContaining({ type: 'workspace_plan_restored' }),
           expect.objectContaining({ type: 'members_fallback_cleared', count: 1 }),
         ]),
+      },
+    });
+
+    const memberWorkspaceRes = await app.inject({
+      method: 'GET',
+      url: '/v1/team-workspace/me',
+      headers: { authorization: `Bearer ${memberRegistered.accessToken}` },
+    });
+    expect(memberWorkspaceRes.statusCode).toBe(200);
+    expect(JSON.parse(memberWorkspaceRes.body)).toMatchObject({
+      workspace: {
+        billing: {
+          recoveryNotices: expect.arrayContaining([
+            expect.objectContaining({
+              code: 'team_access_restored',
+              severity: 'success',
+              actionCode: null,
+            }),
+          ]),
+        },
       },
     });
   });

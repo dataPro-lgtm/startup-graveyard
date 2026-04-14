@@ -467,6 +467,30 @@ export function TeamWorkspacePanel() {
                 </div>
               </div>
             </div>
+            {workspace.billing.recoveryNotices.length > 0 ? (
+              <div style={{ display: 'grid', gap: 8 }}>
+                {workspace.billing.recoveryNotices.map((notice) => {
+                  const tone = eventTone(notice.severity);
+                  return (
+                    <div
+                      key={notice.code}
+                      style={{
+                        borderRadius: 12,
+                        padding: '12px 14px',
+                        fontSize: 13,
+                        lineHeight: 1.7,
+                        display: 'grid',
+                        gap: 8,
+                        ...tone,
+                      }}
+                    >
+                      <div style={{ fontWeight: 700 }}>{notice.title}</div>
+                      <div>{notice.detail}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
             {workspace.billing.warningCodes.length > 0 ? (
               <div style={{ display: 'grid', gap: 8 }}>
                 {workspace.billing.warningCodes.map((code) => (
@@ -563,11 +587,11 @@ export function TeamWorkspacePanel() {
                   </div>
                 ) : null}
               </div>
-            ) : (
+            ) : workspace.billing.recoveryNotices.length === 0 ? (
               <div style={{ color: '#8a96b0', fontSize: 13 }}>
                 当前团队工作区账单和席位状态健康，没有待处理的运营告警。
               </div>
-            )}
+            ) : null}
           </div>
 
           <div style={{ ...cardStyle, display: 'grid', gap: 12 }}>

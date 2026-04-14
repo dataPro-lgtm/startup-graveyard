@@ -806,6 +806,20 @@ components:
     TeamWorkspaceBillingRecoveryActionSurface:
       type: string
       enum: [checkout, billing_portal, workspace_members]
+    TeamWorkspaceBillingNoticeCode:
+      type: string
+      enum:
+        [
+          workspace_plan_inactive,
+          past_due,
+          cancel_at_period_end,
+          seat_limit_reached,
+          invites_restored,
+          team_access_restored,
+        ]
+    TeamWorkspaceRecoveryStage:
+      type: string
+      enum: [needs_outreach, owner_engaged, recovered_followup]
     TeamWorkspaceBillingEventType:
       type: string
       enum:
@@ -876,6 +890,20 @@ components:
         detail: { type: string }
         surface:
           $ref: '#/components/schemas/TeamWorkspaceBillingRecoveryActionSurface'
+    TeamWorkspaceBillingNotice:
+      type: object
+      required: [code, severity, title, detail, actionCode]
+      properties:
+        code:
+          $ref: '#/components/schemas/TeamWorkspaceBillingNoticeCode'
+        severity:
+          $ref: '#/components/schemas/TeamWorkspaceBillingEventSeverity'
+        title: { type: string }
+        detail: { type: string }
+        actionCode:
+          allOf:
+            - $ref: '#/components/schemas/TeamWorkspaceBillingRecoveryActionCode'
+          nullable: true
     TeamWorkspaceAdminActionableWorkspace:
       type: object
       required:
@@ -900,6 +928,7 @@ components:
           lastCommercialEventAt,
           lastCommercialEventType,
           lastCommercialEventSource,
+          recoveryStage,
         ]
       properties:
         workspaceId: { type: string, format: uuid }
@@ -936,6 +965,8 @@ components:
           allOf:
             - $ref: '#/components/schemas/BillingFunnelEventSource'
           nullable: true
+        recoveryStage:
+          $ref: '#/components/schemas/TeamWorkspaceRecoveryStage'
     TeamWorkspaceBilling:
       type: object
       required:
@@ -956,6 +987,7 @@ components:
           canInviteMore,
           warningCodes,
           recommendedActions,
+          recoveryNotices,
         ]
       properties:
         ownerUserId: { type: string, format: uuid }
@@ -982,6 +1014,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/TeamWorkspaceBillingRecoveryAction'
+        recoveryNotices:
+          type: array
+          items:
+            $ref: '#/components/schemas/TeamWorkspaceBillingNotice'
     TeamWorkspaceBillingEvent:
       type: object
       required: [id, type, severity, title, detail, count, createdAt]
@@ -1460,6 +1496,7 @@ components:
           fallbackMembers,
           seatUtilizationRate,
           recoveryActions,
+          recoveryStages,
           recentBillingEvents,
           actionableWorkspaces,
         ]
@@ -1485,6 +1522,16 @@ components:
             properties:
               code:
                 $ref: '#/components/schemas/TeamWorkspaceBillingRecoveryActionCode'
+              title: { type: string }
+              count: { type: integer, minimum: 0 }
+        recoveryStages:
+          type: array
+          items:
+            type: object
+            required: [stage, title, count]
+            properties:
+              stage:
+                $ref: '#/components/schemas/TeamWorkspaceRecoveryStage'
               title: { type: string }
               count: { type: integer, minimum: 0 }
         recentBillingEvents:

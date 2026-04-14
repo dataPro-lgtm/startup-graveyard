@@ -268,6 +268,9 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
           recoveryActions: expect.arrayContaining([
             expect.objectContaining({ code: 'free_up_seats', count: 1 }),
           ]),
+          recoveryStages: expect.arrayContaining([
+            expect.objectContaining({ stage: 'recovered_followup', count: 1 }),
+          ]),
           actionableWorkspaces: expect.arrayContaining([
             expect.objectContaining({
               workspaceName: 'Admin Metrics Workspace',
@@ -280,6 +283,7 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
               recommendedActions: expect.arrayContaining([
                 expect.objectContaining({ code: 'free_up_seats' }),
               ]),
+              recoveryStage: 'recovered_followup',
               lastCommercialEventType: 'subscription_recovered',
               lastCommercialEventSource: 'team_workspace',
             }),

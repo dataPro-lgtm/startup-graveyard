@@ -285,6 +285,8 @@ function buildWorkspaceBilling(input: {
   seatsUsed: number;
   pendingInviteCount: number;
   compensation?: WorkspaceCompensationSummary;
+  viewerRole?: TeamWorkspaceRole;
+  recentBillingEvents?: Array<Pick<TeamWorkspaceBillingEvent, 'type' | 'count'>>;
 }): TeamWorkspaceBilling {
   const seatLimit = resolveTeamWorkspaceSeatLimit({
     subscription: input.owner.subscription,
@@ -300,8 +302,17 @@ function buildWorkspaceBilling(input: {
     seatLimit,
     reservedSeats,
   });
+  const recommendedActions = buildRecoveryActions({
+    subscription: input.owner.subscription,
+    billingStatus: input.owner.billingStatus,
+    warningCodes,
+    seatLimit,
+    seatsRemaining,
+    fallbackMemberCount,
+    revokedInviteCount,
+  });
 
-  return {
+  const billing = {
     ownerUserId: input.owner.id,
     ownerDisplayName: input.owner.displayName,
     ownerEmail: input.owner.email,
@@ -317,14 +328,17 @@ function buildWorkspaceBilling(input: {
     revokedInviteCount,
     canInviteMore: seatLimit > 0 && reservedSeats < seatLimit,
     warningCodes,
-    recommendedActions: buildRecoveryActions({
-      subscription: input.owner.subscription,
-      billingStatus: input.owner.billingStatus,
-      warningCodes,
-      seatLimit,
-      seatsRemaining,
-      fallbackMemberCount,
-      revokedInviteCount,
+    recommendedActions,
+  } satisfies Omit<TeamWorkspaceBilling, 'recoveryNotices'>;
+
+  return {
+    ...billing,
+    recoveryNotices: buildRecoveryNotices({
+      viewerRole: input.viewerRole ?? 'owner',
+      ownerDisplayName: input.owner.displayName,
+      ownerEmail: input.owner.email,
+      billing,
+      recentBillingEvents: input.recentBillingEvents ?? [],
     }),
   };
 }
@@ -554,6 +568,145 @@ function buildRecoveryActions(input: {
   return actions;
 }
 
+function buildRecoveryNotices(input: {
+  viewerRole: TeamWorkspaceRole;
+  ownerDisplayName: string | null;
+  ownerEmail: string;
+  billing: Omit<TeamWorkspaceBilling, 'recoveryNotices'>;
+  recentBillingEvents: Array<Pick<TeamWorkspaceBillingEvent, 'type' | 'count'>>;
+}): TeamWorkspaceBilling['recoveryNotices'] {
+  const notices: TeamWorkspaceBilling['recoveryNotices'] = [];
+  const seenCodes = new Set<TeamWorkspaceBilling['recoveryNotices'][number]['code']>();
+  const ownerLabel = input.ownerDisplayName ?? input.ownerEmail;
+
+  const pushNotice = (notice: TeamWorkspaceBilling['recoveryNotices'][number]) => {
+    if (seenCodes.has(notice.code)) return;
+    seenCodes.add(notice.code);
+    notices.push(notice);
+  };
+
+  if (input.billing.warningCodes.includes('workspace_plan_inactive')) {
+    if (input.viewerRole === 'owner') {
+      const primaryAction = input.billing.recommendedActions.find(
+        (action) => action.code === 'resume_team_subscription' || action.code === 'upgrade_to_team',
+      );
+      pushNotice({
+        code: 'workspace_plan_inactive',
+        severity: 'critical',
+        title: 'Team Workspace 已进入恢复期',
+        detail:
+          input.billing.fallbackMemberCount > 0 || input.billing.revokedInviteCount > 0
+            ? `当前已有 ${input.billing.fallbackMemberCount} 名成员回退到个人权限，${input.billing.revokedInviteCount} 条邀请被系统撤销。请优先恢复 Team 订阅，恢复后成员权限和邀请会自动补齐。`
+            : '当前工作区已经失去有效 Team entitlement。请优先恢复 Team 订阅，恢复后席位、邀请和共享能力会自动回到正常状态。',
+        actionCode: primaryAction?.code ?? null,
+      });
+    } else {
+      pushNotice({
+        code: 'workspace_plan_inactive',
+        severity: 'warning',
+        title: '当前团队权限已暂停继承',
+        detail: `你现在按个人套餐权限继续使用。若需要恢复 Team 能力，请联系账单所有者 ${ownerLabel} 处理订阅恢复。`,
+        actionCode: null,
+      });
+    }
+  }
+
+  if (input.billing.warningCodes.includes('past_due')) {
+    if (input.viewerRole === 'owner') {
+      pushNotice({
+        code: 'past_due',
+        severity: 'warning',
+        title: 'Team 订阅付款待处理',
+        detail:
+          '请尽快通过 billing portal 更新支付方式并完成补扣，避免工作区继续停留在降级风险中。',
+        actionCode:
+          input.billing.recommendedActions.find((action) => action.code === 'update_payment_method')
+            ?.code ?? null,
+      });
+    } else {
+      pushNotice({
+        code: 'past_due',
+        severity: 'warning',
+        title: '团队订阅存在付款风险',
+        detail: `账单所有者 ${ownerLabel} 需要完成补款或更新支付方式，否则团队权限可能进一步收紧。`,
+        actionCode: null,
+      });
+    }
+  }
+
+  if (input.billing.warningCodes.includes('cancel_at_period_end')) {
+    if (input.viewerRole === 'owner') {
+      pushNotice({
+        code: 'cancel_at_period_end',
+        severity: 'warning',
+        title: 'Team 订阅已设置到期取消',
+        detail: '如果希望团队协作持续生效，请在当前计费周期结束前恢复自动续费。',
+        actionCode:
+          input.billing.recommendedActions.find(
+            (action) => action.code === 'renew_team_subscription',
+          )?.code ?? null,
+      });
+    } else {
+      pushNotice({
+        code: 'cancel_at_period_end',
+        severity: 'info',
+        title: '团队订阅将在当前周期结束后取消',
+        detail: `如果 ${ownerLabel} 不恢复续费，当前工作区后续会回退到个人套餐权限。`,
+        actionCode: null,
+      });
+    }
+  }
+
+  if (
+    input.billing.warningCodes.includes('seat_limit_reached') &&
+    (input.viewerRole === 'owner' || input.viewerRole === 'admin')
+  ) {
+    pushNotice({
+      code: 'seat_limit_reached',
+      severity: 'warning',
+      title: '团队席位已满',
+      detail:
+        input.billing.revokedInviteCount > 0
+          ? `当前席位已满，且系统已经撤销 ${input.billing.revokedInviteCount} 条待接受邀请。请先清理成员或邀请，再继续扩展团队。`
+          : '当前席位已经用满。请先释放成员或处理待接受邀请，再继续邀请新成员。',
+      actionCode:
+        input.billing.recommendedActions.find((action) => action.code === 'free_up_seats')?.code ??
+        null,
+    });
+  }
+
+  if (input.recentBillingEvents.some((event) => event.type === 'invites_auto_restored')) {
+    const restoredCount =
+      input.recentBillingEvents.find((event) => event.type === 'invites_auto_restored')?.count ??
+      null;
+    pushNotice({
+      code: 'invites_restored',
+      severity: 'success',
+      title: '已恢复被撤销的待接受邀请',
+      detail:
+        restoredCount && restoredCount > 0
+          ? `系统已经恢复 ${restoredCount} 条此前因账单或席位风险被撤销的邀请，你现在可以直接继续跟进成员加入。`
+          : '系统已经恢复此前因账单或席位风险被撤销的待接受邀请，你现在可以直接继续跟进成员加入。',
+      actionCode: null,
+    });
+  }
+
+  if (input.recentBillingEvents.some((event) => event.type === 'members_fallback_cleared')) {
+    pushNotice({
+      code: 'team_access_restored',
+      severity: 'success',
+      title: 'Team 权限已重新恢复',
+      detail:
+        input.viewerRole === 'owner'
+          ? '此前回退到个人套餐的成员已经重新继承 Team 权限。'
+          : '你现在已经重新继承当前 Team Workspace 的团队权限，可继续使用保存视图、导出和协作能力。',
+      actionCode: null,
+    });
+  }
+
+  return notices;
+}
+
 function accumulateRecoveryActions(
   actions: TeamWorkspaceBillingRecoveryAction[],
   counts: Map<TeamWorkspaceBillingRecoveryActionCode, AdminRecoveryAction>,
@@ -601,6 +754,7 @@ function toAdminActionableWorkspace(input: {
     lastCommercialEventAt: null,
     lastCommercialEventType: null,
     lastCommercialEventSource: null,
+    recoveryStage: 'needs_outreach',
   };
 }
 
@@ -885,6 +1039,7 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
       fallbackMembers,
       seatUtilizationRate: totalSeatCapacity > 0 ? reservedSeats / totalSeatCapacity : null,
       recoveryActions: [...recoveryActionCounts.values()].sort((a, b) => b.count - a.count),
+      recoveryStages: [],
       recentBillingEvents: this.billingEvents.slice(0, 8),
       actionableWorkspaces: actionableWorkspaces.sort((a, b) => {
         const warningDelta = b.warningCodes.length - a.warningCodes.length;
@@ -1353,6 +1508,8 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
     if (!owner) return null;
     const compensation = this.getCompensationSummary(workspace.id);
 
+    const recentBillingEvents = this.getRecentBillingEvents(workspace.id);
+
     return {
       id: workspace.id,
       name: workspace.name,
@@ -1367,8 +1524,10 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
         seatsUsed: members.length,
         pendingInviteCount: invites.length,
         compensation,
+        viewerRole: membership.role,
+        recentBillingEvents,
       }),
-      recentBillingEvents: this.getRecentBillingEvents(workspace.id),
+      recentBillingEvents,
       members,
       invites,
       sharedSavedViews,
@@ -1583,6 +1742,7 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
               canInviteMore: seatLimit > 0 && workspaceReservedSeats < seatLimit,
               warningCodes,
               recommendedActions,
+              recoveryNotices: [],
             },
             pendingInvites: workspacePendingInvites,
             lastBillingEvent: latestBillingEventsByWorkspaceId.get(row.workspace_id) ?? null,
@@ -1621,6 +1781,7 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
       fallbackMembers,
       seatUtilizationRate: totalSeatCapacity > 0 ? reservedSeats / totalSeatCapacity : null,
       recoveryActions: [...recoveryActionCounts.values()].sort((a, b) => b.count - a.count),
+      recoveryStages: [],
       recentBillingEvents: await this.getRecentBillingEvents(),
       actionableWorkspaces: actionableWorkspaces.sort((a, b) => {
         const warningDelta = b.warningCodes.length - a.warningCodes.length;
@@ -2461,6 +2622,10 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
     const owner = ownerRows.rows[0];
     if (!owner) return null;
 
+    const mappedRecentBillingEvents = recentBillingEvents.map(
+      ({ workspaceId: _workspaceId, workspaceName: _workspaceName, ...event }) => event,
+    );
+
     return {
       id: workspaceId,
       name: membership.name,
@@ -2483,10 +2648,10 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
         seatsUsed: memberRows.rows.length,
         pendingInviteCount: inviteRows.rows.length,
         compensation,
+        viewerRole: membership.role,
+        recentBillingEvents: mappedRecentBillingEvents,
       }),
-      recentBillingEvents: recentBillingEvents.map(
-        ({ workspaceId: _workspaceId, workspaceName: _workspaceName, ...event }) => event,
-      ),
+      recentBillingEvents: mappedRecentBillingEvents,
       members: memberRows.rows.map(rowToMember),
       invites: inviteRows.rows.map(rowToInvite),
       sharedSavedViews: sharedSavedViewRows.rows.map(rowToSharedSavedView),

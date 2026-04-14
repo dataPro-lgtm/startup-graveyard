@@ -78,6 +78,24 @@ function emptyContentStats(): ContentStatsResult {
   };
 }
 
+function recoveryStageFromCommercialTouch(
+  type: CommercialAdminMetrics['billingFunnel']['recentEvents'][number]['type'] | null,
+): CommercialAdminMetrics['teamWorkspaces']['actionableWorkspaces'][number]['recoveryStage'] {
+  if (type === 'subscription_recovered') return 'recovered_followup';
+  if (type === 'checkout_started' || type === 'checkout_completed' || type === 'portal_started') {
+    return 'owner_engaged';
+  }
+  return 'needs_outreach';
+}
+
+function recoveryStageTitle(
+  stage: CommercialAdminMetrics['teamWorkspaces']['actionableWorkspaces'][number]['recoveryStage'],
+) {
+  if (stage === 'needs_outreach') return '尚未触达';
+  if (stage === 'owner_engaged') return 'Owner 已开始恢复';
+  return '已恢复待收尾';
+}
+
 async function fetchCommercialStats(app: FastifyInstance): Promise<CommercialAdminMetrics> {
   const [
     subscriptionStats,
@@ -106,6 +124,32 @@ async function fetchCommercialStats(app: FastifyInstance): Promise<CommercialAdm
   const latestCommercialTouchByUserId = new Map(
     latestCommercialTouches.map((touch) => [touch.userId, touch]),
   );
+  const actionableWorkspaces = teamWorkspaceStats.actionableWorkspaces.map((workspace) => {
+    const latestCommercialTouch = latestCommercialTouchByUserId.get(workspace.ownerUserId);
+    return {
+      ...workspace,
+      lastCommercialEventAt: latestCommercialTouch?.createdAt ?? null,
+      lastCommercialEventType: latestCommercialTouch?.type ?? null,
+      lastCommercialEventSource: latestCommercialTouch?.source ?? null,
+      recoveryStage: recoveryStageFromCommercialTouch(latestCommercialTouch?.type ?? null),
+    };
+  });
+  const recoveryStageCounts = new Map<
+    CommercialAdminMetrics['teamWorkspaces']['recoveryStages'][number]['stage'],
+    CommercialAdminMetrics['teamWorkspaces']['recoveryStages'][number]
+  >();
+  for (const workspace of actionableWorkspaces) {
+    const existing = recoveryStageCounts.get(workspace.recoveryStage);
+    if (existing) {
+      existing.count += 1;
+      continue;
+    }
+    recoveryStageCounts.set(workspace.recoveryStage, {
+      stage: workspace.recoveryStage,
+      title: recoveryStageTitle(workspace.recoveryStage),
+      count: 1,
+    });
+  }
 
   return {
     subscriptions: subscriptionStats,
@@ -132,15 +176,8 @@ async function fetchCommercialStats(app: FastifyInstance): Promise<CommercialAdm
     },
     teamWorkspaces: {
       ...teamWorkspaceStats,
-      actionableWorkspaces: teamWorkspaceStats.actionableWorkspaces.map((workspace) => {
-        const latestCommercialTouch = latestCommercialTouchByUserId.get(workspace.ownerUserId);
-        return {
-          ...workspace,
-          lastCommercialEventAt: latestCommercialTouch?.createdAt ?? null,
-          lastCommercialEventType: latestCommercialTouch?.type ?? null,
-          lastCommercialEventSource: latestCommercialTouch?.source ?? null,
-        };
-      }),
+      recoveryStages: [...recoveryStageCounts.values()].sort((a, b) => b.count - a.count),
+      actionableWorkspaces,
     },
   };
 }

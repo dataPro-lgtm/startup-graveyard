@@ -64,6 +64,14 @@ function commercialEventLabel(
   return '暂无商业化动作';
 }
 
+function recoveryStageLabel(
+  stage: AdminStats['commercial']['teamWorkspaces']['actionableWorkspaces'][number]['recoveryStage'],
+): string {
+  if (stage === 'needs_outreach') return '尚未触达';
+  if (stage === 'owner_engaged') return 'Owner 已开始恢复';
+  return '已恢复待收尾';
+}
+
 function DashboardContent({ stats }: { stats: AdminStats }) {
   const subscriptionStats = stats.commercial.subscriptions;
   const billingFunnelStats = stats.commercial.billingFunnel;
@@ -109,6 +117,7 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
     ...teamStats.recoveryActions.map((item) => item.count),
     1,
   );
+  const maxRecoveryStageMetric = Math.max(...teamStats.recoveryStages.map((item) => item.count), 1);
   const maxBillingFunnelMetric = Math.max(
     billingFunnelStats.checkoutStarts,
     billingFunnelStats.checkoutCompletions,
@@ -387,6 +396,25 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
           )}
         </ChartCard>
 
+        <ChartCard title="Workspace 恢复阶段">
+          {teamStats.recoveryStages.length === 0 ? (
+            <EmptyState text="当前没有需要分配恢复阶段的 workspace。" compact />
+          ) : (
+            <div style={{ display: 'grid', gap: 12 }}>
+              {teamStats.recoveryStages.map((item) => (
+                <BarRow
+                  key={item.stage}
+                  label={item.title}
+                  value={item.count}
+                  max={maxRecoveryStageMetric}
+                  color="#7c93ff"
+                  sub={item.stage}
+                />
+              ))}
+            </div>
+          )}
+        </ChartCard>
+
         <ChartCard title="Workspace 恢复队列">
           {teamStats.actionableWorkspaces.length === 0 ? (
             <EmptyState text="当前没有需要运营介入的高风险 workspace。" compact />
@@ -435,6 +463,9 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
                   </div>
                   <div style={{ color: '#c4d2ff', fontSize: 12, lineHeight: 1.7 }}>
                     建议动作：{workspace.recommendedActions.map((item) => item.title).join(' / ')}
+                  </div>
+                  <div style={{ color: '#c4d2ff', fontSize: 12, lineHeight: 1.7 }}>
+                    恢复阶段：{recoveryStageLabel(workspace.recoveryStage)}
                   </div>
                   <div style={{ color: '#9fb3ff', fontSize: 12, lineHeight: 1.7 }}>
                     最近商业化动作：{commercialEventLabel(workspace.lastCommercialEventType)} ·{' '}
