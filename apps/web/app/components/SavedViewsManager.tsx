@@ -18,7 +18,11 @@ import {
 } from '@/lib/savedViewsApi';
 import { getAccessToken } from '@/lib/authApi';
 import { casesListPath, type CasesSearchParams } from '@/lib/casesApi';
-import { exportResearchReport, isApiError as isReportApiError } from '@/lib/reportExportsApi';
+import {
+  exportResearchReport,
+  exportResearchReportPdf,
+  isApiError as isReportApiError,
+} from '@/lib/reportExportsApi';
 import {
   TEAM_WORKSPACE_REFRESH_EVENT,
   fetchTeamWorkspaceContext,
@@ -72,6 +76,26 @@ function upsertItem(items: SavedViewItem[], nextItem: SavedViewItem): SavedViewI
   return [nextItem, ...items.filter((item) => item.id !== nextItem.id)].sort((a, b) =>
     b.updatedAt.localeCompare(a.updatedAt),
   );
+}
+
+function triggerDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+function decodeBase64(base64: string): ArrayBuffer {
+  const binary = window.atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes.buffer as ArrayBuffer;
 }
 
 export function SavedViewsManager({ mode, currentFilters, suggestedName }: SavedViewsManagerProps) {
@@ -241,29 +265,40 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
     setMessage('Saved view 已删除。');
   }
 
-  async function handleExport(exportName: string, filters: SavedViewFilters, key: string) {
+  async function handleExport(
+    exportName: string,
+    filters: SavedViewFilters,
+    key: string,
+    format: 'markdown' | 'pdf',
+  ) {
     if (!user) return;
     const token = getAccessToken();
     if (!token) return;
-    setExportingKey(key);
+    const exportingToken = `${key}:${format}`;
+    setExportingKey(exportingToken);
     setError(null);
     setMessage(null);
-    const res = await exportResearchReport(token, { name: exportName, filters });
+    const res =
+      format === 'markdown'
+        ? await exportResearchReport(token, { name: exportName, filters })
+        : await exportResearchReportPdf(token, { name: exportName, filters });
     setExportingKey(null);
     if (isReportApiError(res)) {
       setError(apiErrorMessage(res));
       return;
     }
-    const blob = new Blob([res.content], { type: `${res.mimeType};charset=utf-8` });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = res.filename;
-    document.body.append(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
-    setMessage(`已导出 ${res.filename}`);
+    if (res.mimeType === 'text/markdown') {
+      triggerDownload(
+        new Blob([res.content], { type: `${res.mimeType};charset=utf-8` }),
+        res.filename,
+      );
+    } else {
+      triggerDownload(
+        new Blob([decodeBase64(res.contentBase64)], { type: res.mimeType }),
+        res.filename,
+      );
+    }
+    setMessage(`已导出 ${format === 'pdf' ? 'PDF' : 'Markdown'} brief：${res.filename}`);
   }
 
   async function handleShare(savedViewId: string) {
@@ -455,19 +490,36 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
                   {saving ? '保存中…' : '保存当前视图'}
                 </button>
                 {user.entitlements.canExportReports ? (
-                  <button
-                    onClick={() =>
-                      void handleExport(
-                        name.trim() || suggestedName || '全部案例',
-                        currentFilters,
-                        'current',
-                      )
-                    }
-                    disabled={exportingKey === 'current'}
-                    style={ghostMiniButton}
-                  >
-                    {exportingKey === 'current' ? '导出中…' : '导出 Markdown Brief'}
-                  </button>
+                  <>
+                    <button
+                      onClick={() =>
+                        void handleExport(
+                          name.trim() || suggestedName || '全部案例',
+                          currentFilters,
+                          'current',
+                          'markdown',
+                        )
+                      }
+                      disabled={exportingKey === 'current:markdown'}
+                      style={ghostMiniButton}
+                    >
+                      {exportingKey === 'current:markdown' ? '导出中…' : '导出 Markdown Brief'}
+                    </button>
+                    <button
+                      onClick={() =>
+                        void handleExport(
+                          name.trim() || suggestedName || '全部案例',
+                          currentFilters,
+                          'current',
+                          'pdf',
+                        )
+                      }
+                      disabled={exportingKey === 'current:pdf'}
+                      style={ghostMiniButton}
+                    >
+                      {exportingKey === 'current:pdf' ? '导出中…' : '导出 PDF Brief'}
+                    </button>
+                  </>
                 ) : null}
                 <span style={{ color: '#6b7fa8', fontSize: 12 }}>
                   会保留当前筛选，不含分页和临时浏览位置。
@@ -487,8 +539,8 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
       ) : null}
       {mode === 'full' && user?.entitlements.canExportReports ? (
         <p style={{ color: '#8a96b0', fontSize: 13 }}>
-          公开分享页会把当前 Saved View 快照渲染成可外发的 research brief。后续 PDF
-          和客户交付会沿用这层公开 brief。
+          公开分享页和 PDF brief 都会复用同一套 report
+          generator。现在可以直接对外发链接，也可以导出正式交付版 PDF。
         </p>
       ) : null}
       {message ? <p style={{ color: '#7dffb3' }}>{message}</p> : null}
@@ -650,13 +702,26 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
                   {mode === 'full' ? (
                     <>
                       {user?.entitlements.canExportReports ? (
-                        <button
-                          onClick={() => void handleExport(item.name, item.filters, item.id)}
-                          disabled={exportingKey === item.id}
-                          style={ghostMiniButton}
-                        >
-                          {exportingKey === item.id ? '导出中…' : '导出'}
-                        </button>
+                        <>
+                          <button
+                            onClick={() =>
+                              void handleExport(item.name, item.filters, item.id, 'markdown')
+                            }
+                            disabled={exportingKey === `${item.id}:markdown`}
+                            style={ghostMiniButton}
+                          >
+                            {exportingKey === `${item.id}:markdown` ? '导出中…' : '导出 Markdown'}
+                          </button>
+                          <button
+                            onClick={() =>
+                              void handleExport(item.name, item.filters, item.id, 'pdf')
+                            }
+                            disabled={exportingKey === `${item.id}:pdf`}
+                            style={ghostMiniButton}
+                          >
+                            {exportingKey === `${item.id}:pdf` ? '导出中…' : '导出 PDF'}
+                          </button>
+                        </>
                       ) : null}
                       {user?.entitlements.canExportReports ? (
                         <>

@@ -300,6 +300,17 @@ describe('business flow smoke (mock DB)', () => {
       },
     });
 
+    const publicSharePdfRes = await app.inject({
+      method: 'GET',
+      url: `/v1/reports/shares/public/${reportShare.item.shareToken}/pdf`,
+    });
+    expect(publicSharePdfRes.statusCode).toBe(200);
+    expect(publicSharePdfRes.headers['content-type']).toContain('application/pdf');
+    const publicSharePdfPayload = publicSharePdfRes as { rawPayload?: Buffer; body: string };
+    const publicSharePdfBytes =
+      publicSharePdfPayload.rawPayload ?? Buffer.from(publicSharePdfPayload.body, 'binary');
+    expect(publicSharePdfBytes.subarray(0, 5).toString()).toBe('%PDF-');
+
     const shareCaseRes = await app.inject({
       method: 'POST',
       url: '/v1/team-workspace/shared-cases',
@@ -419,6 +430,32 @@ describe('business flow smoke (mock DB)', () => {
       filename: 'cascade-atlas-team-memo.md',
       content: expect.stringContaining('Cascade Atlas'),
     });
+
+    const exportPdfRes = await app.inject({
+      method: 'POST',
+      url: '/v1/reports/exports/pdf',
+      headers: {
+        authorization: `Bearer ${memberRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        name: 'Cascade Atlas team memo',
+        filters: {
+          q: 'Cascade Atlas',
+          industry: 'saas',
+        },
+      },
+    });
+    expect(exportPdfRes.statusCode).toBe(200);
+    const exportedPdf = JSON.parse(exportPdfRes.body) as {
+      ok: true;
+      filename: string;
+      contentBase64: string;
+    };
+    expect(exportedPdf.filename).toBe('cascade-atlas-team-memo.pdf');
+    expect(Buffer.from(exportedPdf.contentBase64, 'base64').subarray(0, 5).toString()).toBe(
+      '%PDF-',
+    );
 
     const visitorId = `flow-visitor-${Date.now()}`;
 

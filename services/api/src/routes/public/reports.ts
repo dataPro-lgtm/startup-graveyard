@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import {
   exportResearchReportBodySchema,
+  exportResearchReportPdfResponseSchema,
   exportResearchReportResponseSchema,
 } from '../../schemas/reportExports.js';
 import {
@@ -13,6 +14,7 @@ import {
   reportShareListResponseSchema,
 } from '../../schemas/reportShares.js';
 import { buildResearchBrief, renderResearchBriefMarkdown } from '../../reports/researchBrief.js';
+import { renderResearchBriefPdf } from '../../reports/renderResearchBriefPdf.js';
 import type { ReportShareItemRecord } from '../../repositories/reportSharesRepository.js';
 import { requireEffectiveUser } from './authedUser.js';
 
@@ -67,6 +69,38 @@ export async function reportsRoutes(app: FastifyInstance) {
       sampleSize: brief.sampleSize,
       generatedAt: brief.generatedAt,
       content: renderResearchBriefMarkdown(brief),
+    });
+  });
+
+  app.post('/exports/pdf', async (request, reply) => {
+    const user = await requireEffectiveUser(app, request, reply);
+    if (!user) return reply;
+
+    const parsed = exportResearchReportBodySchema.safeParse(request.body ?? {});
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'invalid_body', details: parsed.error.flatten() });
+    }
+    if (!user.entitlements.canExportReports) {
+      return reply.code(403).send({ error: 'entitlement_required' });
+    }
+
+    const brief = await buildResearchBrief(app, {
+      title: parsed.data.name,
+      filters: parsed.data.filters,
+    });
+    const pdfBuffer = await renderResearchBriefPdf(brief, {
+      ownerDisplayName: user.displayName ?? null,
+    });
+
+    return exportResearchReportPdfResponseSchema.parse({
+      ok: true,
+      filename: `${slugifyFilename(parsed.data.name)}.pdf`,
+      mimeType: 'application/pdf',
+      title: parsed.data.name,
+      caseCount: brief.totalMatchingCases,
+      sampleSize: brief.sampleSize,
+      generatedAt: brief.generatedAt,
+      contentBase64: pdfBuffer.toString('base64'),
     });
   });
 
@@ -163,5 +197,34 @@ export async function reportsRoutes(app: FastifyInstance) {
       },
       brief,
     });
+  });
+
+  app.get('/shares/public/:shareToken/pdf', async (request, reply) => {
+    const params = publicReportShareParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      return reply.code(400).send({ error: 'invalid_params', details: params.error.flatten() });
+    }
+
+    const share = await app.reportSharesRepo.getPublicByToken(params.data.shareToken);
+    if (!share) {
+      return reply.code(404).send({ error: 'share_not_found' });
+    }
+
+    const brief = await buildResearchBrief(app, {
+      title: share.savedViewName,
+      filters: share.filters,
+    });
+    const pdfBuffer = await renderResearchBriefPdf(brief, {
+      ownerDisplayName: share.ownerDisplayName,
+      shareUrl: `${appBaseUrl()}${sharePath(share.shareToken)}`,
+    });
+
+    return reply
+      .header('content-type', 'application/pdf')
+      .header(
+        'content-disposition',
+        `attachment; filename="${slugifyFilename(share.savedViewName)}.pdf"`,
+      )
+      .send(pdfBuffer);
   });
 }

@@ -1,5 +1,8 @@
 import { API_BASE_URL } from './api';
-import { exportResearchReportResponseSchema } from '@sg/shared/schemas/reportExports';
+import {
+  exportResearchReportPdfResponseSchema,
+  exportResearchReportResponseSchema,
+} from '@sg/shared/schemas/reportExports';
 import type { SavedViewFilters } from '@sg/shared/schemas/savedViews';
 
 type ApiError = { error: string; details?: unknown };
@@ -23,4 +26,21 @@ export async function exportResearchReport(
   const json: unknown = await res.json();
   if (!res.ok) return json as ApiError;
   return exportResearchReportResponseSchema.parse(json);
+}
+
+export async function exportResearchReportPdf(
+  token: string,
+  input: { name: string; filters: SavedViewFilters },
+) {
+  const res = await fetch(`${API_BASE_URL}/v1/reports/exports/pdf`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(input),
+  });
+  const json: unknown = await res.json();
+  if (!res.ok) return json as ApiError;
+  return exportResearchReportPdfResponseSchema.parse(json);
 }

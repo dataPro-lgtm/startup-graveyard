@@ -362,8 +362,8 @@ export default function AccountPage() {
           <p style={{ margin: 0, color: '#c8d0e5', lineHeight: 1.7 }}>
             先在案例库筛选和保存研究视图，再沉淀关键案例到 Watchlist，用 Copilot 做多轮追问，然后把
             Saved View 生成公开 research brief，最后把视图和案例共享到 Team
-            Workspace。当前版本先把这条主链跑顺，PDF
-            交付、团队账单补偿和更完整的运营自动化放到下一阶段。
+            Workspace。当前版本已经把公开 brief 和 PDF
+            交付接上，团队账单补偿和更完整的运营自动化放到下一阶段。
           </p>
         </div>
         <div
@@ -396,8 +396,8 @@ export default function AccountPage() {
           />
           <FlowCard
             step="04"
-            title="生成公开分享页"
-            body="把 Saved View 渲染成可外发的 research brief，方便发给客户、合作者或投资委员会。"
+            title="生成分享页与 PDF"
+            body="把 Saved View 渲染成可外发的 research brief，并补一份正式 PDF，方便发给客户、合作者或投资委员会。"
             href="#saved-views"
             cta="查看分享入口"
           />

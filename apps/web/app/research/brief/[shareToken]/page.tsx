@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { API_BASE_URL } from '@/lib/api';
 import { fetchPublicReportShare, isApiError } from '@/lib/reportSharesApi';
 import { formatUsd } from '@/lib/formatUsd';
 import { countryLabel, industryLabel, primaryFailureReasonLabel } from '@sg/shared/taxonomy';
@@ -14,6 +15,7 @@ export default async function SharedResearchBriefPage({
   if (isApiError(data)) {
     notFound();
   }
+  const pdfHref = `${API_BASE_URL}/v1/reports/shares/public/${encodeURIComponent(shareToken)}/pdf`;
 
   return (
     <main style={{ maxWidth: 1080, margin: '0 auto', padding: '48px 24px 88px' }}>
@@ -67,6 +69,14 @@ export default async function SharedResearchBriefPage({
               返回案例库同筛选 →
             </Link>
           </div>
+        </div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 18 }}>
+          <a href={pdfHref} style={primaryCtaStyle}>
+            下载 PDF Brief
+          </a>
+          <Link href={data.brief.sourceViewPath} style={secondaryCtaStyle}>
+            返回案例库同筛选
+          </Link>
         </div>
       </section>
 
@@ -237,3 +247,29 @@ function BucketCard({ title, values }: { title: string; values: string[] }) {
     </div>
   );
 }
+
+const primaryCtaStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  minHeight: 40,
+  padding: '0 16px',
+  borderRadius: 999,
+  background: '#5b7cff',
+  color: '#fff',
+  textDecoration: 'none',
+  fontWeight: 700,
+} as const;
+
+const secondaryCtaStyle = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  minHeight: 40,
+  padding: '0 16px',
+  borderRadius: 999,
+  border: '1px solid #2a3658',
+  color: '#9fb3ff',
+  textDecoration: 'none',
+  fontWeight: 700,
+} as const;

@@ -604,6 +604,18 @@ components:
         sampleSize: { type: integer, minimum: 0 }
         generatedAt: { type: string }
         content: { type: string }
+    ExportResearchReportPdfResponse:
+      type: object
+      required: [ok, filename, mimeType, title, caseCount, sampleSize, generatedAt, contentBase64]
+      properties:
+        ok: { type: boolean, enum: [true] }
+        filename: { type: string }
+        mimeType: { type: string, enum: ['application/pdf'] }
+        title: { type: string }
+        caseCount: { type: integer, minimum: 0 }
+        sampleSize: { type: integer, minimum: 0 }
+        generatedAt: { type: string }
+        contentBase64: { type: string }
     ReportShareItem:
       type: object
       required:
@@ -2135,6 +2147,37 @@ paths:
           description: Entitlement required
         '404':
           description: User not found
+  /v1/reports/exports/pdf:
+    post:
+      summary: Export the current filters as a PDF research brief
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, filters]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 80 }
+                filters:
+                  $ref: '#/components/schemas/SavedViewFilters'
+      responses:
+        '200':
+          description: PDF research brief generated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExportResearchReportPdfResponse'
+        '400':
+          description: Invalid body
+        '401':
+          description: Unauthorized
+        '403':
+          description: Entitlement required
+        '404':
+          description: User not found
   /v1/reports/shares/me:
     get:
       summary: List the current user's public research brief shares
@@ -2222,6 +2265,30 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PublicReportShareResponse'
+        '400':
+          description: Invalid path parameter
+        '404':
+          description: Share not found
+  /v1/reports/shares/public/{shareToken}/pdf:
+    get:
+      summary: Download a public research brief as PDF
+      parameters:
+        - in: path
+          name: shareToken
+          required: true
+          schema:
+            type: string
+            minLength: 8
+            maxLength: 64
+            pattern: '^[a-z0-9]+$'
+      responses:
+        '200':
+          description: PDF binary for the shared research brief
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
         '400':
           description: Invalid path parameter
         '404':

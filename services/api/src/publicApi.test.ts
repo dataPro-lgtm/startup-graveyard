@@ -570,6 +570,23 @@ describe('public API (mock DB)', () => {
       error: 'entitlement_required',
     });
 
+    const blockedPdfRes = await app.inject({
+      method: 'POST',
+      url: '/v1/reports/exports/pdf',
+      headers: {
+        authorization: `Bearer ${registered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        name: 'Marketplace memo',
+        filters: { businessModelKey: 'marketplace' },
+      },
+    });
+    expect(blockedPdfRes.statusCode).toBe(403);
+    expect(JSON.parse(blockedPdfRes.body)).toMatchObject({
+      error: 'entitlement_required',
+    });
+
     await app.usersRepo.updateBillingAccount(registered.user.id, {
       subscription: 'pro',
       billingStatus: 'active',
@@ -604,6 +621,34 @@ describe('public API (mock DB)', () => {
     expect(exported.content).toContain('## Snapshot');
     expect(exported.content).toContain('## Matching Cases');
     expect(exported.content).toContain('Airlift');
+
+    const exportPdfRes = await app.inject({
+      method: 'POST',
+      url: '/v1/reports/exports/pdf',
+      headers: {
+        authorization: `Bearer ${registered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        name: 'Marketplace memo',
+        filters: { businessModelKey: 'marketplace' },
+      },
+    });
+    expect(exportPdfRes.statusCode).toBe(200);
+    const exportedPdf = JSON.parse(exportPdfRes.body) as {
+      filename: string;
+      mimeType: string;
+      caseCount: number;
+      sampleSize: number;
+      contentBase64: string;
+    };
+    expect(exportedPdf.filename).toBe('marketplace-memo.pdf');
+    expect(exportedPdf.mimeType).toBe('application/pdf');
+    expect(exportedPdf.caseCount).toBeGreaterThan(0);
+    expect(exportedPdf.sampleSize).toBeGreaterThan(0);
+    const pdfBytes = Buffer.from(exportedPdf.contentBase64, 'base64');
+    expect(pdfBytes.subarray(0, 5).toString()).toBe('%PDF-');
+    expect(pdfBytes.length).toBeGreaterThan(1000);
   });
 
   it('report shares unlock with Pro and expose public research briefs', async () => {
@@ -747,6 +792,19 @@ describe('public API (mock DB)', () => {
         filterSummary: ['模式：平台 / 撮合'],
       },
     });
+
+    const publicSharePdfRes = await app.inject({
+      method: 'GET',
+      url: `/v1/reports/shares/public/${createdShare.item.shareToken}/pdf`,
+    });
+    expect(publicSharePdfRes.statusCode).toBe(200);
+    expect(publicSharePdfRes.headers['content-type']).toContain('application/pdf');
+    const sharePdfPayload = publicSharePdfRes as unknown as {
+      rawPayload?: Buffer;
+      body: string;
+    };
+    const sharePdfBytes = sharePdfPayload.rawPayload ?? Buffer.from(sharePdfPayload.body, 'binary');
+    expect(sharePdfBytes.subarray(0, 5).toString()).toBe('%PDF-');
 
     const listAfterAccessRes = await app.inject({
       method: 'GET',
