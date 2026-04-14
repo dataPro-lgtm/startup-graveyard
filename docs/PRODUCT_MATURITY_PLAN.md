@@ -44,9 +44,9 @@
 
 ### P1 产品能力
 
-- Topic/专题研究页、趋势看板、个人 watchlist、saved views、Markdown / PDF 导出、公开 research brief 分享页、Team Workspace 协作基础，以及 team seat 继承权限、降级补偿和运营指标已经上线，但更完整的团队账单生命周期仍未落地。
+- Topic/专题研究页、趋势看板、个人 watchlist、saved views、Markdown / PDF 导出、公开 research brief 分享页、Team Workspace 协作基础，以及 team seat 继承权限、降级补偿、账单事件与转化漏斗指标已经上线，但更完整的团队账单自动化仍未落地。
 - 首页仍偏“案例站”，离“研究入口 / 决策面板”还有距离。
-- Free / Pro / Team 的权益边界已经有了基础模型，商业化能力现在覆盖到 watchlist + saved views + Markdown / PDF export + public brief share + Team Workspace + seat-aware entitlement + downgrade compensation；剩余短板集中在 workspace 级账单运营和转化分析闭环。
+- Free / Pro / Team 的权益边界已经有了基础模型，商业化能力现在覆盖到 watchlist + saved views + Markdown / PDF export + public brief share + Team Workspace + seat-aware entitlement + downgrade compensation + billing funnel analytics；剩余短板集中在 workspace 级账单自动化运营闭环。
 
 ### P2 平台化与运营
 
@@ -267,3 +267,9 @@
 - Team Workspace 不再只暴露 warning codes 和事件留痕，而是会直接给出推荐恢复动作，例如“重新升级到 Team”“更新支付方式”“恢复自动续费”“释放席位”。
 - 账户页的 Team Workspace 面板现在会把这些恢复动作直接展示给 workspace owner，因此用户看到风险后不必自己判断下一步该点哪里。
 - Admin Dashboard 也会聚合恢复动作分布和需要处理动作的 workspace 数量，让运营从“看到风险工作区”进一步升级到“知道当前最需要推动哪类恢复动作”。
+
+已完成 M3 第四段第八部分（billing funnel instrumentation）：
+
+- `/v1/payments/checkout` 和 `/v1/payments/portal` 现在会记录来源于账户页或 Team Workspace 的商业化动作，Stripe webhook 还会补记 checkout completed 和 subscription recovered 事件。
+- Admin Dashboard 新增了 checkout 发起、checkout 完成率、billing portal 打开次数和订阅恢复次数，并保留最近商业化动作留痕，运营第一次能直接观察“发起升级 -> 完成支付 -> 恢复订阅”的漏斗。
+- 这让 M3 的下一步重点更明确地收敛到“基于这些漏斗指标做 workspace 级自动化恢复动作和运营实验”，而不是继续盲目加功能。

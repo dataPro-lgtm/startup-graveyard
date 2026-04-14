@@ -1,9 +1,13 @@
 export {
   adminStatsResponseSchema,
+  billingFunnelAdminMetricsSchema,
+  billingFunnelEventSchema,
   copilotAdminMetricsSchema,
   copilotEvalAdminMetricsSchema,
   copilotRunAdminMetricsSchema,
   type AdminStatsResponse,
+  type BillingFunnelAdminMetrics,
+  type BillingFunnelEvent,
   type CopilotAdminMetrics,
   type CopilotEvalAdminMetrics,
   type CopilotFlaggedRun,

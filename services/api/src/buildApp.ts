@@ -35,6 +35,11 @@ import {
   PgAuditRepository,
 } from './repositories/auditRepository.js';
 import {
+  type BillingFunnelRepository,
+  MockBillingFunnelRepository,
+  PgBillingFunnelRepository,
+} from './repositories/billingFunnelRepository.js';
+import {
   type IngestionJobsRepository,
   MockIngestionJobsRepository,
   PgIngestionJobsRepository,
@@ -110,6 +115,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
   let savedViewsRepo: SavedViewsRepository;
   let reportSharesRepo: ReportSharesRepository;
   let teamWorkspacesRepo: TeamWorkspacesRepository;
+  let billingFunnelRepo: BillingFunnelRepository;
   const queueApprovedCaseIndex = async (caseId: string) => {
     await ingestionJobsRepo.enqueue({
       sourceName: 'rebuild_case_search_index',
@@ -133,6 +139,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
     savedViewsRepo = new PgSavedViewsRepository(pgPool);
     reportSharesRepo = new PgReportSharesRepository(pgPool);
     teamWorkspacesRepo = new PgTeamWorkspacesRepository(pgPool);
+    billingFunnelRepo = new PgBillingFunnelRepository(pgPool);
     ingestionJobsRepo = new PgIngestionJobsRepository(
       pgPool,
       casesRepo,
@@ -158,6 +165,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
     savedViewsRepo = new MockSavedViewsRepository();
     reportSharesRepo = new MockReportSharesRepository();
     teamWorkspacesRepo = new MockTeamWorkspacesRepository(usersRepo, savedViewsRepo, casesRepo);
+    billingFunnelRepo = new MockBillingFunnelRepository();
     ingestionJobsRepo = new MockIngestionJobsRepository(
       casesRepo,
       adminWriteRepo,
@@ -180,6 +188,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
   server.decorate('savedViewsRepo', savedViewsRepo as SavedViewsRepository);
   server.decorate('reportSharesRepo', reportSharesRepo as ReportSharesRepository);
   server.decorate('teamWorkspacesRepo', teamWorkspacesRepo as TeamWorkspacesRepository);
+  server.decorate('billingFunnelRepo', billingFunnelRepo as BillingFunnelRepository);
   const auditRepo = pgPool ? new PgAuditRepository(pgPool) : new MockAuditRepository();
   server.decorate('auditRepo', auditRepo as AuditRepository);
   if (!pgPool) {

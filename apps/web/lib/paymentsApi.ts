@@ -1,6 +1,7 @@
 import { API_BASE_URL } from './api';
 
 export type PaymentCheckoutPlan = 'pro' | 'team';
+export type PaymentFlowSource = 'account_page' | 'team_workspace';
 
 type PaymentApiResponse = {
   url?: string;
@@ -20,6 +21,7 @@ export async function createCheckoutSession(
   accessToken: string,
   userId: string,
   plan: PaymentCheckoutPlan,
+  source: PaymentFlowSource = 'account_page',
 ) {
   const response = await fetch(`${API_BASE_URL}/v1/payments/checkout`, {
     method: 'POST',
@@ -27,7 +29,7 @@ export async function createCheckoutSession(
       'Content-Type': 'application/json',
       Authorization: `Bearer ${accessToken}`,
     },
-    body: JSON.stringify({ userId, plan }),
+    body: JSON.stringify({ userId, plan, source }),
   });
 
   return {
@@ -36,14 +38,17 @@ export async function createCheckoutSession(
   };
 }
 
-export async function createBillingPortalSession(accessToken: string) {
+export async function createBillingPortalSession(
+  accessToken: string,
+  source: PaymentFlowSource = 'account_page',
+) {
   const response = await fetch(`${API_BASE_URL}/v1/payments/portal`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${accessToken}`,
     },
-    body: JSON.stringify({}),
+    body: JSON.stringify({ source }),
   });
 
   return {

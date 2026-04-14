@@ -79,14 +79,21 @@ function emptyContentStats(): ContentStatsResult {
 }
 
 async function fetchCommercialStats(app: FastifyInstance): Promise<CommercialAdminMetrics> {
-  const [subscriptionStats, watchlistStats, savedViewStats, reportShareStats, teamWorkspaceStats] =
-    await Promise.all([
-      app.usersRepo.getAdminMetrics(),
-      app.watchlistsRepo.getAdminMetrics(),
-      app.savedViewsRepo.getAdminMetrics(),
-      app.reportSharesRepo.getAdminMetrics(),
-      app.teamWorkspacesRepo.getAdminMetrics(),
-    ]);
+  const [
+    subscriptionStats,
+    billingFunnelStats,
+    watchlistStats,
+    savedViewStats,
+    reportShareStats,
+    teamWorkspaceStats,
+  ] = await Promise.all([
+    app.usersRepo.getAdminMetrics(),
+    app.billingFunnelRepo.getAdminMetrics(),
+    app.watchlistsRepo.getAdminMetrics(),
+    app.savedViewsRepo.getAdminMetrics(),
+    app.reportSharesRepo.getAdminMetrics(),
+    app.teamWorkspacesRepo.getAdminMetrics(),
+  ]);
 
   const activeResearchUsers = new Set<string>([
     ...watchlistStats.userIds,
@@ -96,6 +103,7 @@ async function fetchCommercialStats(app: FastifyInstance): Promise<CommercialAdm
 
   return {
     subscriptions: subscriptionStats,
+    billingFunnel: billingFunnelStats,
     researchUsage: {
       activeResearchUsers,
       watchlistUsers: watchlistStats.users,

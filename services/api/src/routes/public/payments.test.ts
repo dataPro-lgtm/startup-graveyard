@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  getBillingFlowSource,
   getCheckoutPlan,
   getCheckoutPriceId,
   subscriptionFromStripeSubscription,
@@ -28,6 +29,13 @@ describe('payments helpers', () => {
     expect(getCheckoutPlan('team')).toBe('team');
     expect(getCheckoutPlan('enterprise')).toBeNull();
     expect(getCheckoutPlan(null)).toBeNull();
+  });
+
+  it('parses billing flow source safely', () => {
+    expect(getBillingFlowSource('account_page')).toBe('account_page');
+    expect(getBillingFlowSource('team_workspace')).toBe('team_workspace');
+    expect(getBillingFlowSource('dashboard')).toBeNull();
+    expect(getBillingFlowSource(null)).toBeNull();
   });
 
   it('returns configured checkout price ids for pro and team', () => {

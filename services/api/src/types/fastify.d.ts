@@ -1,6 +1,7 @@
 import type { AdminCaseAttachmentsRepository } from '../repositories/adminCaseAttachmentsRepository.js';
 import type { AdminWriteRepository } from '../repositories/adminWriteRepository.js';
 import type { AuditRepository } from '../repositories/auditRepository.js';
+import type { BillingFunnelRepository } from '../repositories/billingFunnelRepository.js';
 import type { CasesRepository } from '../repositories/casesRepository.js';
 import type { CopilotEvalsRepository } from '../repositories/copilotEvalsRepository.js';
 import type { CopilotSessionsRepository } from '../repositories/copilotSessionsRepository.js';
@@ -29,5 +30,6 @@ declare module 'fastify' {
     savedViewsRepo: SavedViewsRepository;
     reportSharesRepo: ReportSharesRepository;
     teamWorkspacesRepo: TeamWorkspacesRepository;
+    billingFunnelRepo: BillingFunnelRepository;
   }
 }

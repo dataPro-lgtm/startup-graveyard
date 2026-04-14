@@ -7,6 +7,7 @@ import {
 
 const nonnegativeInteger = z.number().int().nonnegative();
 const nonnegativeNumber = z.number().nonnegative();
+const commercialPlanSchema = z.enum(['pro', 'team']);
 
 export const copilotFeedbackEvalSchema = z.object({
   helpful: nonnegativeInteger,
@@ -153,6 +154,36 @@ export const teamWorkspaceAdminMetricsSchema = z.object({
   ),
 });
 
+export const billingFunnelEventTypeSchema = z.enum([
+  'checkout_started',
+  'checkout_completed',
+  'portal_started',
+  'subscription_recovered',
+]);
+
+export const billingFunnelEventSourceSchema = z.enum(['account_page', 'team_workspace']);
+
+export const billingFunnelEventSchema = z.object({
+  id: z.string().uuid(),
+  type: billingFunnelEventTypeSchema,
+  source: billingFunnelEventSourceSchema,
+  plan: commercialPlanSchema.nullable(),
+  detail: z.string(),
+  createdAt: z.string(),
+});
+
+export const billingFunnelAdminMetricsSchema = z.object({
+  checkoutStarts: nonnegativeInteger,
+  checkoutCompletions: nonnegativeInteger,
+  proCheckoutStarts: nonnegativeInteger,
+  teamCheckoutStarts: nonnegativeInteger,
+  portalStarts: nonnegativeInteger,
+  recoveredSubscriptions: nonnegativeInteger,
+  checkoutCompletionRate: z.number().min(0).max(1).nullable(),
+  teamCheckoutShare: z.number().min(0).max(1).nullable(),
+  recentEvents: z.array(billingFunnelEventSchema),
+});
+
 export const subscriptionAdminMetricsSchema = z.object({
   totalUsers: nonnegativeInteger,
   freeUsers: nonnegativeInteger,
@@ -182,6 +213,7 @@ export const researchUsageAdminMetricsSchema = z.object({
 
 export const commercialAdminMetricsSchema = z.object({
   subscriptions: subscriptionAdminMetricsSchema,
+  billingFunnel: billingFunnelAdminMetricsSchema,
   researchUsage: researchUsageAdminMetricsSchema,
   teamWorkspaces: teamWorkspaceAdminMetricsSchema,
 });
@@ -246,6 +278,10 @@ export type CopilotEvalBatch = z.infer<typeof copilotEvalBatchSchema>;
 export type CopilotEvalFailure = z.infer<typeof copilotEvalFailureSchema>;
 export type CopilotEvalAdminMetrics = z.infer<typeof copilotEvalAdminMetricsSchema>;
 export type CopilotAdminMetrics = z.infer<typeof copilotAdminMetricsSchema>;
+export type BillingFunnelEventType = z.infer<typeof billingFunnelEventTypeSchema>;
+export type BillingFunnelEventSource = z.infer<typeof billingFunnelEventSourceSchema>;
+export type BillingFunnelEvent = z.infer<typeof billingFunnelEventSchema>;
+export type BillingFunnelAdminMetrics = z.infer<typeof billingFunnelAdminMetricsSchema>;
 export type TeamWorkspaceAdminMetrics = z.infer<typeof teamWorkspaceAdminMetricsSchema>;
 export type SubscriptionAdminMetrics = z.infer<typeof subscriptionAdminMetricsSchema>;
 export type ResearchUsageAdminMetrics = z.infer<typeof researchUsageAdminMetricsSchema>;

@@ -275,7 +275,7 @@ export function TeamWorkspacePanel() {
     setRecoveryActionLoading(action.code);
     try {
       if (action.surface === 'checkout') {
-        const result = await createCheckoutSession(token, user.id, 'team');
+        const result = await createCheckoutSession(token, user.id, 'team', 'team_workspace');
         if (!isPaymentUrlResponse(result.data)) {
           setError(paymentErrorMessage({ context: 'checkout', response: result.data }));
           return;
@@ -284,7 +284,7 @@ export function TeamWorkspacePanel() {
         return;
       }
 
-      const result = await createBillingPortalSession(token);
+      const result = await createBillingPortalSession(token, 'team_workspace');
       if (!isPaymentUrlResponse(result.data)) {
         setError(paymentErrorMessage({ context: 'portal', response: result.data }));
         return;

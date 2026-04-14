@@ -1453,6 +1453,50 @@ components:
         cancelingUsers: { type: integer, minimum: 0 }
         paidConversionRate: { type: number, minimum: 0, maximum: 1, nullable: true }
         teamMixRate: { type: number, minimum: 0, maximum: 1, nullable: true }
+    BillingFunnelEvent:
+      type: object
+      required: [id, type, source, plan, detail, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        type:
+          type: string
+          enum: [checkout_started, checkout_completed, portal_started, subscription_recovered]
+        source:
+          type: string
+          enum: [account_page, team_workspace]
+        plan:
+          type: string
+          enum: [pro, team]
+          nullable: true
+        detail: { type: string }
+        createdAt: { type: string }
+    BillingFunnelAdminMetrics:
+      type: object
+      required:
+        [
+          checkoutStarts,
+          checkoutCompletions,
+          proCheckoutStarts,
+          teamCheckoutStarts,
+          portalStarts,
+          recoveredSubscriptions,
+          checkoutCompletionRate,
+          teamCheckoutShare,
+          recentEvents,
+        ]
+      properties:
+        checkoutStarts: { type: integer, minimum: 0 }
+        checkoutCompletions: { type: integer, minimum: 0 }
+        proCheckoutStarts: { type: integer, minimum: 0 }
+        teamCheckoutStarts: { type: integer, minimum: 0 }
+        portalStarts: { type: integer, minimum: 0 }
+        recoveredSubscriptions: { type: integer, minimum: 0 }
+        checkoutCompletionRate: { type: number, minimum: 0, maximum: 1, nullable: true }
+        teamCheckoutShare: { type: number, minimum: 0, maximum: 1, nullable: true }
+        recentEvents:
+          type: array
+          items:
+            $ref: '#/components/schemas/BillingFunnelEvent'
     ResearchUsageAdminMetrics:
       type: object
       required:
@@ -1485,10 +1529,12 @@ components:
         reportShareActivationRate: { type: number, minimum: 0, maximum: 1, nullable: true }
     CommercialAdminMetrics:
       type: object
-      required: [subscriptions, researchUsage, teamWorkspaces]
+      required: [subscriptions, billingFunnel, researchUsage, teamWorkspaces]
       properties:
         subscriptions:
           $ref: '#/components/schemas/SubscriptionAdminMetrics'
+        billingFunnel:
+          $ref: '#/components/schemas/BillingFunnelAdminMetrics'
         researchUsage:
           $ref: '#/components/schemas/ResearchUsageAdminMetrics'
         teamWorkspaces:
@@ -2023,6 +2069,10 @@ paths:
                   type: string
                   enum: [pro, team]
                   default: pro
+                source:
+                  type: string
+                  enum: [account_page, team_workspace]
+                  default: account_page
       responses:
         '200':
           description: Checkout session URL
@@ -2046,6 +2096,17 @@ paths:
       summary: Create a Stripe billing portal session for the current user
       security:
         - BearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                source:
+                  type: string
+                  enum: [account_page, team_workspace]
+                  default: account_page
       responses:
         '200':
           description: Billing portal URL

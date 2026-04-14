@@ -154,6 +154,34 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
     );
     const reportShares = await app.reportSharesRepo.listByUserId(ownerRegistered.user.id);
     await app.reportSharesRepo.getPublicByToken(reportShares[0]!.shareToken);
+    await app.billingFunnelRepo.record({
+      userId: ownerRegistered.user.id,
+      type: 'checkout_started',
+      source: 'account_page',
+      plan: 'team',
+      detail: '发起 Team 订阅结账。',
+    });
+    await app.billingFunnelRepo.record({
+      userId: ownerRegistered.user.id,
+      type: 'checkout_completed',
+      source: 'account_page',
+      plan: 'team',
+      detail: 'Stripe checkout 已完成，Team 订阅已开通。',
+    });
+    await app.billingFunnelRepo.record({
+      userId: ownerRegistered.user.id,
+      type: 'portal_started',
+      source: 'team_workspace',
+      plan: 'team',
+      detail: '从 Team Workspace 恢复动作打开 billing portal。',
+    });
+    await app.billingFunnelRepo.record({
+      userId: ownerRegistered.user.id,
+      type: 'subscription_recovered',
+      source: 'team_workspace',
+      plan: 'team',
+      detail: 'Team 订阅已恢复到健康状态。',
+    });
 
     const answerRes = await app.inject({
       method: 'POST',
@@ -196,6 +224,23 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
           cancelingUsers: 0,
           paidConversionRate: 1,
           teamMixRate: 1,
+        },
+        billingFunnel: {
+          checkoutStarts: 1,
+          checkoutCompletions: 1,
+          proCheckoutStarts: 0,
+          teamCheckoutStarts: 1,
+          portalStarts: 1,
+          recoveredSubscriptions: 1,
+          checkoutCompletionRate: 1,
+          teamCheckoutShare: 1,
+          recentEvents: expect.arrayContaining([
+            expect.objectContaining({
+              type: 'subscription_recovered',
+              source: 'team_workspace',
+              plan: 'team',
+            }),
+          ]),
         },
         researchUsage: {
           activeResearchUsers: 1,

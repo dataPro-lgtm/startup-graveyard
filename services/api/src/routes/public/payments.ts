@@ -1,10 +1,12 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import Stripe from 'stripe';
 import type { BillingInterval, BillingStatus, SubscriptionTier } from '@sg/shared/billing';
+import type { BillingFunnelEventSource } from '@sg/shared/schemas/adminStats';
 import { config } from '../../config/index.js';
 import { verifyAccessToken } from '../../auth/tokens.js';
 
 type CheckoutPlan = Extract<SubscriptionTier, 'pro' | 'team'>;
+type BillingFlowSource = BillingFunnelEventSource;
 
 type StripeSubscriptionLike = {
   metadata: Stripe.Metadata | null | undefined;
@@ -41,6 +43,11 @@ export function getCheckoutPriceId(plan: CheckoutPlan): string {
 
 export function getCheckoutPlan(input: unknown): CheckoutPlan | null {
   if (input === 'team' || input === 'pro') return input;
+  return null;
+}
+
+export function getBillingFlowSource(input: unknown): BillingFlowSource | null {
+  if (input === 'account_page' || input === 'team_workspace') return input;
   return null;
 }
 
@@ -152,8 +159,13 @@ export async function paymentsRoutes(app: FastifyInstance) {
     const rawBody = request.body as Buffer;
     let userId: string;
     let plan: CheckoutPlan = 'pro';
+    let source: BillingFlowSource = 'account_page';
     try {
-      const parsed = JSON.parse(rawBody.toString()) as { userId?: unknown; plan?: unknown };
+      const parsed = JSON.parse(rawBody.toString()) as {
+        userId?: unknown;
+        plan?: unknown;
+        source?: unknown;
+      };
       if (typeof parsed.userId !== 'string' || !parsed.userId) {
         return reply.code(400).send({ error: 'invalid_body', details: 'userId is required' });
       }
@@ -166,6 +178,16 @@ export async function paymentsRoutes(app: FastifyInstance) {
             .send({ error: 'invalid_body', details: 'plan must be pro or team' });
         }
         plan = parsedPlan;
+      }
+      if (parsed.source !== undefined) {
+        const parsedSource = getBillingFlowSource(parsed.source);
+        if (!parsedSource) {
+          return reply.code(400).send({
+            error: 'invalid_body',
+            details: 'source must be account_page or team_workspace',
+          });
+        }
+        source = parsedSource;
       }
     } catch {
       return reply.code(400).send({ error: 'invalid_body' });
@@ -200,12 +222,20 @@ export async function paymentsRoutes(app: FastifyInstance) {
       payment_method_types: ['card'],
       line_items: [{ price: priceId, quantity: 1 }],
       client_reference_id: user.id,
-      metadata: { userId: user.id, plan },
+      metadata: { userId: user.id, plan, source },
       subscription_data: {
-        metadata: { userId: user.id, plan },
+        metadata: { userId: user.id, plan, source },
       },
       success_url: `${getAppUrl()}/auth/account?upgraded=${plan}`,
       cancel_url: `${getAppUrl()}/auth/account`,
+    });
+
+    await app.billingFunnelRepo.record({
+      userId: user.id,
+      type: 'checkout_started',
+      source,
+      plan,
+      detail: plan === 'team' ? '发起 Team 订阅结账。' : '发起 Pro 订阅结账。',
     });
 
     return reply.send({ url: session.url });
@@ -219,6 +249,23 @@ export async function paymentsRoutes(app: FastifyInstance) {
     const user = await requireAuthedUser(app, request, reply);
     if (!user) return reply;
 
+    let source: BillingFlowSource = 'account_page';
+    try {
+      const parsed = JSON.parse((request.body as Buffer).toString()) as { source?: unknown };
+      if (parsed.source !== undefined) {
+        const parsedSource = getBillingFlowSource(parsed.source);
+        if (!parsedSource) {
+          return reply.code(400).send({
+            error: 'invalid_body',
+            details: 'source must be account_page or team_workspace',
+          });
+        }
+        source = parsedSource;
+      }
+    } catch {
+      return reply.code(400).send({ error: 'invalid_body' });
+    }
+
     if (!user.stripeCustomerId) {
       return reply.code(409).send({ error: 'billing_portal_unavailable' });
     }
@@ -227,6 +274,17 @@ export async function paymentsRoutes(app: FastifyInstance) {
     const session = await stripe.billingPortal.sessions.create({
       customer: user.stripeCustomerId,
       return_url: `${getAppUrl()}/auth/account`,
+    });
+
+    await app.billingFunnelRepo.record({
+      userId: user.id,
+      type: 'portal_started',
+      source,
+      plan: user.subscription === 'free' ? null : user.subscription,
+      detail:
+        source === 'team_workspace'
+          ? '从 Team Workspace 恢复动作打开 billing portal。'
+          : '从账户页打开 billing portal。',
     });
 
     return reply.send({ url: session.url });
@@ -265,7 +323,18 @@ export async function paymentsRoutes(app: FastifyInstance) {
       }
       if (userId && typeof session.subscription === 'string') {
         const subscription = await stripe.subscriptions.retrieve(session.subscription);
+        const completedPlan = subscriptionFromStripeSubscription(subscription);
         await applyStripeSubscriptionToUser(app, userId, subscription, customerId);
+        await app.billingFunnelRepo.record({
+          userId,
+          type: 'checkout_completed',
+          source: getBillingFlowSource(session.metadata?.source) ?? 'account_page',
+          plan: completedPlan === 'free' ? null : completedPlan,
+          detail:
+            completedPlan === 'team'
+              ? 'Stripe checkout 已完成，Team 订阅已开通。'
+              : 'Stripe checkout 已完成，Pro 订阅已开通。',
+        });
       }
     }
 
@@ -284,7 +353,29 @@ export async function paymentsRoutes(app: FastifyInstance) {
           ? subscription.customer
           : (subscription.customer?.id ?? null);
       if (userId) {
+        const previousAccount = await app.usersRepo.getBillingAccount(userId);
         await applyStripeSubscriptionToUser(app, userId, subscription, customerId);
+        const nextBillingStatus = stripeStatusToBillingStatus(subscription.status);
+        const nextPlan = subscriptionFromStripeSubscription(subscription);
+        const recoveredFromRisk =
+          previousAccount &&
+          previousAccount.subscription !== 'free' &&
+          (previousAccount.billingStatus === 'past_due' ||
+            previousAccount.billingStatus === 'canceled' ||
+            previousAccount.cancelAtPeriodEnd) &&
+          (nextBillingStatus === 'active' || nextBillingStatus === 'trialing') &&
+          !subscription.cancel_at_period_end;
+
+        if (recoveredFromRisk) {
+          await app.billingFunnelRepo.record({
+            userId,
+            type: 'subscription_recovered',
+            source: getBillingFlowSource(subscription.metadata?.source) ?? 'account_page',
+            plan: nextPlan === 'free' ? null : nextPlan,
+            detail:
+              nextPlan === 'team' ? 'Team 订阅已恢复到健康状态。' : 'Pro 订阅已恢复到健康状态。',
+          });
+        }
       } else {
         app.log.warn({ eventId: event.id }, 'subscription event missing identifiable user');
       }

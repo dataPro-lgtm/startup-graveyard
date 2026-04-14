@@ -51,6 +51,7 @@ function formatCompactUsd(value: number | null): string {
 
 function DashboardContent({ stats }: { stats: AdminStats }) {
   const subscriptionStats = stats.commercial.subscriptions;
+  const billingFunnelStats = stats.commercial.billingFunnel;
   const researchStats = stats.commercial.researchUsage;
   const teamStats = stats.commercial.teamWorkspaces;
   const maxIndustry = Math.max(...stats.byIndustry.map((r) => r.count), 1);
@@ -91,6 +92,13 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
   );
   const maxRecoveryActionMetric = Math.max(
     ...teamStats.recoveryActions.map((item) => item.count),
+    1,
+  );
+  const maxBillingFunnelMetric = Math.max(
+    billingFunnelStats.checkoutStarts,
+    billingFunnelStats.checkoutCompletions,
+    billingFunnelStats.portalStarts,
+    billingFunnelStats.recoveredSubscriptions,
     1,
   );
   const groundedRate =
@@ -166,6 +174,24 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
           value={formatPercent(researchStats.reportShareActivationRate)}
           sub={`${researchStats.reportShareUsers} 个用户发出 brief`}
           color="#a855f7"
+        />
+        <KpiCard
+          label="Checkout 发起"
+          value={String(billingFunnelStats.checkoutStarts)}
+          sub={`Team ${billingFunnelStats.teamCheckoutStarts} / Pro ${billingFunnelStats.proCheckoutStarts}`}
+          color="#6366f1"
+        />
+        <KpiCard
+          label="结账完成率"
+          value={formatPercent(billingFunnelStats.checkoutCompletionRate)}
+          sub={`完成 ${billingFunnelStats.checkoutCompletions} 次`}
+          color="#14b8a6"
+        />
+        <KpiCard
+          label="订阅恢复"
+          value={String(billingFunnelStats.recoveredSubscriptions)}
+          sub={`portal ${billingFunnelStats.portalStarts} 次`}
+          color="#f97316"
         />
         <KpiCard
           label="Team Workspaces"
@@ -346,6 +372,45 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
           )}
         </ChartCard>
 
+        <ChartCard title="Billing 转化与恢复">
+          {billingFunnelStats.checkoutStarts === 0 &&
+          billingFunnelStats.portalStarts === 0 &&
+          billingFunnelStats.recoveredSubscriptions === 0 ? (
+            <EmptyState text="当前还没有商业化漏斗动作数据。首次发起 checkout 或 billing portal 后，这里会出现转化与恢复指标。" />
+          ) : (
+            <div style={{ display: 'grid', gap: 12 }}>
+              <BarRow
+                label="Checkout 发起"
+                value={billingFunnelStats.checkoutStarts}
+                max={maxBillingFunnelMetric}
+                color="#6366f1"
+                sub={`Team ${billingFunnelStats.teamCheckoutStarts} / Pro ${billingFunnelStats.proCheckoutStarts}`}
+              />
+              <BarRow
+                label="Checkout 完成"
+                value={billingFunnelStats.checkoutCompletions}
+                max={maxBillingFunnelMetric}
+                color="#14b8a6"
+                sub={`完成率 ${formatPercent(billingFunnelStats.checkoutCompletionRate)}`}
+              />
+              <BarRow
+                label="Billing Portal"
+                value={billingFunnelStats.portalStarts}
+                max={maxBillingFunnelMetric}
+                color="#38bdf8"
+                sub="账单修改与恢复入口"
+              />
+              <BarRow
+                label="订阅恢复"
+                value={billingFunnelStats.recoveredSubscriptions}
+                max={maxBillingFunnelMetric}
+                color="#f97316"
+                sub="从 past due / canceling 恢复到健康状态"
+              />
+            </div>
+          )}
+        </ChartCard>
+
         <ChartCard title="Prompt 版本回归视图">
           {stats.copilot.byPromptVersion.length === 0 ? (
             <EmptyState text="还没有 Copilot run 数据。先在 /copilot 发起会话后，这里才会出现 prompt 版本、反馈和成本对比。" />
@@ -419,6 +484,51 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
               color="#a855f7"
               sub={`${researchStats.reportShares} 个分享页 · 已访问 ${researchStats.accessedReportShares}`}
             />
+          </div>
+        )}
+      </ChartCard>
+
+      <ChartCard title="最近商业化动作">
+        {billingFunnelStats.recentEvents.length === 0 ? (
+          <EmptyState text="当前还没有最近的商业化动作记录。发起 checkout、portal 或恢复订阅后，这里会保留最近留痕。" />
+        ) : (
+          <div style={{ display: 'grid', gap: 12 }}>
+            {billingFunnelStats.recentEvents.map((event) => (
+              <div
+                key={event.id}
+                style={{
+                  borderRadius: 12,
+                  border: '1px solid #1d2746',
+                  background: '#0d1426',
+                  padding: '12px 14px',
+                  display: 'grid',
+                  gap: 6,
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <div style={{ color: '#f5f7fb', fontSize: 13, fontWeight: 600 }}>
+                    {event.type}
+                    {event.plan ? ` · ${event.plan.toUpperCase()}` : ''}
+                    {' · '}
+                    {event.source === 'team_workspace' ? 'Team Workspace' : '账户页'}
+                  </div>
+                  <div style={{ color: '#8a96b0', fontSize: 12 }}>
+                    {new Date(event.createdAt).toLocaleString('zh-CN')}
+                  </div>
+                </div>
+                <div style={{ color: '#c8d0e5', fontSize: 12, lineHeight: 1.7 }}>
+                  {event.detail}
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </ChartCard>
