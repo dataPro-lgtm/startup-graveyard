@@ -876,6 +876,54 @@ components:
         detail: { type: string }
         surface:
           $ref: '#/components/schemas/TeamWorkspaceBillingRecoveryActionSurface'
+    TeamWorkspaceAdminActionableWorkspace:
+      type: object
+      required:
+        [
+          workspaceId,
+          workspaceName,
+          ownerUserId,
+          ownerDisplayName,
+          ownerEmail,
+          subscription,
+          billingStatus,
+          seatLimit,
+          seatsUsed,
+          reservedSeats,
+          pendingInvites,
+          revokedInvites,
+          fallbackMembers,
+          warningCodes,
+          recommendedActions,
+          lastBillingEventAt,
+          lastBillingEventTitle,
+        ]
+      properties:
+        workspaceId: { type: string, format: uuid }
+        workspaceName: { type: string }
+        ownerUserId: { type: string, format: uuid }
+        ownerDisplayName: { type: string, nullable: true }
+        ownerEmail: { type: string, format: email }
+        subscription:
+          $ref: '#/components/schemas/SubscriptionTier'
+        billingStatus:
+          $ref: '#/components/schemas/BillingStatus'
+        seatLimit: { type: integer, minimum: 0 }
+        seatsUsed: { type: integer, minimum: 0 }
+        reservedSeats: { type: integer, minimum: 0 }
+        pendingInvites: { type: integer, minimum: 0 }
+        revokedInvites: { type: integer, minimum: 0 }
+        fallbackMembers: { type: integer, minimum: 0 }
+        warningCodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/TeamWorkspaceBillingWarning'
+        recommendedActions:
+          type: array
+          items:
+            $ref: '#/components/schemas/TeamWorkspaceBillingRecoveryAction'
+        lastBillingEventAt: { type: string, nullable: true }
+        lastBillingEventTitle: { type: string, nullable: true }
     TeamWorkspaceBilling:
       type: object
       required:
@@ -1401,6 +1449,7 @@ components:
           seatUtilizationRate,
           recoveryActions,
           recentBillingEvents,
+          actionableWorkspaces,
         ]
       properties:
         totalWorkspaces: { type: integer, minimum: 0 }
@@ -1430,6 +1479,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/TeamWorkspaceAdminBillingEvent'
+        actionableWorkspaces:
+          type: array
+          items:
+            $ref: '#/components/schemas/TeamWorkspaceAdminActionableWorkspace'
     SubscriptionAdminMetrics:
       type: object
       required:

@@ -279,3 +279,9 @@
 - 当 Team Workspace 因账单降级或席位收紧而自动撤销 pending invites 后，系统现在会在账单恢复、席位重新可用时，自动把可恢复的邀请恢复成 pending，而不是要求 owner 手工重新邀请一遍。
 - 这条恢复逻辑已经在 mock 和 PostgreSQL 两套 reconciliation 中保持一致；邀请恢复后，成员侧的 `/v1/team-workspace/me` 会重新看到待接受邀请，并可以直接完成加入。
 - Team Workspace recent billing events 也会留下 `invites_auto_restored` 留痕，因此 owner 和运营都能分辨“这次恢复只是恢复了订阅”还是“系统还顺带恢复了被撤销的邀请”。
+
+已完成 M3 第四段第十部分（workspace recovery queue）：
+
+- Admin Dashboard 不再只停留在“风险 workspace 数量”和“恢复动作分布”，而是会直接列出当前需要运营介入的具体 workspace 队列。
+- 队列项会带上 workspace 名称、owner、当前套餐 / 账单状态、seat 占用、待接受邀请、已撤销邀请、回退成员、warning codes、推荐恢复动作，以及最近账单事件时间与标题。
+- 这让运营从“知道有风险”进一步升级到“知道该先处理哪个 workspace、该推哪种恢复动作”，也为后续真正的 workspace 级自动化恢复提供了稳定的运营视图。

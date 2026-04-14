@@ -268,6 +268,20 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
           recoveryActions: expect.arrayContaining([
             expect.objectContaining({ code: 'free_up_seats', count: 1 }),
           ]),
+          actionableWorkspaces: expect.arrayContaining([
+            expect.objectContaining({
+              workspaceName: 'Admin Metrics Workspace',
+              ownerEmail: ownerEmail,
+              seatLimit: 5,
+              seatsUsed: 1,
+              reservedSeats: 5,
+              pendingInvites: 4,
+              warningCodes: expect.arrayContaining(['seat_limit_reached']),
+              recommendedActions: expect.arrayContaining([
+                expect.objectContaining({ code: 'free_up_seats' }),
+              ]),
+            }),
+          ]),
           recentBillingEvents: [],
         },
       },

@@ -72,6 +72,13 @@ export const teamWorkspaceSharedCaseSchema = caseListItemSchema.extend({
   sharedAt: z.string(),
 });
 
+export const teamWorkspaceBillingRecoveryActionSchema = z.object({
+  code: teamWorkspaceBillingRecoveryActionCodeSchema,
+  title: z.string(),
+  detail: z.string(),
+  surface: teamWorkspaceBillingRecoveryActionSurfaceSchema,
+});
+
 export const teamWorkspaceBillingSchema = z.object({
   ownerUserId: z.string().uuid(),
   ownerDisplayName: z.string().nullable(),
@@ -88,14 +95,7 @@ export const teamWorkspaceBillingSchema = z.object({
   revokedInviteCount: z.number().int().nonnegative(),
   canInviteMore: z.boolean(),
   warningCodes: z.array(teamWorkspaceBillingWarningSchema),
-  recommendedActions: z.array(
-    z.object({
-      code: teamWorkspaceBillingRecoveryActionCodeSchema,
-      title: z.string(),
-      detail: z.string(),
-      surface: teamWorkspaceBillingRecoveryActionSurfaceSchema,
-    }),
-  ),
+  recommendedActions: z.array(teamWorkspaceBillingRecoveryActionSchema),
 });
 
 export const teamWorkspaceBillingEventSchema = z.object({

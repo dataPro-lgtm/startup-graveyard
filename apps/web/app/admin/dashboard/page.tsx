@@ -49,6 +49,11 @@ function formatCompactUsd(value: number | null): string {
   return '$0';
 }
 
+function formatDateTime(value: string | null): string {
+  if (!value) return '暂无';
+  return new Date(value).toLocaleString('zh-CN');
+}
+
 function DashboardContent({ stats }: { stats: AdminStats }) {
   const subscriptionStats = stats.commercial.subscriptions;
   const billingFunnelStats = stats.commercial.billingFunnel;
@@ -367,6 +372,66 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
                   color="#fb7185"
                   sub={item.code}
                 />
+              ))}
+            </div>
+          )}
+        </ChartCard>
+
+        <ChartCard title="Workspace 恢复队列">
+          {teamStats.actionableWorkspaces.length === 0 ? (
+            <EmptyState text="当前没有需要运营介入的高风险 workspace。" compact />
+          ) : (
+            <div style={{ display: 'grid', gap: 12 }}>
+              {teamStats.actionableWorkspaces.map((workspace) => (
+                <div
+                  key={workspace.workspaceId}
+                  style={{
+                    border: '1px solid #24314f',
+                    borderRadius: 14,
+                    background: '#0d1426',
+                    padding: '14px 16px',
+                    display: 'grid',
+                    gap: 8,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      flexWrap: 'wrap',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontWeight: 700 }}>{workspace.workspaceName}</div>
+                      <div style={{ color: '#9fb3ff', fontSize: 12 }}>
+                        {workspace.ownerDisplayName ?? workspace.ownerEmail} ·{' '}
+                        {workspace.subscription.toUpperCase()} · {workspace.billingStatus}
+                      </div>
+                    </div>
+                    <div style={{ color: '#9fb3ff', fontSize: 12 }}>
+                      最近事件：{formatDateTime(workspace.lastBillingEventAt)}
+                    </div>
+                  </div>
+                  <div style={{ color: '#d7deef', fontSize: 13, lineHeight: 1.7 }}>
+                    席位 {workspace.seatsUsed}/{workspace.seatLimit}，已保留{' '}
+                    {workspace.reservedSeats}
+                    ，待接受邀请 {workspace.pendingInvites}，已撤销邀请 {workspace.revokedInvites}
+                    ，回退成员 {workspace.fallbackMembers}
+                  </div>
+                  <div style={{ color: '#fca5a5', fontSize: 12, lineHeight: 1.7 }}>
+                    风险信号：{workspace.warningCodes.join(' / ')}
+                  </div>
+                  <div style={{ color: '#c4d2ff', fontSize: 12, lineHeight: 1.7 }}>
+                    建议动作：{workspace.recommendedActions.map((item) => item.title).join(' / ')}
+                  </div>
+                  {workspace.lastBillingEventTitle ? (
+                    <div style={{ color: '#8a96b0', fontSize: 12 }}>
+                      最新事件：{workspace.lastBillingEventTitle}
+                    </div>
+                  ) : null}
+                </div>
               ))}
             </div>
           )}
