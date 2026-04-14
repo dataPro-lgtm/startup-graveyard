@@ -249,3 +249,9 @@
 - Team Workspace 现在会为账单降级、席位恢复、自动撤销邀请、成员权限回退和成员权限恢复留下统一的 billing events，不再只有“当前状态”而没有“最近发生了什么”。
 - 用户侧 Team Workspace 面板会直接显示最近账单生命周期事件，团队 owner 能看到工作区何时进入降级、何时恢复、撤销了多少邀请、恢复了多少成员权限。
 - Admin Dashboard 也会聚合 recent billing events，因此运营不必手工对照用户反馈和当前 seat 状态去猜测恢复动作是否已经发生。
+
+已完成 M3 第四段第五部分（commercial usage / conversion analytics）：
+
+- Admin Dashboard 现在除了 Team Workspace 指标，还会展示订阅转化结构：总用户、Free / Pro / Team 分布、活跃付费用户、past_due 和 cancel-at-period-end 用户，以及 paid conversion / team mix 两条核心比率。
+- 已上线的个人付费工作流也被正式收口成运营指标：watchlist 用户数、saved view 用户数、public brief share 用户数、对应资产总量，以及基于活跃付费用户的 research activation / share activation。
+- 这意味着当前商业化闭环第一次拥有了“从订阅到研究资产激活”的统一观测面，后续继续做团队账单自动化和转化实验时不再只能靠零散事件判断效果。

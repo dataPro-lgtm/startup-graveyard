@@ -8,6 +8,7 @@ import {
   type SubscriptionTier,
   resolveEntitlements,
 } from '@sg/shared/billing';
+import type { SubscriptionAdminMetrics } from '@sg/shared/schemas/adminStats';
 import {
   generateRefreshToken,
   refreshTokenExpiresAt,
@@ -54,6 +55,7 @@ export interface UsersRepository {
   getById(id: string): Promise<UserProfile | null>;
   getBillingAccount(userId: string): Promise<UserBillingAccount | null>;
   getBillingAccountByStripeCustomerId(customerId: string): Promise<UserBillingAccount | null>;
+  getAdminMetrics(): Promise<SubscriptionAdminMetrics>;
   updateBillingAccount(userId: string, patch: UpdateBillingAccountInput): Promise<boolean>;
   setSubscription(userId: string, tier: SubscriptionTier): Promise<boolean>;
 }
@@ -305,6 +307,37 @@ export class MockUsersRepository implements UsersRepository {
     return null;
   }
 
+  async getAdminMetrics(): Promise<SubscriptionAdminMetrics> {
+    const users = [...this.users.values()].filter((user) => user.role === 'user');
+    const totalUsers = users.length;
+    const freeUsers = users.filter((user) => user.subscription === 'free').length;
+    const proUsers = users.filter((user) => user.subscription === 'pro').length;
+    const teamUsers = users.filter((user) => user.subscription === 'team').length;
+    const activePaidUsers = users.filter(
+      (user) =>
+        user.subscription !== 'free' &&
+        (user.billingStatus === 'active' ||
+          user.billingStatus === 'trialing' ||
+          user.billingStatus === 'past_due'),
+    ).length;
+    const pastDueUsers = users.filter((user) => user.billingStatus === 'past_due').length;
+    const cancelingUsers = users.filter(
+      (user) => user.subscription !== 'free' && user.cancelAtPeriodEnd,
+    ).length;
+
+    return {
+      totalUsers,
+      freeUsers,
+      proUsers,
+      teamUsers,
+      activePaidUsers,
+      pastDueUsers,
+      cancelingUsers,
+      paidConversionRate: totalUsers > 0 ? activePaidUsers / totalUsers : null,
+      teamMixRate: activePaidUsers > 0 ? teamUsers / activePaidUsers : null,
+    };
+  }
+
   async updateBillingAccount(userId: string, patch: UpdateBillingAccountInput): Promise<boolean> {
     const current = this.users.get(userId);
     if (!current) return false;
@@ -501,6 +534,51 @@ export class PgUsersRepository implements UsersRepository {
       [customerId],
     );
     return rows.length > 0 ? rowToBillingAccount(rows[0]) : null;
+  }
+
+  async getAdminMetrics(): Promise<SubscriptionAdminMetrics> {
+    const { rows } = await this.pool.query<{
+      total_users: string;
+      free_users: string;
+      pro_users: string;
+      team_users: string;
+      active_paid_users: string;
+      past_due_users: string;
+      canceling_users: string;
+    }>(`
+      SELECT
+        COUNT(*) FILTER (WHERE role = 'user')::text AS total_users,
+        COUNT(*) FILTER (WHERE role = 'user' AND subscription = 'free')::text AS free_users,
+        COUNT(*) FILTER (WHERE role = 'user' AND subscription = 'pro')::text AS pro_users,
+        COUNT(*) FILTER (WHERE role = 'user' AND subscription = 'team')::text AS team_users,
+        COUNT(*) FILTER (
+          WHERE role = 'user'
+            AND subscription <> 'free'
+            AND billing_status IN ('active', 'trialing', 'past_due')
+        )::text AS active_paid_users,
+        COUNT(*) FILTER (WHERE role = 'user' AND billing_status = 'past_due')::text AS past_due_users,
+        COUNT(*) FILTER (
+          WHERE role = 'user'
+            AND subscription <> 'free'
+            AND cancel_at_period_end = TRUE
+        )::text AS canceling_users
+      FROM users
+    `);
+    const row = rows[0];
+    const totalUsers = Number(row?.total_users ?? 0);
+    const teamUsers = Number(row?.team_users ?? 0);
+    const activePaidUsers = Number(row?.active_paid_users ?? 0);
+    return {
+      totalUsers,
+      freeUsers: Number(row?.free_users ?? 0),
+      proUsers: Number(row?.pro_users ?? 0),
+      teamUsers,
+      activePaidUsers,
+      pastDueUsers: Number(row?.past_due_users ?? 0),
+      cancelingUsers: Number(row?.canceling_users ?? 0),
+      paidConversionRate: totalUsers > 0 ? activePaidUsers / totalUsers : null,
+      teamMixRate: activePaidUsers > 0 ? teamUsers / activePaidUsers : null,
+    };
   }
 
   async updateBillingAccount(userId: string, patch: UpdateBillingAccountInput): Promise<boolean> {

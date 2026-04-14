@@ -14,6 +14,13 @@ export type SaveSavedViewResult = {
   item: SavedViewItem;
 };
 
+export type SavedViewsAdminMetrics = {
+  users: number;
+  savedViews: number;
+  avgSavedViewsPerUser: number | null;
+  userIds: string[];
+};
+
 export interface SavedViewsRepository {
   listByUserId(userId: string): Promise<SavedViewItem[]>;
   countByUserId(userId: string): Promise<number>;
@@ -26,6 +33,7 @@ export interface SavedViewsRepository {
     input: SavedViewSaveInput,
   ): Promise<SavedViewItem | 'not_found' | 'duplicate'>;
   remove(userId: string, savedViewId: string): Promise<boolean>;
+  getAdminMetrics(): Promise<SavedViewsAdminMetrics>;
 }
 
 type SavedViewRow = {
@@ -138,6 +146,18 @@ export class MockSavedViewsRepository implements SavedViewsRepository {
     this.itemsByUser.set(userId, next);
     return next.length !== current.length;
   }
+
+  async getAdminMetrics(): Promise<SavedViewsAdminMetrics> {
+    const activeEntries = [...this.itemsByUser.entries()].filter(([, items]) => items.length > 0);
+    const users = activeEntries.length;
+    const savedViews = activeEntries.reduce((sum, [, items]) => sum + items.length, 0);
+    return {
+      users,
+      savedViews,
+      avgSavedViewsPerUser: users > 0 ? savedViews / users : null,
+      userIds: activeEntries.map(([userId]) => userId),
+    };
+  }
 }
 
 export class PgSavedViewsRepository implements SavedViewsRepository {
@@ -247,5 +267,26 @@ export class PgSavedViewsRepository implements SavedViewsRepository {
       [userId, savedViewId],
     );
     return (rowCount ?? 0) > 0;
+  }
+
+  async getAdminMetrics(): Promise<SavedViewsAdminMetrics> {
+    const { rows } = await this.pool.query<{
+      saved_view_count: string;
+      user_ids: string[] | null;
+    }>(
+      `SELECT
+         COUNT(*)::text AS saved_view_count,
+         ARRAY_AGG(DISTINCT user_id)::text[] AS user_ids
+       FROM user_saved_views`,
+    );
+    const savedViews = Number(rows[0]?.saved_view_count ?? 0);
+    const userIds = rows[0]?.user_ids ?? [];
+    const users = userIds.length;
+    return {
+      users,
+      savedViews,
+      avgSavedViewsPerUser: users > 0 ? savedViews / users : null,
+      userIds,
+    };
   }
 }

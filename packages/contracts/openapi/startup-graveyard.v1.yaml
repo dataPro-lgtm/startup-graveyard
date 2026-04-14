@@ -1388,10 +1388,68 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/TeamWorkspaceAdminBillingEvent'
+    SubscriptionAdminMetrics:
+      type: object
+      required:
+        [
+          totalUsers,
+          freeUsers,
+          proUsers,
+          teamUsers,
+          activePaidUsers,
+          pastDueUsers,
+          cancelingUsers,
+          paidConversionRate,
+          teamMixRate,
+        ]
+      properties:
+        totalUsers: { type: integer, minimum: 0 }
+        freeUsers: { type: integer, minimum: 0 }
+        proUsers: { type: integer, minimum: 0 }
+        teamUsers: { type: integer, minimum: 0 }
+        activePaidUsers: { type: integer, minimum: 0 }
+        pastDueUsers: { type: integer, minimum: 0 }
+        cancelingUsers: { type: integer, minimum: 0 }
+        paidConversionRate: { type: number, minimum: 0, maximum: 1, nullable: true }
+        teamMixRate: { type: number, minimum: 0, maximum: 1, nullable: true }
+    ResearchUsageAdminMetrics:
+      type: object
+      required:
+        [
+          activeResearchUsers,
+          watchlistUsers,
+          watchlistEntries,
+          avgWatchlistEntriesPerUser,
+          savedViewUsers,
+          savedViews,
+          avgSavedViewsPerUser,
+          reportShareUsers,
+          reportShares,
+          accessedReportShares,
+          researchActivationRate,
+          reportShareActivationRate,
+        ]
+      properties:
+        activeResearchUsers: { type: integer, minimum: 0 }
+        watchlistUsers: { type: integer, minimum: 0 }
+        watchlistEntries: { type: integer, minimum: 0 }
+        avgWatchlistEntriesPerUser: { type: number, minimum: 0, nullable: true }
+        savedViewUsers: { type: integer, minimum: 0 }
+        savedViews: { type: integer, minimum: 0 }
+        avgSavedViewsPerUser: { type: number, minimum: 0, nullable: true }
+        reportShareUsers: { type: integer, minimum: 0 }
+        reportShares: { type: integer, minimum: 0 }
+        accessedReportShares: { type: integer, minimum: 0 }
+        researchActivationRate: { type: number, minimum: 0, maximum: 1, nullable: true }
+        reportShareActivationRate: { type: number, minimum: 0, maximum: 1, nullable: true }
     CommercialAdminMetrics:
       type: object
-      required: [teamWorkspaces]
+      required: [subscriptions, researchUsage, teamWorkspaces]
       properties:
+        subscriptions:
+          $ref: '#/components/schemas/SubscriptionAdminMetrics'
+        researchUsage:
+          $ref: '#/components/schemas/ResearchUsageAdminMetrics'
         teamWorkspaces:
           $ref: '#/components/schemas/TeamWorkspaceAdminMetrics'
     AdminStatsResponse:

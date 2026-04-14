@@ -50,6 +50,8 @@ function formatCompactUsd(value: number | null): string {
 }
 
 function DashboardContent({ stats }: { stats: AdminStats }) {
+  const subscriptionStats = stats.commercial.subscriptions;
+  const researchStats = stats.commercial.researchUsage;
   const teamStats = stats.commercial.teamWorkspaces;
   const maxIndustry = Math.max(...stats.byIndustry.map((r) => r.count), 1);
   const maxYear = Math.max(...stats.byYear.map((r) => r.count), 1);
@@ -67,6 +69,24 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
     teamStats.inheritedMembers,
     teamStats.revokedInvites,
     teamStats.fallbackMembers,
+    1,
+  );
+  const maxSubscriptionMetric = Math.max(
+    subscriptionStats.totalUsers,
+    subscriptionStats.freeUsers,
+    subscriptionStats.proUsers,
+    subscriptionStats.teamUsers,
+    subscriptionStats.activePaidUsers,
+    1,
+  );
+  const maxResearchMetric = Math.max(
+    researchStats.activeResearchUsers,
+    researchStats.watchlistUsers,
+    researchStats.savedViewUsers,
+    researchStats.reportShareUsers,
+    researchStats.watchlistEntries,
+    researchStats.savedViews,
+    researchStats.reportShares,
     1,
   );
   const groundedRate =
@@ -119,6 +139,30 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
           gap: 16,
         }}
       >
+        <KpiCard
+          label="活跃付费用户"
+          value={String(subscriptionStats.activePaidUsers)}
+          sub={`付费转化 ${formatPercent(subscriptionStats.paidConversionRate)}`}
+          color="#10b981"
+        />
+        <KpiCard
+          label="Team 占比"
+          value={formatPercent(subscriptionStats.teamMixRate)}
+          sub={`Team ${subscriptionStats.teamUsers} / Pro ${subscriptionStats.proUsers}`}
+          color="#22c55e"
+        />
+        <KpiCard
+          label="研究激活"
+          value={formatPercent(researchStats.researchActivationRate)}
+          sub={`${researchStats.activeResearchUsers} 个付费活跃研究用户`}
+          color="#0ea5e9"
+        />
+        <KpiCard
+          label="分享激活"
+          value={formatPercent(researchStats.reportShareActivationRate)}
+          sub={`${researchStats.reportShareUsers} 个用户发出 brief`}
+          color="#a855f7"
+        />
         <KpiCard
           label="Team Workspaces"
           value={String(teamStats.totalWorkspaces)}
@@ -192,6 +236,43 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20 }}>
+        <ChartCard title="订阅转化结构">
+          {subscriptionStats.totalUsers === 0 ? (
+            <EmptyState text="当前还没有注册用户数据。" />
+          ) : (
+            <div style={{ display: 'grid', gap: 12 }}>
+              <BarRow
+                label="Free 用户"
+                value={subscriptionStats.freeUsers}
+                max={maxSubscriptionMetric}
+                color="#94a3b8"
+                sub={`总用户 ${subscriptionStats.totalUsers}`}
+              />
+              <BarRow
+                label="Pro 用户"
+                value={subscriptionStats.proUsers}
+                max={maxSubscriptionMetric}
+                color="#38bdf8"
+                sub={`past due ${subscriptionStats.pastDueUsers}`}
+              />
+              <BarRow
+                label="Team 用户"
+                value={subscriptionStats.teamUsers}
+                max={maxSubscriptionMetric}
+                color="#22c55e"
+                sub={`到期取消 ${subscriptionStats.cancelingUsers}`}
+              />
+              <BarRow
+                label="活跃付费用户"
+                value={subscriptionStats.activePaidUsers}
+                max={maxSubscriptionMetric}
+                color="#f59e0b"
+                sub={`付费转化 ${formatPercent(subscriptionStats.paidConversionRate)}`}
+              />
+            </div>
+          )}
+        </ChartCard>
+
         <ChartCard title="Team Workspace 运营状态">
           {teamStats.totalWorkspaces === 0 ? (
             <EmptyState text="当前还没有 Team Workspace 数据。团队套餐开通并创建工作区后，这里会出现 seat 与风险概览。" />
@@ -271,6 +352,47 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
           )}
         </ChartCard>
       </div>
+
+      <ChartCard title="个人付费工作流激活">
+        {researchStats.activeResearchUsers === 0 ? (
+          <EmptyState text="当前还没有用户完成 watchlist / saved views / brief share 的付费工作流。" />
+        ) : (
+          <div style={{ display: 'grid', gap: 12 }}>
+            <BarRow
+              label="活跃研究用户"
+              value={researchStats.activeResearchUsers}
+              max={maxResearchMetric}
+              color="#0ea5e9"
+              sub={`激活率 ${formatPercent(researchStats.researchActivationRate)}`}
+            />
+            <BarRow
+              label="Watchlist 用户"
+              value={researchStats.watchlistUsers}
+              max={maxResearchMetric}
+              color="#22c55e"
+              sub={`${researchStats.watchlistEntries} 条保存 · 人均 ${
+                researchStats.avgWatchlistEntriesPerUser?.toFixed(1) ?? 'N/A'
+              }`}
+            />
+            <BarRow
+              label="Saved View 用户"
+              value={researchStats.savedViewUsers}
+              max={maxResearchMetric}
+              color="#38bdf8"
+              sub={`${researchStats.savedViews} 个视图 · 人均 ${
+                researchStats.avgSavedViewsPerUser?.toFixed(1) ?? 'N/A'
+              }`}
+            />
+            <BarRow
+              label="Brief 分享用户"
+              value={researchStats.reportShareUsers}
+              max={maxResearchMetric}
+              color="#a855f7"
+              sub={`${researchStats.reportShares} 个分享页 · 已访问 ${researchStats.accessedReportShares}`}
+            />
+          </div>
+        )}
+      </ChartCard>
 
       <ChartCard title="Workspace 账单生命周期事件">
         {teamStats.recentBillingEvents.length === 0 ? (

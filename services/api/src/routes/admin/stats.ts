@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { Pool } from 'pg';
 import { getPool } from '../../db/pool.js';
+import type { CommercialAdminMetrics } from '@sg/shared/schemas/adminStats';
 import { adminStatsResponseSchema } from '../../schemas/adminStats.js';
 
 interface ContentStatsResult {
@@ -21,17 +22,15 @@ export async function adminStatsRoutes(app: FastifyInstance) {
   app.get('/', async (_request, reply) => {
     const pool = getPool();
     if (!pool) {
-      const [copilotRunStats, copilotEvalStats, teamWorkspaceStats] = await Promise.all([
+      const [copilotRunStats, copilotEvalStats, commercialStats] = await Promise.all([
         app.copilotSessionsRepo.getAdminMetrics(),
         app.copilotEvalsRepo.getAdminMetrics(),
-        app.teamWorkspacesRepo.getAdminMetrics(),
+        fetchCommercialStats(app),
       ]);
       return reply.send(
         adminStatsResponseSchema.parse({
           ...emptyContentStats(),
-          commercial: {
-            teamWorkspaces: teamWorkspaceStats,
-          },
+          commercial: commercialStats,
           copilot: {
             ...copilotRunStats,
             evals: copilotEvalStats,
@@ -40,19 +39,16 @@ export async function adminStatsRoutes(app: FastifyInstance) {
       );
     }
     try {
-      const [contentStats, copilotRunStats, copilotEvalStats, teamWorkspaceStats] =
-        await Promise.all([
-          fetchContentStats(pool),
-          app.copilotSessionsRepo.getAdminMetrics(),
-          app.copilotEvalsRepo.getAdminMetrics(),
-          app.teamWorkspacesRepo.getAdminMetrics(),
-        ]);
+      const [contentStats, copilotRunStats, copilotEvalStats, commercialStats] = await Promise.all([
+        fetchContentStats(pool),
+        app.copilotSessionsRepo.getAdminMetrics(),
+        app.copilotEvalsRepo.getAdminMetrics(),
+        fetchCommercialStats(app),
+      ]);
       return reply.send(
         adminStatsResponseSchema.parse({
           ...contentStats,
-          commercial: {
-            teamWorkspaces: teamWorkspaceStats,
-          },
+          commercial: commercialStats,
           copilot: {
             ...copilotRunStats,
             evals: copilotEvalStats,
@@ -79,6 +75,48 @@ function emptyContentStats(): ContentStatsResult {
     recentlyAdded: [],
     pendingReviews: 0,
     ingestionStats: { pending: 0, running: 0, failed: 0, completed: 0 },
+  };
+}
+
+async function fetchCommercialStats(app: FastifyInstance): Promise<CommercialAdminMetrics> {
+  const [subscriptionStats, watchlistStats, savedViewStats, reportShareStats, teamWorkspaceStats] =
+    await Promise.all([
+      app.usersRepo.getAdminMetrics(),
+      app.watchlistsRepo.getAdminMetrics(),
+      app.savedViewsRepo.getAdminMetrics(),
+      app.reportSharesRepo.getAdminMetrics(),
+      app.teamWorkspacesRepo.getAdminMetrics(),
+    ]);
+
+  const activeResearchUsers = new Set<string>([
+    ...watchlistStats.userIds,
+    ...savedViewStats.userIds,
+    ...reportShareStats.userIds,
+  ]).size;
+
+  return {
+    subscriptions: subscriptionStats,
+    researchUsage: {
+      activeResearchUsers,
+      watchlistUsers: watchlistStats.users,
+      watchlistEntries: watchlistStats.entries,
+      avgWatchlistEntriesPerUser: watchlistStats.avgEntriesPerUser,
+      savedViewUsers: savedViewStats.users,
+      savedViews: savedViewStats.savedViews,
+      avgSavedViewsPerUser: savedViewStats.avgSavedViewsPerUser,
+      reportShareUsers: reportShareStats.users,
+      reportShares: reportShareStats.reportShares,
+      accessedReportShares: reportShareStats.accessedReportShares,
+      researchActivationRate:
+        subscriptionStats.activePaidUsers > 0
+          ? activeResearchUsers / subscriptionStats.activePaidUsers
+          : null,
+      reportShareActivationRate:
+        subscriptionStats.activePaidUsers > 0
+          ? reportShareStats.users / subscriptionStats.activePaidUsers
+          : null,
+    },
+    teamWorkspaces: teamWorkspaceStats,
   };
 }
 

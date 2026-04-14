@@ -28,12 +28,20 @@ export type WatchlistSummary = {
   requiredTier: SubscriptionTier | null;
 };
 
+export type WatchlistAdminMetrics = {
+  users: number;
+  entries: number;
+  avgEntriesPerUser: number | null;
+  userIds: string[];
+};
+
 export interface WatchlistsRepository {
   listByUserId(userId: string): Promise<WatchlistItem[]>;
   has(userId: string, caseId: string): Promise<boolean>;
   add(userId: string, caseId: string): Promise<'added' | 'exists' | 'case_not_found'>;
   remove(userId: string, caseId: string): Promise<boolean>;
   countByUserId(userId: string): Promise<number>;
+  getAdminMetrics(): Promise<WatchlistAdminMetrics>;
 }
 
 type WatchlistRow = {
@@ -136,6 +144,18 @@ export class MockWatchlistsRepository implements WatchlistsRepository {
   async countByUserId(userId: string): Promise<number> {
     return (this.itemsByUser.get(userId) ?? []).length;
   }
+
+  async getAdminMetrics(): Promise<WatchlistAdminMetrics> {
+    const activeEntries = [...this.itemsByUser.entries()].filter(([, items]) => items.length > 0);
+    const users = activeEntries.length;
+    const entries = activeEntries.reduce((sum, [, items]) => sum + items.length, 0);
+    return {
+      users,
+      entries,
+      avgEntriesPerUser: users > 0 ? entries / users : null,
+      userIds: activeEntries.map(([userId]) => userId),
+    };
+  }
 }
 
 export class PgWatchlistsRepository implements WatchlistsRepository {
@@ -214,5 +234,28 @@ export class PgWatchlistsRepository implements WatchlistsRepository {
       [userId],
     );
     return Number(rows[0]?.count ?? 0);
+  }
+
+  async getAdminMetrics(): Promise<WatchlistAdminMetrics> {
+    const [{ rows: userRows }, { rows: entryRows }] = await Promise.all([
+      this.pool.query<{ user_count: string }>(
+        `SELECT COUNT(DISTINCT user_id)::text AS user_count
+         FROM user_watchlist_entries`,
+      ),
+      this.pool.query<{ entry_count: string; user_ids: string[] | null }>(
+        `SELECT
+           COUNT(*)::text AS entry_count,
+           ARRAY_AGG(DISTINCT user_id)::text[] AS user_ids
+         FROM user_watchlist_entries`,
+      ),
+    ]);
+    const users = Number(userRows[0]?.user_count ?? 0);
+    const entries = Number(entryRows[0]?.entry_count ?? 0);
+    return {
+      users,
+      entries,
+      avgEntriesPerUser: users > 0 ? entries / users : null,
+      userIds: entryRows[0]?.user_ids ?? [],
+    };
   }
 }

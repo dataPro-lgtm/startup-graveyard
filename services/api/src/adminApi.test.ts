@@ -115,6 +115,31 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
     });
     expect(inviteRes.statusCode).toBe(200);
 
+    const casesRes = await app.inject({
+      method: 'GET',
+      url: '/v1/cases?limit=1',
+    });
+    expect(casesRes.statusCode).toBe(200);
+    const firstCaseId = (JSON.parse(casesRes.body) as { items: Array<{ id: string }> }).items[0]!
+      .id;
+
+    await app.watchlistsRepo.add(ownerRegistered.user.id, firstCaseId);
+    const savedViewResult = await app.savedViewsRepo.create(ownerRegistered.user.id, {
+      name: 'Admin Metrics Saved View',
+      filters: { industryKey: 'mobility' },
+      queryString: 'industryKey=mobility',
+      caseCount: 4,
+    });
+    await app.reportSharesRepo.create(
+      {
+        userId: ownerRegistered.user.id,
+        ownerDisplayName: 'Admin Stats Owner',
+      },
+      savedViewResult.item,
+    );
+    const reportShares = await app.reportSharesRepo.listByUserId(ownerRegistered.user.id);
+    await app.reportSharesRepo.getPublicByToken(reportShares[0]!.shareToken);
+
     const answerRes = await app.inject({
       method: 'POST',
       url: '/v1/copilot/answer',
@@ -146,6 +171,29 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toMatchObject({
       commercial: {
+        subscriptions: {
+          totalUsers: 1,
+          freeUsers: 0,
+          proUsers: 0,
+          teamUsers: 1,
+          activePaidUsers: 1,
+          pastDueUsers: 0,
+          cancelingUsers: 0,
+          paidConversionRate: 1,
+          teamMixRate: 1,
+        },
+        researchUsage: {
+          activeResearchUsers: 1,
+          watchlistUsers: 1,
+          watchlistEntries: 1,
+          savedViewUsers: 1,
+          savedViews: 1,
+          reportShareUsers: 1,
+          reportShares: 1,
+          accessedReportShares: 1,
+          researchActivationRate: 1,
+          reportShareActivationRate: 1,
+        },
         teamWorkspaces: {
           totalWorkspaces: 1,
           activeWorkspaces: 1,

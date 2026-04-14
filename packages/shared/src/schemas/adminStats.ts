@@ -142,7 +142,36 @@ export const teamWorkspaceAdminMetricsSchema = z.object({
   ),
 });
 
+export const subscriptionAdminMetricsSchema = z.object({
+  totalUsers: nonnegativeInteger,
+  freeUsers: nonnegativeInteger,
+  proUsers: nonnegativeInteger,
+  teamUsers: nonnegativeInteger,
+  activePaidUsers: nonnegativeInteger,
+  pastDueUsers: nonnegativeInteger,
+  cancelingUsers: nonnegativeInteger,
+  paidConversionRate: z.number().min(0).max(1).nullable(),
+  teamMixRate: z.number().min(0).max(1).nullable(),
+});
+
+export const researchUsageAdminMetricsSchema = z.object({
+  activeResearchUsers: nonnegativeInteger,
+  watchlistUsers: nonnegativeInteger,
+  watchlistEntries: nonnegativeInteger,
+  avgWatchlistEntriesPerUser: z.number().min(0).nullable(),
+  savedViewUsers: nonnegativeInteger,
+  savedViews: nonnegativeInteger,
+  avgSavedViewsPerUser: z.number().min(0).nullable(),
+  reportShareUsers: nonnegativeInteger,
+  reportShares: nonnegativeInteger,
+  accessedReportShares: nonnegativeInteger,
+  researchActivationRate: z.number().min(0).max(1).nullable(),
+  reportShareActivationRate: z.number().min(0).max(1).nullable(),
+});
+
 export const commercialAdminMetricsSchema = z.object({
+  subscriptions: subscriptionAdminMetricsSchema,
+  researchUsage: researchUsageAdminMetricsSchema,
   teamWorkspaces: teamWorkspaceAdminMetricsSchema,
 });
 
@@ -207,5 +236,7 @@ export type CopilotEvalFailure = z.infer<typeof copilotEvalFailureSchema>;
 export type CopilotEvalAdminMetrics = z.infer<typeof copilotEvalAdminMetricsSchema>;
 export type CopilotAdminMetrics = z.infer<typeof copilotAdminMetricsSchema>;
 export type TeamWorkspaceAdminMetrics = z.infer<typeof teamWorkspaceAdminMetricsSchema>;
+export type SubscriptionAdminMetrics = z.infer<typeof subscriptionAdminMetricsSchema>;
+export type ResearchUsageAdminMetrics = z.infer<typeof researchUsageAdminMetricsSchema>;
 export type CommercialAdminMetrics = z.infer<typeof commercialAdminMetricsSchema>;
 export type AdminStatsResponse = z.infer<typeof adminStatsResponseSchema>;

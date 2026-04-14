@@ -8,6 +8,13 @@ export type ReportShareOwner = {
   ownerDisplayName: string | null;
 };
 
+export type ReportSharesAdminMetrics = {
+  users: number;
+  reportShares: number;
+  accessedReportShares: number;
+  userIds: string[];
+};
+
 export type SaveReportShareResult = {
   status: 'created' | 'exists';
   item: ReportShareItemRecord;
@@ -28,6 +35,7 @@ export interface ReportSharesRepository {
   create(owner: ReportShareOwner, savedView: SavedViewItem): Promise<SaveReportShareResult>;
   remove(userId: string, shareId: string): Promise<boolean>;
   getPublicByToken(shareToken: string): Promise<PublicReportShareRecord | null>;
+  getAdminMetrics(): Promise<ReportSharesAdminMetrics>;
 }
 
 type ReportShareRow = {
@@ -148,6 +156,22 @@ export class MockReportSharesRepository implements ReportSharesRepository {
     }
     return null;
   }
+
+  async getAdminMetrics(): Promise<ReportSharesAdminMetrics> {
+    const entries = [...this.itemsByUser.entries()].filter(([, items]) => items.length > 0);
+    const users = entries.length;
+    const reportShares = entries.reduce((sum, [, items]) => sum + items.length, 0);
+    const accessedReportShares = entries.reduce(
+      (sum, [, items]) => sum + items.filter((item) => item.lastAccessedAt != null).length,
+      0,
+    );
+    return {
+      users,
+      reportShares,
+      accessedReportShares,
+      userIds: entries.map(([userId]) => userId),
+    };
+  }
 }
 
 export class PgReportSharesRepository implements ReportSharesRepository {
@@ -234,6 +258,29 @@ export class PgReportSharesRepository implements ReportSharesRepository {
     return {
       ...toRecord(row),
       ownerDisplayName: row.owner_display_name,
+    };
+  }
+
+  async getAdminMetrics(): Promise<ReportSharesAdminMetrics> {
+    const { rows } = await this.pool.query<{
+      report_share_count: string;
+      accessed_report_share_count: string;
+      user_ids: string[] | null;
+    }>(
+      `SELECT
+         COUNT(*)::text AS report_share_count,
+         COUNT(*) FILTER (WHERE last_accessed_at IS NOT NULL)::text AS accessed_report_share_count,
+         ARRAY_AGG(DISTINCT user_id)::text[] AS user_ids
+       FROM user_saved_view_report_shares`,
+    );
+    const reportShares = Number(rows[0]?.report_share_count ?? 0);
+    const accessedReportShares = Number(rows[0]?.accessed_report_share_count ?? 0);
+    const userIds = rows[0]?.user_ids ?? [];
+    return {
+      users: userIds.length,
+      reportShares,
+      accessedReportShares,
+      userIds,
     };
   }
 }
