@@ -55,6 +55,11 @@ import {
   PgWatchlistsRepository,
 } from './repositories/watchlistRepository.js';
 import {
+  type ReportSharesRepository,
+  MockReportSharesRepository,
+  PgReportSharesRepository,
+} from './repositories/reportSharesRepository.js';
+import {
   type SavedViewsRepository,
   MockSavedViewsRepository,
   PgSavedViewsRepository,
@@ -103,6 +108,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
   let usersRepo: UsersRepository;
   let watchlistsRepo: WatchlistsRepository;
   let savedViewsRepo: SavedViewsRepository;
+  let reportSharesRepo: ReportSharesRepository;
   let teamWorkspacesRepo: TeamWorkspacesRepository;
   const queueApprovedCaseIndex = async (caseId: string) => {
     await ingestionJobsRepo.enqueue({
@@ -125,6 +131,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
     usersRepo = new PgUsersRepository(pgPool);
     watchlistsRepo = new PgWatchlistsRepository(pgPool);
     savedViewsRepo = new PgSavedViewsRepository(pgPool);
+    reportSharesRepo = new PgReportSharesRepository(pgPool);
     teamWorkspacesRepo = new PgTeamWorkspacesRepository(pgPool);
     ingestionJobsRepo = new PgIngestionJobsRepository(
       pgPool,
@@ -149,6 +156,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
     usersRepo = new MockUsersRepository();
     watchlistsRepo = new MockWatchlistsRepository(casesRepo);
     savedViewsRepo = new MockSavedViewsRepository();
+    reportSharesRepo = new MockReportSharesRepository();
     teamWorkspacesRepo = new MockTeamWorkspacesRepository(usersRepo, savedViewsRepo, casesRepo);
     ingestionJobsRepo = new MockIngestionJobsRepository(
       casesRepo,
@@ -170,6 +178,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
   server.decorate('usersRepo', usersRepo as UsersRepository);
   server.decorate('watchlistsRepo', watchlistsRepo as WatchlistsRepository);
   server.decorate('savedViewsRepo', savedViewsRepo as SavedViewsRepository);
+  server.decorate('reportSharesRepo', reportSharesRepo as ReportSharesRepository);
   server.decorate('teamWorkspacesRepo', teamWorkspacesRepo as TeamWorkspacesRepository);
   const auditRepo = pgPool ? new PgAuditRepository(pgPool) : new MockAuditRepository();
   server.decorate('auditRepo', auditRepo as AuditRepository);

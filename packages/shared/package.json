@@ -43,6 +43,11 @@
       "import": "./dist/schemas/reportExports.js",
       "default": "./dist/schemas/reportExports.js"
     },
+    "./schemas/reportShares": {
+      "types": "./dist/schemas/reportShares.d.ts",
+      "import": "./dist/schemas/reportShares.js",
+      "default": "./dist/schemas/reportShares.js"
+    },
     "./schemas/teamWorkspace": {
       "types": "./dist/schemas/teamWorkspace.d.ts",
       "import": "./dist/schemas/teamWorkspace.js",

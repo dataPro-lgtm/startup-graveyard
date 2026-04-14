@@ -354,6 +354,72 @@ export default function AccountPage() {
           marginBottom: 24,
         }}
       >
+        <div style={{ marginBottom: 16 }}>
+          <p style={{ margin: '0 0 6px', color: '#9fb3ff', fontSize: 12, letterSpacing: 1.2 }}>
+            CURRENT FLOW
+          </p>
+          <h2 style={{ margin: '0 0 8px', fontSize: 22 }}>当前阶段已经打通的业务主链</h2>
+          <p style={{ margin: 0, color: '#c8d0e5', lineHeight: 1.7 }}>
+            先在案例库筛选和保存研究视图，再沉淀关键案例到 Watchlist，用 Copilot 做多轮追问，然后把
+            Saved View 生成公开 research brief，最后把视图和案例共享到 Team
+            Workspace。当前版本先把这条主链跑顺，PDF
+            交付、团队账单补偿和更完整的运营自动化放到下一阶段。
+          </p>
+        </div>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+            gap: 14,
+          }}
+        >
+          <FlowCard
+            step="01"
+            title="筛选并保存研究视图"
+            body="从案例库进入，保存你会反复查看的一组筛选。后续导出和团队共享都复用这层资产。"
+            href="/"
+            cta="去案例库"
+          />
+          <FlowCard
+            step="02"
+            title="沉淀关键案例到 Watchlist"
+            body="在案例详情页把高价值样本加入 Watchlist，形成长期跟踪的研究清单。"
+            href="/"
+            cta="选择案例"
+          />
+          <FlowCard
+            step="03"
+            title="用 Copilot 继续追问"
+            body="围绕已筛出的案例继续问趋势、共性和对照问题，形成多轮研究线程。"
+            href="/copilot"
+            cta="打开 Copilot"
+          />
+          <FlowCard
+            step="04"
+            title="生成公开分享页"
+            body="把 Saved View 渲染成可外发的 research brief，方便发给客户、合作者或投资委员会。"
+            href="#saved-views"
+            cta="查看分享入口"
+          />
+          <FlowCard
+            step="05"
+            title="共享到团队工作区"
+            body="邀请成员，沉淀共享 Saved Views 和共享案例，让个人研究资产升级成团队协作资产。"
+            href="#team-workspace"
+            cta="查看团队面板"
+          />
+        </div>
+      </section>
+
+      <section
+        style={{
+          background: '#10172b',
+          border: '1px solid #1d2746',
+          borderRadius: 18,
+          padding: '22px 24px',
+          marginBottom: 24,
+        }}
+      >
         <div
           style={{ display: 'flex', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}
         >
@@ -598,6 +664,42 @@ function EntitlementCard({
         </span>
       </div>
       <div style={{ color: '#c8d0e5', lineHeight: 1.65, fontSize: 14 }}>{body}</div>
+    </div>
+  );
+}
+
+function FlowCard({
+  step,
+  title,
+  body,
+  href,
+  cta,
+}: {
+  step: string;
+  title: string;
+  body: string;
+  href: string;
+  cta: string;
+}) {
+  return (
+    <div
+      style={{
+        border: '1px solid #1d2746',
+        borderRadius: 16,
+        padding: '16px 16px',
+        background: '#0d1428',
+        display: 'grid',
+        gap: 10,
+      }}
+    >
+      <div style={{ color: '#5b7cff', fontSize: 12, letterSpacing: 1.1, fontWeight: 700 }}>
+        {step}
+      </div>
+      <div style={{ fontSize: 16, fontWeight: 700 }}>{title}</div>
+      <div style={{ color: '#c8d0e5', fontSize: 14, lineHeight: 1.7 }}>{body}</div>
+      <Link href={href} style={{ color: '#9fb3ff', textDecoration: 'none', fontWeight: 600 }}>
+        {cta} →
+      </Link>
     </div>
   );
 }

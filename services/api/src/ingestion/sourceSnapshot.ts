@@ -32,12 +32,24 @@ function extractTitle(html: string): string | null {
   return raw ? clip(raw, 800) : null;
 }
 
+function stripOutcomeSuffix(input: string): string {
+  const stripped = input
+    .replace(
+      /\b(collapse|collapsed|shutdown|shut\s*down|closure|failure|failed|bankruptcy|bankrupt|postmortem|autopsy|downfall|implosion)\b.*$/i,
+      '',
+    )
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  return stripped || input.trim();
+}
+
 function normalizeCompanyName(title: string | null, fallbackUrl: string): string {
-  const cleanedTitle =
+  const cleanedTitle = stripOutcomeSuffix(
     title
       ?.split(/[-—–:·|]/)
       .map((part) => part.trim())
-      .find(Boolean) ?? '';
+      .find(Boolean) ?? '',
+  );
   if (cleanedTitle) return clip(cleanedTitle, 200);
 
   try {

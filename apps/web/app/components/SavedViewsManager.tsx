@@ -4,6 +4,12 @@ import type { CSSProperties } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
+  createReportShare,
+  deleteReportShare,
+  fetchMyReportShares,
+  isApiError as isReportShareApiError,
+} from '@/lib/reportSharesApi';
+import {
   createSavedView,
   deleteSavedView,
   fetchMySavedViews,
@@ -21,6 +27,7 @@ import {
   shareSavedViewToWorkspace,
 } from '@/lib/teamWorkspaceApi';
 import { useAuth } from './AuthProvider';
+import type { ReportShareItem } from '@sg/shared/schemas/reportShares';
 import type {
   SavedViewFilters,
   SavedViewItem,
@@ -71,10 +78,13 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
   const { user, loading } = useAuth();
   const [items, setItems] = useState<SavedViewItem[]>([]);
   const [summary, setSummary] = useState<SavedViewSummary | null>(null);
+  const [reportShares, setReportShares] = useState<ReportShareItem[]>([]);
   const [fetching, setFetching] = useState(false);
   const [saving, setSaving] = useState(false);
   const [exportingKey, setExportingKey] = useState<string | null>(null);
   const [sharingId, setSharingId] = useState<string | null>(null);
+  const [publishingId, setPublishingId] = useState<string | null>(null);
+  const [removingShareId, setRemovingShareId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
@@ -91,19 +101,26 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
       if (!user) {
         setItems([]);
         setSummary(null);
+        setReportShares([]);
         return;
       }
       const token = getAccessToken();
       if (!token) return;
       setFetching(true);
-      const res = await fetchMySavedViews(token);
+      const [savedViewsRes, shareRes] = await Promise.all([
+        fetchMySavedViews(token),
+        mode === 'full' ? fetchMyReportShares(token) : Promise.resolve({ items: [] }),
+      ]);
       if (cancelled) return;
-      if (isApiError(res)) {
-        setError(apiErrorMessage(res));
+      if (isApiError(savedViewsRes)) {
+        setError(apiErrorMessage(savedViewsRes));
       } else {
-        setItems(res.items);
-        setSummary(res.summary);
+        setItems(savedViewsRes.items);
+        setSummary(savedViewsRes.summary);
         setError(null);
+      }
+      if (!isReportShareApiError(shareRes)) {
+        setReportShares(shareRes.items);
       }
       setFetching(false);
     }
@@ -112,7 +129,7 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [mode, user]);
 
   useEffect(() => {
     let cancelled = false;
@@ -162,6 +179,10 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
 
   const previewItems = mode === 'compact' ? items.slice(0, 4) : items;
   const canSaveCurrent = currentFilters !== undefined;
+  const shareBySavedViewId = useMemo(
+    () => new Map(reportShares.map((item) => [item.savedViewId, item])),
+    [reportShares],
+  );
 
   async function handleCreate() {
     if (!user || !currentFilters) return;
@@ -215,6 +236,7 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
       return;
     }
     setItems((prev) => prev.filter((item) => item.id !== savedViewId));
+    setReportShares((prev) => prev.filter((item) => item.savedViewId !== savedViewId));
     setSummary(res.summary);
     setMessage('Saved view 已删除。');
   }
@@ -277,10 +299,62 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
     notifyTeamWorkspaceUpdated();
   }
 
+  async function handlePublishShare(savedView: SavedViewItem) {
+    if (!user) return;
+    const token = getAccessToken();
+    if (!token) return;
+    setPublishingId(savedView.id);
+    setError(null);
+    setMessage(null);
+    const res = await createReportShare(token, savedView.id);
+    setPublishingId(null);
+    if (isReportShareApiError(res)) {
+      setError(`分享页生成失败：${res.error}`);
+      return;
+    }
+    setReportShares((prev) =>
+      [
+        res.item,
+        ...prev.filter((item) => item.id !== res.item.id && item.savedViewId !== savedView.id),
+      ].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+    );
+    setMessage(res.created ? '公开分享页已生成。' : '公开分享页已刷新到当前 Saved View。');
+  }
+
+  async function handleDeleteShare(shareId: string, savedViewId: string) {
+    if (!user) return;
+    const token = getAccessToken();
+    if (!token) return;
+    setRemovingShareId(shareId);
+    setError(null);
+    setMessage(null);
+    const res = await deleteReportShare(token, shareId);
+    setRemovingShareId(null);
+    if (isReportShareApiError(res)) {
+      setError(`停止分享失败：${res.error}`);
+      return;
+    }
+    setReportShares((prev) =>
+      prev.filter((item) => item.id !== res.shareId && item.savedViewId !== savedViewId),
+    );
+    setMessage('公开分享页已停止。');
+  }
+
+  async function handleCopyShare(shareUrl: string) {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setMessage('分享链接已复制。');
+      setError(null);
+    } catch {
+      setError('复制失败，请手动打开分享页。');
+    }
+  }
+
   if (loading) return null;
 
   return (
     <section
+      id={mode === 'full' ? 'saved-views' : undefined}
       style={{
         background: '#10172b',
         border: '1px solid #1d2746',
@@ -411,6 +485,12 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
           共享给团队成员。
         </p>
       ) : null}
+      {mode === 'full' && user?.entitlements.canExportReports ? (
+        <p style={{ color: '#8a96b0', fontSize: 13 }}>
+          公开分享页会把当前 Saved View 快照渲染成可外发的 research brief。后续 PDF
+          和客户交付会沿用这层公开 brief。
+        </p>
+      ) : null}
       {message ? <p style={{ color: '#7dffb3' }}>{message}</p> : null}
       {error ? <p style={{ color: '#fda4af' }}>{error}</p> : null}
 
@@ -436,6 +516,7 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
             const href = casesListPath(item.filters as CasesSearchParams);
             const badges = summarizeFilters(item.filters);
             const editing = editingId === item.id;
+            const share = shareBySavedViewId.get(item.id) ?? null;
             return (
               <div
                 key={item.id}
@@ -518,6 +599,29 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
                   </div>
                 </div>
 
+                {mode === 'full' && share ? (
+                  <div
+                    style={{
+                      marginTop: 12,
+                      padding: '12px 14px',
+                      borderRadius: 12,
+                      border: '1px solid #223253',
+                      background: '#10172b',
+                      color: '#9fb3ff',
+                      fontSize: 12,
+                      lineHeight: 1.7,
+                    }}
+                  >
+                    <div>公开分享页：{share.shareUrl}</div>
+                    <div>
+                      最近访问：
+                      {share.lastAccessedAt
+                        ? new Date(share.lastAccessedAt).toLocaleString('zh-CN')
+                        : '还没有外部访问'}
+                    </div>
+                  </div>
+                ) : null}
+
                 <div
                   style={{
                     display: 'flex',
@@ -553,6 +657,41 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
                         >
                           {exportingKey === item.id ? '导出中…' : '导出'}
                         </button>
+                      ) : null}
+                      {user?.entitlements.canExportReports ? (
+                        <>
+                          <button
+                            onClick={() => void handlePublishShare(item)}
+                            disabled={publishingId === item.id}
+                            style={ghostMiniButton}
+                          >
+                            {publishingId === item.id
+                              ? '生成中…'
+                              : share
+                                ? '刷新分享页'
+                                : '生成分享页'}
+                          </button>
+                          {share ? (
+                            <>
+                              <button
+                                onClick={() => void handleCopyShare(share.shareUrl)}
+                                style={ghostMiniButton}
+                              >
+                                复制链接
+                              </button>
+                              <Link href={share.sharePath} style={actionLinkStyle} target="_blank">
+                                预览分享页
+                              </Link>
+                              <button
+                                onClick={() => void handleDeleteShare(share.id, item.id)}
+                                disabled={removingShareId === share.id}
+                                style={ghostMiniButton}
+                              >
+                                {removingShareId === share.id ? '停止中…' : '停止分享'}
+                              </button>
+                            </>
+                          ) : null}
+                        </>
                       ) : null}
                       {teamWorkspaceContext?.workspace ? (
                         <button

@@ -604,6 +604,174 @@ components:
         sampleSize: { type: integer, minimum: 0 }
         generatedAt: { type: string }
         content: { type: string }
+    ReportShareItem:
+      type: object
+      required:
+        [
+          id,
+          savedViewId,
+          savedViewName,
+          filters,
+          queryString,
+          caseCount,
+          shareToken,
+          sharePath,
+          shareUrl,
+          lastAccessedAt,
+          createdAt,
+          updatedAt,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        savedViewId: { type: string, format: uuid }
+        savedViewName: { type: string, minLength: 1, maxLength: 80 }
+        filters:
+          $ref: '#/components/schemas/SavedViewFilters'
+        queryString: { type: string }
+        caseCount: { type: integer, minimum: 0 }
+        shareToken:
+          type: string
+          minLength: 8
+          maxLength: 64
+          pattern: '^[a-z0-9]+$'
+        sharePath: { type: string }
+        shareUrl: { type: string, format: uri }
+        lastAccessedAt:
+          type: string
+          nullable: true
+        createdAt: { type: string }
+        updatedAt: { type: string }
+    ReportShareListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReportShareItem'
+    CreateReportShareResponse:
+      type: object
+      required: [ok, created, item]
+      properties:
+        ok: { type: boolean, enum: [true] }
+        created: { type: boolean }
+        item:
+          $ref: '#/components/schemas/ReportShareItem'
+    DeleteReportShareResponse:
+      type: object
+      required: [ok, shareId]
+      properties:
+        ok: { type: boolean, enum: [true] }
+        shareId: { type: string, format: uuid }
+    PublicReportShareBriefCase:
+      type: object
+      required:
+        [
+          id,
+          slug,
+          companyName,
+          industry,
+          country,
+          closedYear,
+          totalFundingUsd,
+          primaryFailureReasonKey,
+          summary,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        slug: { type: string }
+        companyName: { type: string }
+        industry: { type: string }
+        country:
+          type: string
+          nullable: true
+        closedYear:
+          type: integer
+          nullable: true
+        totalFundingUsd:
+          type: number
+          nullable: true
+        primaryFailureReasonKey:
+          type: string
+          nullable: true
+        summary: { type: string }
+    PublicReportShareBrief:
+      type: object
+      required:
+        [
+          title,
+          generatedAt,
+          sourceViewUrl,
+          sourceViewPath,
+          filterSummary,
+          totalMatchingCases,
+          sampleSize,
+          sampleFundingUsd,
+          topIndustries,
+          topFailureReasons,
+          cases,
+        ]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 80 }
+        generatedAt: { type: string }
+        sourceViewUrl: { type: string, format: uri }
+        sourceViewPath: { type: string }
+        filterSummary:
+          type: array
+          items: { type: string }
+        totalMatchingCases: { type: integer, minimum: 0 }
+        sampleSize: { type: integer, minimum: 0 }
+        sampleFundingUsd: { type: number, minimum: 0 }
+        topIndustries:
+          type: array
+          items: { type: string }
+        topFailureReasons:
+          type: array
+          items: { type: string }
+        cases:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicReportShareBriefCase'
+    PublicReportShareResponse:
+      type: object
+      required: [share, brief]
+      properties:
+        share:
+          type: object
+          required:
+            [
+              id,
+              shareToken,
+              sharePath,
+              shareUrl,
+              savedViewId,
+              savedViewName,
+              ownerDisplayName,
+              createdAt,
+              updatedAt,
+              lastAccessedAt,
+            ]
+          properties:
+            id: { type: string, format: uuid }
+            shareToken:
+              type: string
+              minLength: 8
+              maxLength: 64
+              pattern: '^[a-z0-9]+$'
+            sharePath: { type: string }
+            shareUrl: { type: string, format: uri }
+            savedViewId: { type: string, format: uuid }
+            savedViewName: { type: string, minLength: 1, maxLength: 80 }
+            ownerDisplayName:
+              type: string
+              nullable: true
+            createdAt: { type: string }
+            updatedAt: { type: string }
+            lastAccessedAt:
+              type: string
+              nullable: true
+        brief:
+          $ref: '#/components/schemas/PublicReportShareBrief'
     TeamWorkspaceRole:
       type: string
       enum: [owner, admin, member]
@@ -1967,6 +2135,97 @@ paths:
           description: Entitlement required
         '404':
           description: User not found
+  /v1/reports/shares/me:
+    get:
+      summary: List the current user's public research brief shares
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Current user's report share list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportShareListResponse'
+        '401':
+          description: Unauthorized
+        '404':
+          description: User not found
+  /v1/reports/shares:
+    post:
+      summary: Create or refresh a public research brief share from a saved view
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [savedViewId]
+              properties:
+                savedViewId: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Report share created or refreshed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateReportShareResponse'
+        '400':
+          description: Invalid body
+        '401':
+          description: Unauthorized
+        '403':
+          description: Entitlement required
+        '404':
+          description: User or saved view not found
+  /v1/reports/shares/{shareId}:
+    delete:
+      summary: Stop sharing a public research brief
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: shareId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Report share deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteReportShareResponse'
+        '400':
+          description: Invalid path parameter
+        '401':
+          description: Unauthorized
+        '404':
+          description: Share not found
+  /v1/reports/shares/public/{shareToken}:
+    get:
+      summary: Load a public research brief by share token
+      parameters:
+        - in: path
+          name: shareToken
+          required: true
+          schema:
+            type: string
+            minLength: 8
+            maxLength: 64
+            pattern: '^[a-z0-9]+$'
+      responses:
+        '200':
+          description: Public research brief payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicReportShareResponse'
+        '400':
+          description: Invalid path parameter
+        '404':
+          description: Share not found
   /v1/team-workspace/me:
     get:
       summary: Fetch the current user's team workspace context and pending invites

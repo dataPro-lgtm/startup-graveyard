@@ -1,6 +1,6 @@
 # Startup Graveyard 产品成熟化计划
 
-更新时间：2026-04-13
+更新时间：2026-04-14
 
 ## 1. 当前判断
 
@@ -44,9 +44,9 @@
 
 ### P1 产品能力
 
-- Topic/专题研究页、趋势看板、个人 watchlist、saved views、基础 Markdown 导出、Team Workspace 协作基础，以及 team seat 继承权限和运营指标已经上线，但更完整的报告交付、团队账单生命周期和降级补偿仍未落地。
+- Topic/专题研究页、趋势看板、个人 watchlist、saved views、Markdown 导出、公开 research brief 分享页、Team Workspace 协作基础，以及 team seat 继承权限和运营指标已经上线，但更完整的 PDF 交付、团队账单生命周期和降级补偿仍未落地。
 - 首页仍偏“案例站”，离“研究入口 / 决策面板”还有距离。
-- Free / Pro / Team 的权益边界已经有了基础模型，商业化能力现在覆盖到 watchlist + saved views + Markdown export + Team Workspace + seat-aware entitlement；剩余短板集中在 PDF/分享交付、workspace 级账单运营和转化分析闭环。
+- Free / Pro / Team 的权益边界已经有了基础模型，商业化能力现在覆盖到 watchlist + saved views + Markdown export + public brief share + Team Workspace + seat-aware entitlement；剩余短板集中在 PDF 交付、workspace 级账单运营和转化分析闭环。
 
 ### P2 平台化与运营
 
@@ -208,6 +208,11 @@
 
 - Pro / Team 用户现在可以把当前筛选或已保存视图导出成 Markdown research brief，包含筛选摘要、样本快照和案例列表。
 - 导出逻辑已经进入正式 API 契约与前端工作流，而不是停留在后台手工复制粘贴阶段；后续 PDF、分享页和客户交付会沿用这套 report generator 继续演进。
+
+已完成 M3 第二段追加（public brief share foundation）：
+
+- Pro / Team 用户现在可以基于 Saved View 生成公开 research brief 分享页，对外发送给客户、合作者或投资委员会，而不必暴露后台账户或筛选操作界面。
+- 这套分享页直接复用现有 report generator，会保留筛选摘要、样本快照和代表性案例；`Saved View -> Markdown export -> public brief share` 现在已经是一套统一的交付资产链路。
 
 已完成 M3 第三段（team workspace foundation）：
 

@@ -606,6 +606,185 @@ describe('public API (mock DB)', () => {
     expect(exported.content).toContain('Airlift');
   });
 
+  it('report shares unlock with Pro and expose public research briefs', async () => {
+    const email = `report-share-${Date.now()}@example.com`;
+    const registerRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        email,
+        password: 'password123',
+        displayName: 'Share Owner',
+      },
+    });
+    expect(registerRes.statusCode).toBe(201);
+    const registered = JSON.parse(registerRes.body) as {
+      user: { id: string };
+      accessToken: string;
+    };
+
+    const blockedRes = await app.inject({
+      method: 'POST',
+      url: '/v1/reports/shares',
+      headers: {
+        authorization: `Bearer ${registered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        savedViewId: '11111111-1111-4111-8111-111111111111',
+      },
+    });
+    expect(blockedRes.statusCode).toBe(403);
+    expect(JSON.parse(blockedRes.body)).toMatchObject({
+      error: 'entitlement_required',
+    });
+
+    await app.usersRepo.updateBillingAccount(registered.user.id, {
+      subscription: 'pro',
+      billingStatus: 'active',
+      billingInterval: 'month',
+    });
+
+    const createSavedViewRes = await app.inject({
+      method: 'POST',
+      url: '/v1/saved-views/items',
+      headers: {
+        authorization: `Bearer ${registered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        name: 'Marketplace failures',
+        filters: { businessModelKey: 'marketplace' },
+      },
+    });
+    expect(createSavedViewRes.statusCode).toBe(200);
+    const savedView = JSON.parse(createSavedViewRes.body) as {
+      item: { id: string; name: string };
+    };
+
+    const createShareRes = await app.inject({
+      method: 'POST',
+      url: '/v1/reports/shares',
+      headers: {
+        authorization: `Bearer ${registered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        savedViewId: savedView.item.id,
+      },
+    });
+    expect(createShareRes.statusCode).toBe(200);
+    const createdShare = JSON.parse(createShareRes.body) as {
+      ok: true;
+      created: boolean;
+      item: {
+        id: string;
+        savedViewId: string;
+        savedViewName: string;
+        shareToken: string;
+        shareUrl: string;
+        lastAccessedAt: string | null;
+      };
+    };
+    expect(createdShare.created).toBe(true);
+    expect(createdShare.item.savedViewId).toBe(savedView.item.id);
+    expect(createdShare.item.savedViewName).toBe('Marketplace failures');
+    expect(createdShare.item.shareUrl).toContain(`/research/brief/${createdShare.item.shareToken}`);
+    expect(createdShare.item.lastAccessedAt).toBeNull();
+
+    const refreshShareRes = await app.inject({
+      method: 'POST',
+      url: '/v1/reports/shares',
+      headers: {
+        authorization: `Bearer ${registered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        savedViewId: savedView.item.id,
+      },
+    });
+    expect(refreshShareRes.statusCode).toBe(200);
+    expect(JSON.parse(refreshShareRes.body)).toMatchObject({
+      ok: true,
+      created: false,
+      item: {
+        id: createdShare.item.id,
+        savedViewId: savedView.item.id,
+      },
+    });
+
+    const listSharesRes = await app.inject({
+      method: 'GET',
+      url: '/v1/reports/shares/me',
+      headers: {
+        authorization: `Bearer ${registered.accessToken}`,
+      },
+    });
+    expect(listSharesRes.statusCode).toBe(200);
+    expect(JSON.parse(listSharesRes.body)).toMatchObject({
+      items: [
+        {
+          id: createdShare.item.id,
+          savedViewId: savedView.item.id,
+        },
+      ],
+    });
+
+    const publicShareRes = await app.inject({
+      method: 'GET',
+      url: `/v1/reports/shares/public/${createdShare.item.shareToken}`,
+    });
+    expect(publicShareRes.statusCode).toBe(200);
+    expect(JSON.parse(publicShareRes.body)).toMatchObject({
+      share: {
+        id: createdShare.item.id,
+        savedViewId: savedView.item.id,
+        savedViewName: 'Marketplace failures',
+        ownerDisplayName: 'Share Owner',
+      },
+      brief: {
+        title: 'Marketplace failures',
+        filterSummary: ['模式：平台 / 撮合'],
+      },
+    });
+
+    const listAfterAccessRes = await app.inject({
+      method: 'GET',
+      url: '/v1/reports/shares/me',
+      headers: {
+        authorization: `Bearer ${registered.accessToken}`,
+      },
+    });
+    expect(listAfterAccessRes.statusCode).toBe(200);
+    const listedAfterAccess = JSON.parse(listAfterAccessRes.body) as {
+      items: Array<{ id: string; lastAccessedAt: string | null }>;
+    };
+    expect(listedAfterAccess.items[0]?.id).toBe(createdShare.item.id);
+    expect(listedAfterAccess.items[0]?.lastAccessedAt).not.toBeNull();
+
+    const deleteShareRes = await app.inject({
+      method: 'DELETE',
+      url: `/v1/reports/shares/${createdShare.item.id}`,
+      headers: {
+        authorization: `Bearer ${registered.accessToken}`,
+      },
+    });
+    expect(deleteShareRes.statusCode).toBe(200);
+    expect(JSON.parse(deleteShareRes.body)).toMatchObject({
+      ok: true,
+      shareId: createdShare.item.id,
+    });
+
+    const missingPublicRes = await app.inject({
+      method: 'GET',
+      url: `/v1/reports/shares/public/${createdShare.item.shareToken}`,
+    });
+    expect(missingPublicRes.statusCode).toBe(404);
+    expect(JSON.parse(missingPublicRes.body)).toMatchObject({
+      error: 'share_not_found',
+    });
+  });
+
   it('team workspace supports create, invite, accept, and asset sharing flows', async () => {
     const ownerEmail = `team-owner-${Date.now()}@example.com`;
     const memberEmail = `team-member-${Date.now()}@example.com`;

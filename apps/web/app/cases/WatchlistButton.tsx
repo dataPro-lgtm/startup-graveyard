@@ -102,25 +102,25 @@ export function WatchlistButton({ caseId }: { caseId: string }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <button
-        onClick={handleToggle}
-        disabled={pending || gateLocked}
-        style={buttonStyle(
-          saved ? '#1b3d2e' : gateLocked ? '#1d2746' : '#20315e',
-          saved ? '#7dffb3' : gateLocked ? '#7e8fb3' : '#e8ecff',
-        )}
-      >
-        {gateLocked
-          ? 'Pro 解锁 Watchlist'
-          : pending
-            ? '处理中…'
-            : saved
-              ? '已加入 Watchlist'
-              : '加入 Watchlist'}
-      </button>
+      {gateLocked ? (
+        <Link
+          href="/auth/account"
+          style={{ ...buttonStyle('#1d2746', '#9fb3ff'), textDecoration: 'none' }}
+        >
+          升级后解锁 Watchlist
+        </Link>
+      ) : (
+        <button
+          onClick={handleToggle}
+          disabled={pending}
+          style={buttonStyle(saved ? '#1b3d2e' : '#20315e', saved ? '#7dffb3' : '#e8ecff')}
+        >
+          {pending ? '处理中…' : saved ? '已加入 Watchlist' : '加入 Watchlist'}
+        </button>
+      )}
       <div style={{ color: '#8a96b0', fontSize: 12 }}>
         {gateLocked
-          ? '把关键案例沉淀成自己的研究列表。'
+          ? '先去账户页升级，再把关键案例沉淀成自己的研究列表。'
           : summary
             ? `已保存 ${summary.watchlistCount}/${summary.watchlistLimit}，剩余 ${summary.remainingSlots}`
             : '把这个案例保存到你的研究清单。'}

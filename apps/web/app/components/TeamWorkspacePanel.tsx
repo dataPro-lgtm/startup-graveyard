@@ -192,6 +192,7 @@ export function TeamWorkspacePanel() {
 
   return (
     <section
+      id="team-workspace"
       style={{
         background: '#10172b',
         border: '1px solid #1d2746',

@@ -358,7 +358,21 @@ export async function runIngestionJob(
 
   if (sourceName === 'rebuild_case_search_index') {
     if (!ctx?.pool) {
-      return { ok: false, error: 'rebuild_case_search_index：需要 PostgreSQL' };
+      if (!ctx?.casesRepo) {
+        return { ok: false, error: 'rebuild_case_search_index：需要 PostgreSQL 或 casesRepo' };
+      }
+      const rawId = payload.caseId;
+      if (typeof rawId !== 'string' || !rawId.trim()) {
+        return { ok: false, error: 'rebuild_case_search_index：需要 payload.caseId（uuid）' };
+      }
+      const published = await ctx.casesRepo.getById(rawId.trim());
+      if (!published) {
+        return { ok: false, error: 'rebuild_case_search_index：case 不存在' };
+      }
+      return {
+        ok: true,
+        detail: `caseId=${published.id} chunkCount=0 chunks=mock case=mock`,
+      };
     }
     const rawId = payload.caseId;
     if (typeof rawId !== 'string' || !rawId.trim()) {
@@ -380,7 +394,7 @@ export async function runIngestionJob(
 
   if (sourceName === 'backfill_case_search_index') {
     if (!ctx?.pool) {
-      return { ok: false, error: 'backfill_case_search_index：需要 PostgreSQL' };
+      return { ok: true, detail: 'backfill_case_search_index: skipped in mock mode' };
     }
     const limitRaw = payload.limit;
     const limit =
