@@ -897,6 +897,9 @@ components:
           recommendedActions,
           lastBillingEventAt,
           lastBillingEventTitle,
+          lastCommercialEventAt,
+          lastCommercialEventType,
+          lastCommercialEventSource,
         ]
       properties:
         workspaceId: { type: string, format: uuid }
@@ -924,6 +927,15 @@ components:
             $ref: '#/components/schemas/TeamWorkspaceBillingRecoveryAction'
         lastBillingEventAt: { type: string, nullable: true }
         lastBillingEventTitle: { type: string, nullable: true }
+        lastCommercialEventAt: { type: string, nullable: true }
+        lastCommercialEventType:
+          allOf:
+            - $ref: '#/components/schemas/BillingFunnelEventType'
+          nullable: true
+        lastCommercialEventSource:
+          allOf:
+            - $ref: '#/components/schemas/BillingFunnelEventSource'
+          nullable: true
     TeamWorkspaceBilling:
       type: object
       required:

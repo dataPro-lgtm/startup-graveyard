@@ -100,6 +100,12 @@ async function fetchCommercialStats(app: FastifyInstance): Promise<CommercialAdm
     ...savedViewStats.userIds,
     ...reportShareStats.userIds,
   ]).size;
+  const latestCommercialTouches = await app.billingFunnelRepo.getLatestEventsByUserIds(
+    teamWorkspaceStats.actionableWorkspaces.map((workspace) => workspace.ownerUserId),
+  );
+  const latestCommercialTouchByUserId = new Map(
+    latestCommercialTouches.map((touch) => [touch.userId, touch]),
+  );
 
   return {
     subscriptions: subscriptionStats,
@@ -124,7 +130,18 @@ async function fetchCommercialStats(app: FastifyInstance): Promise<CommercialAdm
           ? reportShareStats.users / subscriptionStats.activePaidUsers
           : null,
     },
-    teamWorkspaces: teamWorkspaceStats,
+    teamWorkspaces: {
+      ...teamWorkspaceStats,
+      actionableWorkspaces: teamWorkspaceStats.actionableWorkspaces.map((workspace) => {
+        const latestCommercialTouch = latestCommercialTouchByUserId.get(workspace.ownerUserId);
+        return {
+          ...workspace,
+          lastCommercialEventAt: latestCommercialTouch?.createdAt ?? null,
+          lastCommercialEventType: latestCommercialTouch?.type ?? null,
+          lastCommercialEventSource: latestCommercialTouch?.source ?? null,
+        };
+      }),
+    },
   };
 }
 

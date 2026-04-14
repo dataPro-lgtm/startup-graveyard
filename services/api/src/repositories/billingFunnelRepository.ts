@@ -9,6 +9,15 @@ import type {
 
 type BillingFunnelPlan = 'pro' | 'team' | null;
 
+export type BillingFunnelUserTouch = {
+  userId: string;
+  type: BillingFunnelEventType;
+  source: BillingFunnelEventSource;
+  plan: BillingFunnelPlan;
+  detail: string;
+  createdAt: string;
+};
+
 export type RecordBillingFunnelEventInput = {
   userId: string;
   type: BillingFunnelEventType;
@@ -18,6 +27,7 @@ export type RecordBillingFunnelEventInput = {
 };
 
 type BillingFunnelRow = {
+  user_id: string;
   id: string;
   event_type: BillingFunnelEventType;
   event_source: BillingFunnelEventSource;
@@ -29,11 +39,23 @@ type BillingFunnelRow = {
 export interface BillingFunnelRepository {
   record(input: RecordBillingFunnelEventInput): Promise<void>;
   getAdminMetrics(): Promise<BillingFunnelAdminMetrics>;
+  getLatestEventsByUserIds(userIds: string[]): Promise<BillingFunnelUserTouch[]>;
 }
 
 function rowToEvent(row: BillingFunnelRow): BillingFunnelEvent {
   return {
     id: row.id,
+    type: row.event_type,
+    source: row.event_source,
+    plan: row.plan,
+    detail: row.detail,
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
+  };
+}
+
+function rowToUserTouch(row: BillingFunnelRow): BillingFunnelUserTouch {
+  return {
+    userId: row.user_id,
     type: row.event_type,
     source: row.event_source,
     plan: row.plan,
@@ -70,10 +92,11 @@ function toMetrics(events: BillingFunnelEvent[]): BillingFunnelAdminMetrics {
 }
 
 export class MockBillingFunnelRepository implements BillingFunnelRepository {
-  private readonly events: BillingFunnelEvent[] = [];
+  private readonly events: Array<BillingFunnelEvent & { userId: string }> = [];
 
   async record(input: RecordBillingFunnelEventInput): Promise<void> {
     this.events.unshift({
+      userId: input.userId,
       id: randomUUID(),
       type: input.type,
       source: input.source,
@@ -89,6 +112,25 @@ export class MockBillingFunnelRepository implements BillingFunnelRepository {
 
   async getAdminMetrics(): Promise<BillingFunnelAdminMetrics> {
     return toMetrics(this.events);
+  }
+
+  async getLatestEventsByUserIds(userIds: string[]): Promise<BillingFunnelUserTouch[]> {
+    const remainingUserIds = new Set(userIds);
+    const touches: BillingFunnelUserTouch[] = [];
+    for (const event of this.events) {
+      if (!remainingUserIds.has(event.userId)) continue;
+      touches.push({
+        userId: event.userId,
+        type: event.type,
+        source: event.source,
+        plan: event.plan,
+        detail: event.detail,
+        createdAt: event.createdAt,
+      });
+      remainingUserIds.delete(event.userId);
+      if (remainingUserIds.size === 0) break;
+    }
+    return touches;
   }
 }
 
@@ -129,7 +171,7 @@ export class PgBillingFunnelRepository implements BillingFunnelRepository {
         FROM billing_funnel_events
       `),
       this.pool.query<BillingFunnelRow>(
-        `SELECT id, event_type, event_source, plan, detail, created_at
+        `SELECT user_id, id, event_type, event_source, plan, detail, created_at
          FROM billing_funnel_events
          ORDER BY created_at DESC
          LIMIT 12`,
@@ -155,5 +197,24 @@ export class PgBillingFunnelRepository implements BillingFunnelRepository {
       teamCheckoutShare: checkoutStarts > 0 ? teamCheckoutStarts / checkoutStarts : null,
       recentEvents: recentRes.rows.map(rowToEvent),
     };
+  }
+
+  async getLatestEventsByUserIds(userIds: string[]): Promise<BillingFunnelUserTouch[]> {
+    if (userIds.length === 0) return [];
+    const { rows } = await this.pool.query<BillingFunnelRow>(
+      `SELECT DISTINCT ON (user_id)
+         user_id,
+         id,
+         event_type,
+         event_source,
+         plan,
+         detail,
+         created_at
+       FROM billing_funnel_events
+       WHERE user_id = ANY($1::uuid[])
+       ORDER BY user_id, created_at DESC`,
+      [userIds],
+    );
+    return rows.map(rowToUserTouch);
   }
 }

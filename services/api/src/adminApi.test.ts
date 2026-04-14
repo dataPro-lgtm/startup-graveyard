@@ -280,6 +280,8 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
               recommendedActions: expect.arrayContaining([
                 expect.objectContaining({ code: 'free_up_seats' }),
               ]),
+              lastCommercialEventType: 'subscription_recovered',
+              lastCommercialEventSource: 'team_workspace',
             }),
           ]),
           recentBillingEvents: [],

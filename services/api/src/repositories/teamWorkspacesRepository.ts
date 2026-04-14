@@ -594,6 +594,9 @@ function toAdminActionableWorkspace(input: {
     recommendedActions: input.billing.recommendedActions,
     lastBillingEventAt: input.lastBillingEvent?.createdAt ?? null,
     lastBillingEventTitle: input.lastBillingEvent?.title ?? null,
+    lastCommercialEventAt: null,
+    lastCommercialEventType: null,
+    lastCommercialEventSource: null,
   };
 }
 

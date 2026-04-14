@@ -54,6 +54,16 @@ function formatDateTime(value: string | null): string {
   return new Date(value).toLocaleString('zh-CN');
 }
 
+function commercialEventLabel(
+  type: AdminStats['commercial']['billingFunnel']['recentEvents'][number]['type'] | null,
+): string {
+  if (type === 'checkout_started') return '已发起 checkout';
+  if (type === 'checkout_completed') return '已完成 checkout';
+  if (type === 'portal_started') return '已打开 billing portal';
+  if (type === 'subscription_recovered') return '订阅已恢复';
+  return '暂无商业化动作';
+}
+
 function DashboardContent({ stats }: { stats: AdminStats }) {
   const subscriptionStats = stats.commercial.subscriptions;
   const billingFunnelStats = stats.commercial.billingFunnel;
@@ -425,6 +435,13 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
                   </div>
                   <div style={{ color: '#c4d2ff', fontSize: 12, lineHeight: 1.7 }}>
                     建议动作：{workspace.recommendedActions.map((item) => item.title).join(' / ')}
+                  </div>
+                  <div style={{ color: '#9fb3ff', fontSize: 12, lineHeight: 1.7 }}>
+                    最近商业化动作：{commercialEventLabel(workspace.lastCommercialEventType)} ·{' '}
+                    {formatDateTime(workspace.lastCommercialEventAt)}
+                    {workspace.lastCommercialEventSource
+                      ? ` · 来源 ${workspace.lastCommercialEventSource}`
+                      : ''}
                   </div>
                   {workspace.lastBillingEventTitle ? (
                     <div style={{ color: '#8a96b0', fontSize: 12 }}>

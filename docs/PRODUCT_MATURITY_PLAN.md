@@ -284,4 +284,5 @@
 
 - Admin Dashboard 不再只停留在“风险 workspace 数量”和“恢复动作分布”，而是会直接列出当前需要运营介入的具体 workspace 队列。
 - 队列项会带上 workspace 名称、owner、当前套餐 / 账单状态、seat 占用、待接受邀请、已撤销邀请、回退成员、warning codes、推荐恢复动作，以及最近账单事件时间与标题。
-- 这让运营从“知道有风险”进一步升级到“知道该先处理哪个 workspace、该推哪种恢复动作”，也为后续真正的 workspace 级自动化恢复提供了稳定的运营视图。
+- 队列现在还会带上 owner 最近的 checkout / billing portal / subscription recovered 商业化动作，让运营能区分“尚未触达”“已经开始恢复”“刚恢复但仍有其他风险”。
+- 这让运营从“知道有风险”进一步升级到“知道该先处理哪个 workspace、该推哪种恢复动作、用户最近有没有实际行动”，也为后续真正的 workspace 级自动化恢复提供了稳定的运营视图。

@@ -128,6 +128,24 @@ export const copilotAdminMetricsSchema = copilotRunAdminMetricsSchema.extend({
   evals: copilotEvalAdminMetricsSchema,
 });
 
+export const billingFunnelEventTypeSchema = z.enum([
+  'checkout_started',
+  'checkout_completed',
+  'portal_started',
+  'subscription_recovered',
+]);
+
+export const billingFunnelEventSourceSchema = z.enum(['account_page', 'team_workspace']);
+
+export const billingFunnelEventSchema = z.object({
+  id: z.string().uuid(),
+  type: billingFunnelEventTypeSchema,
+  source: billingFunnelEventSourceSchema,
+  plan: commercialPlanSchema.nullable(),
+  detail: z.string(),
+  createdAt: z.string(),
+});
+
 export const teamWorkspaceAdminMetricsSchema = z.object({
   totalWorkspaces: nonnegativeInteger,
   activeWorkspaces: nonnegativeInteger,
@@ -174,26 +192,11 @@ export const teamWorkspaceAdminMetricsSchema = z.object({
       recommendedActions: z.array(teamWorkspaceBillingRecoveryActionSchema),
       lastBillingEventAt: z.string().nullable(),
       lastBillingEventTitle: z.string().nullable(),
+      lastCommercialEventAt: z.string().nullable(),
+      lastCommercialEventType: billingFunnelEventTypeSchema.nullable(),
+      lastCommercialEventSource: billingFunnelEventSourceSchema.nullable(),
     }),
   ),
-});
-
-export const billingFunnelEventTypeSchema = z.enum([
-  'checkout_started',
-  'checkout_completed',
-  'portal_started',
-  'subscription_recovered',
-]);
-
-export const billingFunnelEventSourceSchema = z.enum(['account_page', 'team_workspace']);
-
-export const billingFunnelEventSchema = z.object({
-  id: z.string().uuid(),
-  type: billingFunnelEventTypeSchema,
-  source: billingFunnelEventSourceSchema,
-  plan: commercialPlanSchema.nullable(),
-  detail: z.string(),
-  createdAt: z.string(),
 });
 
 export const billingFunnelAdminMetricsSchema = z.object({
