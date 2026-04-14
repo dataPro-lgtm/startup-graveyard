@@ -230,4 +230,142 @@ describe('admin ingestion pipeline (mock DB)', () => {
       },
     });
   });
+
+  it('reconcile_team_workspace_billing proactively restores team invites without a page read', async () => {
+    const ownerEmail = `reconcile-owner-${Date.now()}@example.com`;
+    const memberEmail = `reconcile-member-${Date.now()}@example.com`;
+
+    const [ownerRegisterRes, memberRegisterRes] = await Promise.all([
+      app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: ownerEmail,
+          password: 'password123',
+          displayName: 'Reconcile Owner',
+        },
+      }),
+      app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: memberEmail,
+          password: 'password123',
+          displayName: 'Reconcile Member',
+        },
+      }),
+    ]);
+    expect(ownerRegisterRes.statusCode).toBe(201);
+    expect(memberRegisterRes.statusCode).toBe(201);
+
+    const ownerRegistered = JSON.parse(ownerRegisterRes.body) as {
+      user: { id: string };
+      accessToken: string;
+    };
+    const memberRegistered = JSON.parse(memberRegisterRes.body) as {
+      accessToken: string;
+    };
+
+    await app.usersRepo.updateBillingAccount(ownerRegistered.user.id, {
+      subscription: 'team',
+      billingStatus: 'active',
+      billingInterval: 'month',
+    });
+
+    const createWorkspaceRes = await app.inject({
+      method: 'POST',
+      url: '/v1/team-workspace',
+      headers: {
+        authorization: `Bearer ${ownerRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: { name: 'Scheduler Recovery Workspace' },
+    });
+    expect(createWorkspaceRes.statusCode).toBe(200);
+
+    const inviteRes = await app.inject({
+      method: 'POST',
+      url: '/v1/team-workspace/invites',
+      headers: {
+        authorization: `Bearer ${ownerRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        email: memberEmail,
+        role: 'member',
+      },
+    });
+    expect(inviteRes.statusCode).toBe(200);
+    const inviteId = (
+      JSON.parse(inviteRes.body) as {
+        workspace: { invites: Array<{ id: string }> };
+      }
+    ).workspace.invites[0]!.id;
+
+    await app.usersRepo.updateBillingAccount(ownerRegistered.user.id, {
+      subscription: 'pro',
+      billingStatus: 'active',
+      billingInterval: 'month',
+      cancelAtPeriodEnd: true,
+    });
+
+    const downgradeRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/scheduler/trigger',
+      headers: {
+        ...headers,
+        'content-type': 'application/json',
+      },
+      payload: { sourceName: 'reconcile_team_workspace_billing', payload: {} },
+    });
+    expect(downgradeRes.statusCode).toBe(200);
+    expect(JSON.parse(downgradeRes.body)).toMatchObject({
+      ok: true,
+      detail: expect.stringContaining('revoked=1'),
+    });
+
+    const revokedPendingRes = await app.inject({
+      method: 'GET',
+      url: '/v1/team-workspace/me',
+      headers: { authorization: `Bearer ${memberRegistered.accessToken}` },
+    });
+    expect(revokedPendingRes.statusCode).toBe(200);
+    expect(JSON.parse(revokedPendingRes.body)).toMatchObject({
+      hasWorkspace: false,
+      pendingInvites: [],
+    });
+
+    await app.usersRepo.updateBillingAccount(ownerRegistered.user.id, {
+      subscription: 'team',
+      billingStatus: 'active',
+      billingInterval: 'month',
+      cancelAtPeriodEnd: false,
+    });
+
+    const restoreRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/scheduler/trigger',
+      headers: {
+        ...headers,
+        'content-type': 'application/json',
+      },
+      payload: { sourceName: 'reconcile_team_workspace_billing', payload: {} },
+    });
+    expect(restoreRes.statusCode).toBe(200);
+    expect(JSON.parse(restoreRes.body)).toMatchObject({
+      ok: true,
+      detail: expect.stringContaining('restored=1'),
+    });
+
+    const restoredPendingRes = await app.inject({
+      method: 'GET',
+      url: '/v1/team-workspace/me',
+      headers: { authorization: `Bearer ${memberRegistered.accessToken}` },
+    });
+    expect(restoredPendingRes.statusCode).toBe(200);
+    expect(JSON.parse(restoredPendingRes.body)).toMatchObject({
+      hasWorkspace: false,
+      pendingInvites: [expect.objectContaining({ id: inviteId })],
+    });
+  });
 });

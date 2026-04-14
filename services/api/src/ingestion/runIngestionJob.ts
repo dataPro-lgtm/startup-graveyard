@@ -15,6 +15,7 @@ import type {
 } from '../repositories/copilotEvalsRepository.js';
 import type { SourceSnapshotsRepository } from '../repositories/sourceSnapshotsRepository.js';
 import type { IngestionJobsRepository } from '../repositories/ingestionJobsRepository.js';
+import type { TeamWorkspacesRepository } from '../repositories/teamWorkspacesRepository.js';
 import { createDraftCaseBodySchema } from '../schemas/adminCases.js';
 
 export type IngestionRunInput = {
@@ -30,6 +31,7 @@ export type IngestionRunContext = {
   sourceSnapshots?: SourceSnapshotsRepository;
   ingestionJobs?: IngestionJobsRepository;
   copilotEvals?: CopilotEvalsRepository;
+  teamWorkspaces?: TeamWorkspacesRepository;
   pool?: Pool;
 };
 
@@ -62,6 +64,7 @@ function mean(values: number[]): number {
  * - **backfill_case_search_index**：批量回填缺 chunk 或缺 embedding 的已发布案例。
  * - **backfill_case_taxonomy**：批量归一化历史 taxonomy key，并为受影响的 published case 排入重建索引任务。
  * - **run_copilot_eval_suite**：回放内置 Copilot eval dataset，写入批次结果与失败样本。
+ * - **reconcile_team_workspace_billing**：全量重跑 Team Workspace 账单/席位补偿与邀请恢复。
  * - **upsert_embedding_stub**：`payload.caseId`（uuid）；需 `ctx.pool`。若设置 `OPENAI_API_KEY` 则用
  *   `company_name`+`summary` 调 OpenAI 写入真实向量；否则用确定性 sin 向量（演示）。
  */
@@ -597,6 +600,23 @@ export async function runIngestionJob(
         ` passed=${passedCases} grounded=${groundedCases} fallback=${fallbackCases}` +
         ` avgRecall=${avgCitationRecall == null ? 'n/a' : avgCitationRecall.toFixed(2)}` +
         ` avgPrecision=${avgCitationPrecision == null ? 'n/a' : avgCitationPrecision.toFixed(2)}`,
+    };
+  }
+
+  if (sourceName === 'reconcile_team_workspace_billing') {
+    if (!ctx?.teamWorkspaces) {
+      return {
+        ok: false,
+        error: 'reconcile_team_workspace_billing：服务端未注入 teamWorkspaces',
+      };
+    }
+    const result = await ctx.teamWorkspaces.reconcileAllBilling();
+    return {
+      ok: true,
+      detail:
+        `reconcile_team_workspace_billing: workspaces=${result.workspaceCount}` +
+        ` revoked=${result.revokedInviteCount}` +
+        ` restored=${result.restoredInviteCount}`,
     };
   }
 

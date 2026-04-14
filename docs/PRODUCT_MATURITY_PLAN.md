@@ -286,3 +286,9 @@
 - 队列项会带上 workspace 名称、owner、当前套餐 / 账单状态、seat 占用、待接受邀请、已撤销邀请、回退成员、warning codes、推荐恢复动作，以及最近账单事件时间与标题。
 - 队列现在还会带上 owner 最近的 checkout / billing portal / subscription recovered 商业化动作，让运营能区分“尚未触达”“已经开始恢复”“刚恢复但仍有其他风险”。
 - 这让运营从“知道有风险”进一步升级到“知道该先处理哪个 workspace、该推哪种恢复动作、用户最近有没有实际行动”，也为后续真正的 workspace 级自动化恢复提供了稳定的运营视图。
+
+已完成 M3 第四段第十一部分（workspace billing reconciliation job）：
+
+- Team Workspace 的账单/席位 reconciliation 不再只依赖用户打开账户页或运营打开 dashboard 时被动触发；现在已经有正式的 `reconcile_team_workspace_billing` ingestion handler。
+- 这条 handler 会全量重跑 workspace 级账单补偿、pending invite 自动撤销与自动恢复，并可通过 admin scheduler 手动触发，也可由默认 scheduled job 定时执行。
+- 因此“账单恢复后邀请自己恢复”第一次成为真正的后台自动化能力，而不是页面读取副作用。

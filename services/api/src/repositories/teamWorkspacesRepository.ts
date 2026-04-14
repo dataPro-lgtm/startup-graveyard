@@ -164,6 +164,10 @@ type WorkspaceBillingEventDescriptor = {
 type AdminBillingEvent = TeamWorkspaceAdminMetrics['recentBillingEvents'][number];
 type AdminRecoveryAction = TeamWorkspaceAdminMetrics['recoveryActions'][number];
 type AdminActionableWorkspace = TeamWorkspaceAdminMetrics['actionableWorkspaces'][number];
+type WorkspaceReconcileResult = {
+  revokedInviteCount: number;
+  restoredInviteCount: number;
+};
 
 type PgWorkspaceBillingEventRow = {
   id: string;
@@ -669,6 +673,11 @@ export interface TeamWorkspacesRepository {
   resolveEffectiveUserProfile(user: UserProfile): Promise<UserProfile>;
   getContextForUser(user: UserProfile): Promise<TeamWorkspaceContextResponse>;
   getAdminMetrics(): Promise<TeamWorkspaceAdminMetrics>;
+  reconcileAllBilling(): Promise<{
+    workspaceCount: number;
+    revokedInviteCount: number;
+    restoredInviteCount: number;
+  }>;
   reconcileBillingForUser(
     userId: string,
   ): Promise<{ workspaceIds: string[]; revokedInviteCount: number }>;
@@ -761,9 +770,30 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
       .map((workspace) => workspace.id);
     let revokedInviteCount = 0;
     for (const workspaceId of workspaceIds) {
-      revokedInviteCount += await this.reconcileWorkspaceBillingState(workspaceId);
+      const result = await this.reconcileWorkspaceBillingState(workspaceId);
+      revokedInviteCount += result.revokedInviteCount;
     }
     return { workspaceIds, revokedInviteCount };
+  }
+
+  async reconcileAllBilling(): Promise<{
+    workspaceCount: number;
+    revokedInviteCount: number;
+    restoredInviteCount: number;
+  }> {
+    const workspaceIds = [...this.workspaces.values()].map((workspace) => workspace.id);
+    let revokedInviteCount = 0;
+    let restoredInviteCount = 0;
+    for (const workspaceId of workspaceIds) {
+      const result = await this.reconcileWorkspaceBillingState(workspaceId);
+      revokedInviteCount += result.revokedInviteCount;
+      restoredInviteCount += result.restoredInviteCount;
+    }
+    return {
+      workspaceCount: workspaceIds.length,
+      revokedInviteCount,
+      restoredInviteCount,
+    };
   }
 
   async getAdminMetrics(): Promise<TeamWorkspaceAdminMetrics> {
@@ -1120,11 +1150,13 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
     }
   }
 
-  private async reconcileWorkspaceBillingState(workspaceId: string): Promise<number> {
+  private async reconcileWorkspaceBillingState(
+    workspaceId: string,
+  ): Promise<WorkspaceReconcileResult> {
     const workspace = this.workspaces.get(workspaceId);
-    if (!workspace) return 0;
+    if (!workspace) return { revokedInviteCount: 0, restoredInviteCount: 0 };
     const owner = await this.usersRepo.getById(workspace.ownerUserId);
-    if (!owner) return 0;
+    if (!owner) return { revokedInviteCount: 0, restoredInviteCount: 0 };
 
     const seatsUsed = [...this.membershipByUserId.values()].filter(
       (item) => item.workspaceId === workspaceId,
@@ -1203,7 +1235,10 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
     if (descriptors.length > 0) {
       this.recordBillingEvents(workspaceId, workspace.name, descriptors);
     }
-    return invitesToRevoke.length;
+    return {
+      revokedInviteCount: invitesToRevoke.length,
+      restoredInviteCount: invitesToRestore.length,
+    };
   }
 
   private async buildWorkspaceAccessForUser(user: UserProfile): Promise<WorkspaceAccess | null> {
@@ -1372,11 +1407,35 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
     );
     let revokedInviteCount = 0;
     for (const row of rows) {
-      revokedInviteCount += await this.reconcileWorkspaceBillingState(row.id);
+      const result = await this.reconcileWorkspaceBillingState(row.id);
+      revokedInviteCount += result.revokedInviteCount;
     }
     return {
       workspaceIds: rows.map((row) => row.id),
       revokedInviteCount,
+    };
+  }
+
+  async reconcileAllBilling(): Promise<{
+    workspaceCount: number;
+    revokedInviteCount: number;
+    restoredInviteCount: number;
+  }> {
+    const { rows } = await this.pool.query<{ id: string }>(
+      `SELECT id
+       FROM team_workspaces`,
+    );
+    let revokedInviteCount = 0;
+    let restoredInviteCount = 0;
+    for (const row of rows) {
+      const result = await this.reconcileWorkspaceBillingState(row.id);
+      revokedInviteCount += result.revokedInviteCount;
+      restoredInviteCount += result.restoredInviteCount;
+    }
+    return {
+      workspaceCount: rows.length,
+      revokedInviteCount,
+      restoredInviteCount,
     };
   }
 
@@ -2054,16 +2113,12 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
   }
 
   private async reconcileAllWorkspaces(): Promise<void> {
-    const { rows } = await this.pool.query<{ id: string }>(
-      `SELECT id
-       FROM team_workspaces`,
-    );
-    for (const row of rows) {
-      await this.reconcileWorkspaceBillingState(row.id);
-    }
+    await this.reconcileAllBilling();
   }
 
-  private async reconcileWorkspaceBillingState(workspaceId: string): Promise<number> {
+  private async reconcileWorkspaceBillingState(
+    workspaceId: string,
+  ): Promise<WorkspaceReconcileResult> {
     const [ownerRows, memberCountRows, inviteRows, previousSnapshot] = await Promise.all([
       this.pool.query<{
         subscription: SubscriptionTier;
@@ -2095,7 +2150,7 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
     ]);
 
     const owner = ownerRows.rows[0];
-    if (!owner) return 0;
+    if (!owner) return { revokedInviteCount: 0, restoredInviteCount: 0 };
     const seatLimit = resolveTeamWorkspaceSeatLimit({
       subscription: owner.subscription,
       billingStatus: owner.billing_status,
@@ -2170,7 +2225,10 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
     if (descriptors.length > 0) {
       await this.recordBillingEvents(workspaceId, descriptors);
     }
-    return revokedInviteCount;
+    return {
+      revokedInviteCount,
+      restoredInviteCount,
+    };
   }
 
   private async getCompensationSummary(workspaceId: string): Promise<WorkspaceCompensationSummary> {

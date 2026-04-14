@@ -60,6 +60,7 @@ export async function adminSchedulerRoutes(app: FastifyInstance) {
         sourceSnapshots: app.sourceSnapshotsRepo,
         ingestionJobs: app.ingestionJobsRepo,
         copilotEvals: app.copilotEvalsRepo,
+        teamWorkspaces: app.teamWorkspacesRepo,
       },
     );
     return reply.send(result);

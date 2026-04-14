@@ -7,6 +7,7 @@ import type { CasesRepository } from './casesRepository.js';
 import type { CopilotEvalsRepository } from './copilotEvalsRepository.js';
 import type { EnqueueIngestionJobBody } from '../schemas/ingestionJobs.js';
 import type { SourceSnapshotsRepository } from './sourceSnapshotsRepository.js';
+import type { TeamWorkspacesRepository } from './teamWorkspacesRepository.js';
 import { withTransaction } from '../db/withTransaction.js';
 
 export type ListIngestionJobsParams = {
@@ -90,6 +91,7 @@ export class MockIngestionJobsRepository implements IngestionJobsRepository {
     private readonly adminAttachments?: AdminCaseAttachmentsRepository,
     private readonly sourceSnapshots?: SourceSnapshotsRepository,
     private readonly copilotEvals?: CopilotEvalsRepository,
+    private readonly teamWorkspaces?: TeamWorkspacesRepository,
   ) {}
 
   async listRecent(params: ListIngestionJobsParams): Promise<IngestionJobItem[]> {
@@ -152,6 +154,7 @@ export class MockIngestionJobsRepository implements IngestionJobsRepository {
         sourceSnapshots: this.sourceSnapshots,
         ingestionJobs: this,
         copilotEvals: this.copilotEvals,
+        teamWorkspaces: this.teamWorkspaces,
       },
     );
 
@@ -227,6 +230,7 @@ export class PgIngestionJobsRepository implements IngestionJobsRepository {
     private readonly adminAttachments?: AdminCaseAttachmentsRepository,
     private readonly sourceSnapshots?: SourceSnapshotsRepository,
     private readonly copilotEvals?: CopilotEvalsRepository,
+    private readonly teamWorkspaces?: TeamWorkspacesRepository,
   ) {}
 
   async listRecent(params: ListIngestionJobsParams): Promise<IngestionJobItem[]> {
@@ -324,6 +328,7 @@ export class PgIngestionJobsRepository implements IngestionJobsRepository {
         sourceSnapshots: this.sourceSnapshots,
         ingestionJobs: this,
         copilotEvals: this.copilotEvals,
+        teamWorkspaces: this.teamWorkspaces,
         pool: this.pool,
       },
     );

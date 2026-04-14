@@ -147,6 +147,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
       adminAttachmentsRepo,
       sourceSnapshotsRepo,
       copilotEvalsRepo,
+      teamWorkspacesRepo,
     );
   } else {
     const mc = new MockCasesRepository();
@@ -172,6 +173,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
       adminAttachmentsRepo,
       sourceSnapshotsRepo,
       copilotEvalsRepo,
+      teamWorkspacesRepo,
     );
   }
 
