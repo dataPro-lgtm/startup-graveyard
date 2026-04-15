@@ -59,6 +59,9 @@ export const config = {
       webhookUrl: process.env.TEAM_WORKSPACE_RECOVERY_WEBHOOK_URL ?? '',
       webhookBearerToken: process.env.TEAM_WORKSPACE_RECOVERY_WEBHOOK_BEARER_TOKEN ?? '',
       webhookTimeoutMs: Number(process.env.TEAM_WORKSPACE_RECOVERY_WEBHOOK_TIMEOUT_MS ?? 10000),
+      crmApiUrl: process.env.TEAM_WORKSPACE_RECOVERY_CRM_API_URL ?? '',
+      crmApiBearerToken: process.env.TEAM_WORKSPACE_RECOVERY_CRM_API_BEARER_TOKEN ?? '',
+      crmApiTimeoutMs: Number(process.env.TEAM_WORKSPACE_RECOVERY_CRM_API_TIMEOUT_MS ?? 10000),
       slackWebhookUrl: process.env.TEAM_WORKSPACE_RECOVERY_SLACK_WEBHOOK_URL ?? '',
       slackWebhookTimeoutMs: Number(
         process.env.TEAM_WORKSPACE_RECOVERY_SLACK_WEBHOOK_TIMEOUT_MS ?? 10000,
@@ -74,6 +77,9 @@ export const config = {
   },
   get hasRecoveryOutreachWebhook(): boolean {
     return (process.env.TEAM_WORKSPACE_RECOVERY_WEBHOOK_URL?.trim() ?? '').length > 0;
+  },
+  get hasRecoveryOutreachCrmApi(): boolean {
+    return (process.env.TEAM_WORKSPACE_RECOVERY_CRM_API_URL?.trim() ?? '').length > 0;
   },
   get hasRecoveryOutreachSlackWebhook(): boolean {
     return (process.env.TEAM_WORKSPACE_RECOVERY_SLACK_WEBHOOK_URL?.trim() ?? '').length > 0;

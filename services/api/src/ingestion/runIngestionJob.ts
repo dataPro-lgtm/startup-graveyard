@@ -6,6 +6,7 @@ import { captureSourceSnapshot } from './sourceSnapshot.js';
 import { rebuildCaseSearchIndex } from './caseIndexing.js';
 import { extractCaseSignals } from './extractCaseSignals.js';
 import { backfillCaseTaxonomy } from './taxonomyBackfill.js';
+import { deliverRecoveryOutreachCrmSync } from '../recoveryOutreach/deliverRecoveryOutreachCrmSync.js';
 import { deliverRecoveryOutreachWebhook } from '../recoveryOutreach/deliverRecoveryOutreachWebhook.js';
 import { deliverRecoveryOutreachSlackAlert } from '../recoveryOutreach/deliverRecoveryOutreachSlackAlert.js';
 import type { AdminCaseAttachmentsRepository } from '../repositories/adminCaseAttachmentsRepository.js';
@@ -68,6 +69,7 @@ function mean(values: number[]): number {
  * - **run_copilot_eval_suite**：回放内置 Copilot eval dataset，写入批次结果与失败样本。
  * - **reconcile_team_workspace_billing**：全量重跑 Team Workspace 账单/席位补偿与邀请恢复。
  * - **run_team_workspace_recovery_outreach**：为高风险 Team Workspace 调度 owner/admin 恢复触达，并按 `retryIntervalHours` 自动重试、在恢复后自动收敛待处理触达。
+ * - **deliver_team_workspace_recovery_crm_sync**：将 `handoff_channel=crm` 的 admin recovery outreach 直接同步到 CRM API，并回写外部 case id / 下次重试时间。
  * - **deliver_team_workspace_recovery_webhook**：将到点且仍可重试的 handoff admin recovery outreach 推送到外部 webhook，并按 `retryIntervalHours` 回写重试窗口；达到上限后会停止自动重试，`force=true` 可忽略冷却窗口立即重推。
  * - **deliver_team_workspace_recovery_slack_alert**：将已进入 webhook dead-letter 的 handoff admin recovery outreach 发送到 Ops Slack；默认只发尚未成功告警的项，`force=true` 可重新发送。
  * - **upsert_embedding_stub**：`payload.caseId`（uuid）；需 `ctx.pool`。若设置 `OPENAI_API_KEY` 则用
@@ -130,6 +132,39 @@ export async function runIngestionJob(
         delivered.skipped != null
           ? `attempted=0 delivered=0 skipped=${delivered.skipped}`
           : `attempted=${delivered.attemptedCount} delivered=${delivered.deliveredCount} status=${delivered.statusCode}`,
+    };
+  }
+
+  if (sourceName === 'deliver_team_workspace_recovery_crm_sync') {
+    if (!ctx?.teamWorkspaces) {
+      return {
+        ok: false,
+        error: 'deliver_team_workspace_recovery_crm_sync：服务端未注入 teamWorkspaces',
+      };
+    }
+    const retryIntervalHours =
+      typeof payload.retryIntervalHours === 'number' && Number.isFinite(payload.retryIntervalHours)
+        ? Math.max(0, Math.trunc(payload.retryIntervalHours))
+        : undefined;
+    const force = payload.force === true;
+    const delivered = await deliverRecoveryOutreachCrmSync(ctx.teamWorkspaces, {
+      retryIntervalHours,
+      force,
+    });
+    if (!delivered.ok) {
+      return {
+        ok: false,
+        error: clip(
+          `deliver_team_workspace_recovery_crm_sync：${delivered.error} (${delivered.detail})`,
+        ),
+      };
+    }
+    return {
+      ok: true,
+      detail:
+        delivered.skipped != null
+          ? `attempted=0 synced=0 failed=0 skipped=${delivered.skipped}`
+          : `attempted=${delivered.attemptedCount} synced=${delivered.syncedCount} failed=${delivered.failedCount}`,
     };
   }
 

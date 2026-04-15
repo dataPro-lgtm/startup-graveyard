@@ -213,6 +213,13 @@ type PgWorkspaceRecoveryOutreachRow = {
   next_attempt_at: Date | string | null;
   export_count: number;
   last_exported_at: Date | string | null;
+  crm_sync_count: number;
+  last_crm_sync_attempt_at: Date | string | null;
+  next_crm_sync_attempt_at: Date | string | null;
+  last_crm_synced_at: Date | string | null;
+  crm_external_record_id: string | null;
+  last_crm_sync_status_code: number | null;
+  last_crm_sync_error: string | null;
   webhook_attempt_count: number;
   last_webhook_attempt_at: Date | string | null;
   next_webhook_attempt_at: Date | string | null;
@@ -543,6 +550,13 @@ function rowToRecoveryOutreach(row: PgWorkspaceRecoveryOutreachRow): AdminRecove
     nextAttemptAt: row.next_attempt_at ? toIso(row.next_attempt_at) : null,
     exportCount: row.export_count,
     lastExportedAt: row.last_exported_at ? toIso(row.last_exported_at) : null,
+    crmSyncCount: row.crm_sync_count,
+    lastCrmSyncAttemptAt: row.last_crm_sync_attempt_at ? toIso(row.last_crm_sync_attempt_at) : null,
+    nextCrmSyncAttemptAt: row.next_crm_sync_attempt_at ? toIso(row.next_crm_sync_attempt_at) : null,
+    lastCrmSyncedAt: row.last_crm_synced_at ? toIso(row.last_crm_synced_at) : null,
+    crmExternalRecordId: row.crm_external_record_id,
+    lastCrmSyncStatusCode: row.last_crm_sync_status_code,
+    lastCrmSyncError: row.last_crm_sync_error,
     webhookAttemptCount: row.webhook_attempt_count,
     lastWebhookAttemptAt: row.last_webhook_attempt_at ? toIso(row.last_webhook_attempt_at) : null,
     nextWebhookAttemptAt: row.next_webhook_attempt_at ? toIso(row.next_webhook_attempt_at) : null,
@@ -896,6 +910,13 @@ function toAdminActionableWorkspace(input: {
     | 'nextAttemptAt'
     | 'exportCount'
     | 'lastExportedAt'
+    | 'crmSyncCount'
+    | 'lastCrmSyncAttemptAt'
+    | 'nextCrmSyncAttemptAt'
+    | 'lastCrmSyncedAt'
+    | 'crmExternalRecordId'
+    | 'lastCrmSyncStatusCode'
+    | 'lastCrmSyncError'
     | 'webhookAttemptCount'
     | 'lastWebhookAttemptAt'
     | 'nextWebhookAttemptAt'
@@ -947,6 +968,13 @@ function toAdminActionableWorkspace(input: {
     nextOutreachAttemptAt: input.lastOutreach?.nextAttemptAt ?? null,
     lastOutreachExportCount: input.lastOutreach?.exportCount ?? null,
     lastOutreachExportedAt: input.lastOutreach?.lastExportedAt ?? null,
+    lastOutreachCrmSyncCount: input.lastOutreach?.crmSyncCount ?? null,
+    lastOutreachCrmSyncAttemptAt: input.lastOutreach?.lastCrmSyncAttemptAt ?? null,
+    nextOutreachCrmSyncAttemptAt: input.lastOutreach?.nextCrmSyncAttemptAt ?? null,
+    lastOutreachCrmSyncedAt: input.lastOutreach?.lastCrmSyncedAt ?? null,
+    lastOutreachCrmExternalRecordId: input.lastOutreach?.crmExternalRecordId ?? null,
+    lastOutreachCrmSyncStatusCode: input.lastOutreach?.lastCrmSyncStatusCode ?? null,
+    lastOutreachCrmSyncError: input.lastOutreach?.lastCrmSyncError ?? null,
     lastOutreachWebhookAttemptCount: input.lastOutreach?.webhookAttemptCount ?? null,
     lastOutreachWebhookAttemptAt: input.lastOutreach?.lastWebhookAttemptAt ?? null,
     nextOutreachWebhookAttemptAt: input.lastOutreach?.nextWebhookAttemptAt ?? null,
@@ -1042,6 +1070,15 @@ export interface TeamWorkspacesRepository {
     note?: string | null;
   }): Promise<'workspace_not_found' | 'outreach_not_found' | { ok: true }>;
   exportHandedOffAdminRecoveryOutreach(): Promise<{ exportedCount: number }>;
+  recordHandedOffAdminRecoveryOutreachCrmSync(input: {
+    workspaceIds: string[];
+    statusCode: number | null;
+    error: string | null;
+    attemptedAt?: string;
+    syncedAt?: string;
+    retryIntervalHours?: number;
+    externalRecordIdByWorkspaceId?: Record<string, string | null | undefined>;
+  }): Promise<{ syncedCount: number }>;
   recordDeadLetteredAdminRecoveryOutreachSlackAlert(input: {
     workspaceIds: string[];
     statusCode: number | null;
@@ -1302,6 +1339,10 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
     let pendingAdminOutreach = 0;
     let multiTouchPending = 0;
     let pendingExport = 0;
+    let pendingCrmSync = 0;
+    let retryingCrmSync = 0;
+    let syncedCrm = 0;
+    let failedCrmSync = 0;
     let pendingWebhook = 0;
     let retryingWebhook = 0;
     let deadLetteredWebhook = 0;
@@ -1383,6 +1424,15 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
         else pendingAdminOutreach += 1;
       } else if (event.status === 'handed_off') {
         if (event.exportCount === 0) pendingExport += 1;
+        if (event.handoffChannel === 'crm') {
+          if (event.lastCrmSyncedAt) syncedCrm += 1;
+          else if (event.lastCrmSyncError) {
+            failedCrmSync += 1;
+            if (event.nextCrmSyncAttemptAt) retryingCrmSync += 1;
+          } else {
+            pendingCrmSync += 1;
+          }
+        }
         if (event.webhookDeliveryCount > 0) deliveredWebhook += 1;
         else if (event.webhookExhaustedAt) deadLetteredWebhook += 1;
         else if (event.lastWebhookError) {
@@ -1422,6 +1472,10 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
         pendingAdmin: pendingAdminOutreach,
         multiTouchPending,
         pendingExport,
+        pendingCrmSync,
+        retryingCrmSync,
+        syncedCrm,
+        failedCrmSync,
         pendingWebhook,
         retryingWebhook,
         deadLetteredWebhook,
@@ -1467,6 +1521,13 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
         nextAttemptAt,
         exportCount: 0,
         lastExportedAt: null,
+        crmSyncCount: 0,
+        lastCrmSyncAttemptAt: null,
+        nextCrmSyncAttemptAt: now,
+        lastCrmSyncedAt: null,
+        crmExternalRecordId: null,
+        lastCrmSyncStatusCode: null,
+        lastCrmSyncError: null,
         webhookAttemptCount: 0,
         lastWebhookAttemptAt: null,
         nextWebhookAttemptAt: now,
@@ -1545,6 +1606,58 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
       if (!input.error) alertedCount += 1;
     }
     return { alertedCount };
+  }
+
+  async recordHandedOffAdminRecoveryOutreachCrmSync(input: {
+    workspaceIds: string[];
+    statusCode: number | null;
+    error: string | null;
+    attemptedAt?: string;
+    syncedAt?: string;
+    retryIntervalHours?: number;
+    externalRecordIdByWorkspaceId?: Record<string, string | null | undefined>;
+  }): Promise<{ syncedCount: number }> {
+    const workspaceIds = new Set(input.workspaceIds);
+    const attemptedAt = input.attemptedAt ?? new Date().toISOString();
+    const syncedAt = input.syncedAt ?? attemptedAt;
+    const retryIntervalHours = Math.max(
+      0,
+      input.retryIntervalHours ?? DEFAULT_RECOVERY_OUTREACH_RETRY_HOURS,
+    );
+    let syncedCount = 0;
+    for (let index = 0; index < this.recoveryOutreach.length; index += 1) {
+      const event = this.recoveryOutreach[index]!;
+      if (!workspaceIds.has(event.workspaceId)) continue;
+      if (
+        event.audience !== 'admin' ||
+        event.status !== 'handed_off' ||
+        event.handoffChannel !== 'crm'
+      ) {
+        continue;
+      }
+      this.recoveryOutreach[index] = input.error
+        ? {
+            ...event,
+            crmSyncCount: event.crmSyncCount + 1,
+            lastCrmSyncAttemptAt: attemptedAt,
+            nextCrmSyncAttemptAt: nextRecoveryOutreachAttemptAt(attemptedAt, retryIntervalHours),
+            lastCrmSyncStatusCode: input.statusCode,
+            lastCrmSyncError: input.error,
+          }
+        : {
+            ...event,
+            crmSyncCount: event.crmSyncCount + 1,
+            lastCrmSyncAttemptAt: attemptedAt,
+            nextCrmSyncAttemptAt: null,
+            lastCrmSyncedAt: syncedAt,
+            crmExternalRecordId:
+              input.externalRecordIdByWorkspaceId?.[event.workspaceId] ?? event.crmExternalRecordId,
+            lastCrmSyncStatusCode: input.statusCode,
+            lastCrmSyncError: null,
+          };
+      if (!input.error) syncedCount += 1;
+    }
+    return { syncedCount };
   }
 
   async recordHandedOffAdminRecoveryOutreachWebhookDelivery(input: {
@@ -1887,6 +2000,13 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
       nextAttemptAt: nextRecoveryOutreachAttemptAt(new Date().toISOString(), retryIntervalHours),
       exportCount: 0,
       lastExportedAt: null,
+      crmSyncCount: 0,
+      lastCrmSyncAttemptAt: null,
+      nextCrmSyncAttemptAt: new Date().toISOString(),
+      lastCrmSyncedAt: null,
+      crmExternalRecordId: null,
+      lastCrmSyncStatusCode: null,
+      lastCrmSyncError: null,
       webhookAttemptCount: 0,
       lastWebhookAttemptAt: null,
       nextWebhookAttemptAt: new Date().toISOString(),
@@ -1936,6 +2056,13 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
         nextAttemptAt: nextRecoveryOutreachAttemptAt(now, retryIntervalHours),
         exportCount: 0,
         lastExportedAt: null,
+        crmSyncCount: 0,
+        lastCrmSyncAttemptAt: null,
+        nextCrmSyncAttemptAt: now,
+        lastCrmSyncedAt: null,
+        crmExternalRecordId: null,
+        lastCrmSyncStatusCode: null,
+        lastCrmSyncError: null,
         webhookAttemptCount: 0,
         lastWebhookAttemptAt: null,
         nextWebhookAttemptAt: now,
@@ -2513,6 +2640,12 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
       status: TeamWorkspaceRecoveryOutreachStatus;
       attempt_bucket: 'single' | 'multi';
       export_bucket: 'pending_export' | 'exported_or_na';
+      crm_bucket:
+        | 'pending_crm_sync'
+        | 'retrying_crm_sync'
+        | 'synced_crm'
+        | 'failed_crm_sync'
+        | 'crm_na';
       webhook_bucket:
         | 'pending_webhook'
         | 'retrying_webhook'
@@ -2531,6 +2664,21 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
            WHEN status = 'handed_off' AND export_count = 0 THEN 'pending_export'
            ELSE 'exported_or_na'
          END AS export_bucket,
+         CASE
+           WHEN status = 'handed_off'
+             AND handoff_channel = 'crm'
+             AND last_crm_synced_at IS NOT NULL THEN 'synced_crm'
+           WHEN status = 'handed_off'
+             AND handoff_channel = 'crm'
+             AND last_crm_sync_error IS NOT NULL
+             AND next_crm_sync_attempt_at IS NOT NULL THEN 'retrying_crm_sync'
+           WHEN status = 'handed_off'
+             AND handoff_channel = 'crm'
+             AND last_crm_sync_error IS NOT NULL THEN 'failed_crm_sync'
+           WHEN status = 'handed_off'
+             AND handoff_channel = 'crm' THEN 'pending_crm_sync'
+           ELSE 'crm_na'
+         END AS crm_bucket,
          CASE
            WHEN status = 'handed_off' AND webhook_delivery_count > 0 THEN 'delivered_webhook'
            WHEN status = 'handed_off' AND webhook_exhausted_at IS NOT NULL THEN 'dead_lettered_webhook'
@@ -2554,12 +2702,16 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
          END AS slack_bucket,
          COUNT(*)::text AS count
        FROM team_workspace_recovery_outreach_events
-       GROUP BY audience, status, attempt_bucket, export_bucket, webhook_bucket, slack_bucket`,
+       GROUP BY audience, status, attempt_bucket, export_bucket, crm_bucket, webhook_bucket, slack_bucket`,
     );
     let pendingOwnerOutreach = 0;
     let pendingAdminOutreach = 0;
     let multiTouchPending = 0;
     let pendingExport = 0;
+    let pendingCrmSync = 0;
+    let retryingCrmSync = 0;
+    let syncedCrm = 0;
+    let failedCrmSync = 0;
     let pendingWebhook = 0;
     let retryingWebhook = 0;
     let deadLetteredWebhook = 0;
@@ -2578,6 +2730,10 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
         else pendingAdminOutreach += count;
       } else if (row.status === 'handed_off') {
         if (row.export_bucket === 'pending_export') pendingExport += count;
+        if (row.crm_bucket === 'pending_crm_sync') pendingCrmSync += count;
+        else if (row.crm_bucket === 'retrying_crm_sync') retryingCrmSync += count;
+        else if (row.crm_bucket === 'synced_crm') syncedCrm += count;
+        else if (row.crm_bucket === 'failed_crm_sync') failedCrmSync += count;
         if (row.webhook_bucket === 'pending_webhook') pendingWebhook += count;
         else if (row.webhook_bucket === 'retrying_webhook') retryingWebhook += count;
         else if (row.webhook_bucket === 'dead_lettered_webhook') deadLetteredWebhook += count;
@@ -2721,6 +2877,10 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
         pendingAdmin: pendingAdminOutreach,
         multiTouchPending,
         pendingExport,
+        pendingCrmSync,
+        retryingCrmSync,
+        syncedCrm,
+        failedCrmSync,
         pendingWebhook,
         retryingWebhook,
         deadLetteredWebhook,
@@ -2767,6 +2927,13 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
            next_attempt_at = NOW() + ($2 * INTERVAL '1 hour'),
            export_count = 0,
            last_exported_at = NULL,
+           crm_sync_count = 0,
+           last_crm_sync_attempt_at = NULL,
+           next_crm_sync_attempt_at = NOW(),
+           last_crm_synced_at = NULL,
+           crm_external_record_id = NULL,
+           last_crm_sync_status_code = NULL,
+           last_crm_sync_error = NULL,
            webhook_attempt_count = 0,
            last_webhook_attempt_at = NULL,
            next_webhook_attempt_at = NOW(),
@@ -2807,6 +2974,77 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
          AND status = 'handed_off'`,
     );
     return { exportedCount: rowCount ?? 0 };
+  }
+
+  async recordHandedOffAdminRecoveryOutreachCrmSync(input: {
+    workspaceIds: string[];
+    statusCode: number | null;
+    error: string | null;
+    attemptedAt?: string;
+    syncedAt?: string;
+    retryIntervalHours?: number;
+    externalRecordIdByWorkspaceId?: Record<string, string | null | undefined>;
+  }): Promise<{ syncedCount: number }> {
+    if (input.workspaceIds.length === 0) return { syncedCount: 0 };
+    const attemptedAt = input.attemptedAt ?? new Date().toISOString();
+    const syncedAt = input.syncedAt ?? attemptedAt;
+    const retryIntervalHours = Math.max(
+      0,
+      input.retryIntervalHours ?? DEFAULT_RECOVERY_OUTREACH_RETRY_HOURS,
+    );
+    const externalRecordIdByWorkspaceId = input.externalRecordIdByWorkspaceId ?? {};
+    const externalRecordIds = input.workspaceIds.map(
+      (workspaceId) => externalRecordIdByWorkspaceId[workspaceId] ?? null,
+    );
+    const { rowCount } = await this.pool.query(
+      input.error
+        ? `UPDATE team_workspace_recovery_outreach_events
+           SET crm_sync_count = crm_sync_count + 1,
+               last_crm_sync_attempt_at = $2,
+               next_crm_sync_attempt_at = $3,
+               last_crm_sync_status_code = $4,
+               last_crm_sync_error = $5
+           WHERE id IN (
+             SELECT DISTINCT ON (workspace_id) id
+             FROM team_workspace_recovery_outreach_events
+             WHERE workspace_id = ANY($1::uuid[])
+               AND audience = 'admin'
+               AND status = 'handed_off'
+               AND handoff_channel = 'crm'
+             ORDER BY workspace_id, created_at DESC
+           )`
+        : `UPDATE team_workspace_recovery_outreach_events AS o
+           SET crm_sync_count = o.crm_sync_count + 1,
+               last_crm_sync_attempt_at = $2,
+               next_crm_sync_attempt_at = NULL,
+               last_crm_synced_at = $3,
+               crm_external_record_id = mapped.external_record_id,
+               last_crm_sync_status_code = $4,
+               last_crm_sync_error = NULL
+           FROM (
+             SELECT UNNEST($1::uuid[]) AS workspace_id, UNNEST($5::text[]) AS external_record_id
+           ) AS mapped
+           WHERE o.workspace_id = mapped.workspace_id
+             AND o.id IN (
+               SELECT DISTINCT ON (workspace_id) id
+               FROM team_workspace_recovery_outreach_events
+               WHERE workspace_id = ANY($1::uuid[])
+                 AND audience = 'admin'
+                 AND status = 'handed_off'
+                 AND handoff_channel = 'crm'
+               ORDER BY workspace_id, created_at DESC
+             )`,
+      input.error
+        ? [
+            input.workspaceIds,
+            attemptedAt,
+            nextRecoveryOutreachAttemptAt(attemptedAt, retryIntervalHours),
+            input.statusCode,
+            input.error,
+          ]
+        : [input.workspaceIds, attemptedAt, syncedAt, input.statusCode, externalRecordIds],
+    );
+    return { syncedCount: input.error ? 0 : (rowCount ?? 0) };
   }
 
   async recordDeadLetteredAdminRecoveryOutreachSlackAlert(input: {
@@ -3438,6 +3676,13 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
          o.next_attempt_at,
          o.export_count,
          o.last_exported_at,
+         o.crm_sync_count,
+         o.last_crm_sync_attempt_at,
+         o.next_crm_sync_attempt_at,
+         o.last_crm_synced_at,
+         o.crm_external_record_id,
+         o.last_crm_sync_status_code,
+         o.last_crm_sync_error,
          o.webhook_attempt_count,
          o.last_webhook_attempt_at,
          o.next_webhook_attempt_at,
@@ -3486,6 +3731,13 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
          o.next_attempt_at,
          o.export_count,
          o.last_exported_at,
+         o.crm_sync_count,
+         o.last_crm_sync_attempt_at,
+         o.next_crm_sync_attempt_at,
+         o.last_crm_synced_at,
+         o.crm_external_record_id,
+         o.last_crm_sync_status_code,
+         o.last_crm_sync_error,
          o.webhook_attempt_count,
          o.last_webhook_attempt_at,
          o.next_webhook_attempt_at,
@@ -3532,6 +3784,13 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
          next_attempt_at,
          export_count,
          last_exported_at,
+         crm_sync_count,
+         last_crm_sync_attempt_at,
+         next_crm_sync_attempt_at,
+         last_crm_synced_at,
+         crm_external_record_id,
+         last_crm_sync_status_code,
+         last_crm_sync_error,
          webhook_attempt_count,
          last_webhook_attempt_at,
          next_webhook_attempt_at,
@@ -3547,7 +3806,7 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
          last_slack_alert_error
        )
        SELECT
-         $1, $2, $3, 'pending', $4, $5, $6, 1, NOW(), NOW() + ($7 * INTERVAL '1 hour'), 0, NULL, 0, NULL, NOW(), NULL, 0, NULL, NULL, NULL, 0, NULL, NULL, NULL, NULL
+         $1, $2, $3, 'pending', $4, $5, $6, 1, NOW(), NOW() + ($7 * INTERVAL '1 hour'), 0, NULL, 0, NULL, NOW(), NULL, NULL, NULL, NULL, 0, NULL, NOW(), NULL, 0, NULL, NULL, NULL, 0, NULL, NULL, NULL, NULL
        WHERE NOT EXISTS (
          SELECT 1
          FROM team_workspace_recovery_outreach_events
@@ -3593,6 +3852,13 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
            next_attempt_at = NOW() + ($7 * INTERVAL '1 hour'),
            export_count = 0,
            last_exported_at = NULL,
+           crm_sync_count = 0,
+           last_crm_sync_attempt_at = NULL,
+           next_crm_sync_attempt_at = NOW(),
+           last_crm_synced_at = NULL,
+           crm_external_record_id = NULL,
+           last_crm_sync_status_code = NULL,
+           last_crm_sync_error = NULL,
            webhook_attempt_count = 0,
            last_webhook_attempt_at = NULL,
            next_webhook_attempt_at = NOW(),

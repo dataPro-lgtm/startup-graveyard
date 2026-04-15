@@ -655,6 +655,9 @@ export default async function AdminReviewsPage({
             <code>deliver_team_workspace_recovery_webhook</code> → 将到点且仍可重试的 handoff admin
             恢复触达推送到外部 webhook，并按 retry window 回写状态；达到上限后会停止自动重试，可用{' '}
             <code>force=true</code> 忽略冷却窗口立即重推；{' '}
+            <code>deliver_team_workspace_recovery_crm_sync</code> → 将{' '}
+            <code>handoff_channel=crm</code> 的恢复触达同步到 CRM API，并回写外部 case id / 下次 CRM
+            重试时间；默认只同步当前到点且尚未成功的项，可用 <code>force=true</code> 立即重推；{' '}
             <code>deliver_team_workspace_recovery_slack_alert</code> → 将已进入 dead-letter 的
             handoff admin 恢复触达推送到 Ops Slack，默认只发送尚未成功告警的项，可用{' '}
             <code>force=true</code> 重发； <code>run_copilot_eval_suite</code> → 回放内置 Copilot
@@ -779,6 +782,7 @@ backfill_case_search_index → {"limit":25}
 backfill_case_taxonomy → {"limit":100}
 reconcile_team_workspace_billing → {}
 run_team_workspace_recovery_outreach → {"retryIntervalHours":24}
+deliver_team_workspace_recovery_crm_sync → {"retryIntervalHours":24}
 deliver_team_workspace_recovery_webhook → {"retryIntervalHours":24}
 deliver_team_workspace_recovery_slack_alert → {"force":true}
 run_copilot_eval_suite → {"topK":5,"limit":20}

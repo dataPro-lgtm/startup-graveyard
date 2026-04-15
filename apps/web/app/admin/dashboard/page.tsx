@@ -17,6 +17,8 @@ export default async function DashboardPage({
 }) {
   const adminKey = ADMIN_API_KEY ?? '';
   const raw = await searchParams;
+  const recoveryCrm = pickSearchParam(raw.recoveryCrm);
+  const recoveryCrmError = pickSearchParam(raw.recoveryCrmError);
   const recoveryWebhook = pickSearchParam(raw.recoveryWebhook);
   const recoveryWebhookError = pickSearchParam(raw.recoveryWebhookError);
   const recoverySlack = pickSearchParam(raw.recoverySlack);
@@ -55,6 +57,21 @@ export default async function DashboardPage({
             导出 CRM Handoff CSV
           </button>
         </form>
+        <form action="/admin/recovery-handoffs/crm" method="post" style={{ margin: 0 }}>
+          <button
+            type="submit"
+            style={{
+              border: '1px solid #0f766e',
+              background: '#0d2322',
+              color: '#99f6e4',
+              borderRadius: 8,
+              padding: '6px 10px',
+              cursor: 'pointer',
+            }}
+          >
+            同步 CRM Case
+          </button>
+        </form>
         <form action="/admin/recovery-handoffs/webhook" method="post" style={{ margin: 0 }}>
           <button
             type="submit"
@@ -89,6 +106,42 @@ export default async function DashboardPage({
 
       <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 32px' }}>运营数据 Dashboard</h1>
 
+      {recoveryCrm ? (
+        <div
+          style={{
+            marginBottom: 18,
+            padding: '12px 14px',
+            borderRadius: 12,
+            border: '1px solid #0f766e',
+            background: '#0d2322',
+            color: '#99f6e4',
+            fontSize: 13,
+          }}
+        >
+          {recoveryCrm === 'no_crm_handoffs'
+            ? '当前没有 `handoff_channel=crm` 的恢复项。'
+            : recoveryCrm === 'already_synced'
+              ? '当前 CRM handoff 已经完成同步；如需重新下发，可再次点击页顶按钮。'
+              : recoveryCrm === 'no_due_crm_handoffs'
+                ? '当前没有到点需要自动重试的 CRM handoff；如需立即重推，可再次点击页顶按钮。'
+                : `已向 CRM API 同步 ${recoveryCrm} 条 recovery case。`}
+        </div>
+      ) : null}
+      {recoveryCrmError ? (
+        <div
+          style={{
+            marginBottom: 18,
+            padding: '12px 14px',
+            borderRadius: 12,
+            border: '1px solid #4b2430',
+            background: '#23131a',
+            color: '#fecdd3',
+            fontSize: 13,
+          }}
+        >
+          CRM API 同步失败：{recoveryCrmError}
+        </div>
+      ) : null}
       {recoveryWebhook ? (
         <div
           style={{
@@ -275,6 +328,10 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
     teamStats.recoveryOutreach.pendingAdmin,
     teamStats.recoveryOutreach.multiTouchPending,
     teamStats.recoveryOutreach.pendingExport,
+    teamStats.recoveryOutreach.pendingCrmSync,
+    teamStats.recoveryOutreach.retryingCrmSync,
+    teamStats.recoveryOutreach.syncedCrm,
+    teamStats.recoveryOutreach.failedCrmSync,
     teamStats.recoveryOutreach.pendingWebhook,
     teamStats.recoveryOutreach.retryingWebhook,
     teamStats.recoveryOutreach.deadLetteredWebhook,
@@ -629,6 +686,34 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
                 sub="已 handoff 但还没导出到 CRM / 外部工作流"
               />
               <BarRow
+                label="待同步 CRM"
+                value={teamStats.recoveryOutreach.pendingCrmSync}
+                max={maxRecoveryOutreachMetric}
+                color="#2dd4bf"
+                sub="已 handoff 到 CRM，但还没有生成外部 case / ticket"
+              />
+              <BarRow
+                label="CRM 重试中"
+                value={teamStats.recoveryOutreach.retryingCrmSync}
+                max={maxRecoveryOutreachMetric}
+                color="#14b8a6"
+                sub="最近一次 CRM API 下发失败，系统会在下个窗口自动重试"
+              />
+              <BarRow
+                label="CRM 已同步"
+                value={teamStats.recoveryOutreach.syncedCrm}
+                max={maxRecoveryOutreachMetric}
+                color="#10b981"
+                sub="已经在外部 CRM 创建了可跟进的恢复 case"
+              />
+              <BarRow
+                label="CRM 同步失败"
+                value={teamStats.recoveryOutreach.failedCrmSync}
+                max={maxRecoveryOutreachMetric}
+                color="#f97316"
+                sub="CRM API 最近一次下发失败，仍需要自动或人工重试"
+              />
+              <BarRow
                 label="待推送 Webhook"
                 value={teamStats.recoveryOutreach.pendingWebhook}
                 max={maxRecoveryOutreachMetric}
@@ -727,6 +812,27 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
                             : ''
                         }`
                       : ''}
+                    {event.lastCrmSyncedAt
+                      ? ` · CRM 已同步${
+                          event.crmExternalRecordId ? `（Case ${event.crmExternalRecordId}）` : ''
+                        }${
+                          event.lastCrmSyncAttemptAt
+                            ? `（最近 ${formatDateTime(event.lastCrmSyncAttemptAt)}）`
+                            : ''
+                        }`
+                      : event.crmSyncCount > 0
+                        ? ` · CRM 已尝试 ${event.crmSyncCount} 次${
+                            event.lastCrmSyncAttemptAt
+                              ? `（最近 ${formatDateTime(event.lastCrmSyncAttemptAt)}）`
+                              : ''
+                          }${
+                            event.nextCrmSyncAttemptAt
+                              ? ` · 下次自动重试 ${formatDateTime(event.nextCrmSyncAttemptAt)}`
+                              : ''
+                          }`
+                        : event.lastCrmSyncError
+                          ? ` · CRM 失败：${event.lastCrmSyncError}`
+                          : ''}
                     {event.webhookDeliveryCount > 0
                       ? ` · webhook 已投递 ${event.webhookDeliveryCount} 次${
                           event.lastWebhookDeliveredAt
@@ -884,6 +990,21 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
                     {workspace.lastOutreachExportedAt
                       ? ` · 最近导出 ${formatDateTime(workspace.lastOutreachExportedAt)}`
                       : ''}
+                    {workspace.lastOutreachCrmSyncedAt
+                      ? ` · CRM 已同步 ${formatDateTime(workspace.lastOutreachCrmSyncedAt)}`
+                      : ''}
+                    {workspace.lastOutreachCrmExternalRecordId
+                      ? ` · CRM Case ${workspace.lastOutreachCrmExternalRecordId}`
+                      : ''}
+                    {workspace.lastOutreachCrmSyncCount
+                      ? ` · CRM 已尝试 ${workspace.lastOutreachCrmSyncCount} 次`
+                      : ''}
+                    {workspace.lastOutreachCrmSyncAttemptAt
+                      ? ` · 最近 CRM 尝试 ${formatDateTime(workspace.lastOutreachCrmSyncAttemptAt)}`
+                      : ''}
+                    {workspace.nextOutreachCrmSyncAttemptAt
+                      ? ` · 下次 CRM 重试 ${formatDateTime(workspace.nextOutreachCrmSyncAttemptAt)}`
+                      : ''}
                     {workspace.lastOutreachWebhookDeliveryCount
                       ? ` · webhook 已投递 ${workspace.lastOutreachWebhookDeliveryCount} 次`
                       : ''}
@@ -911,6 +1032,14 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
                       最近 webhook 失败：{workspace.lastOutreachWebhookError}
                       {workspace.lastOutreachWebhookStatusCode
                         ? ` · HTTP ${workspace.lastOutreachWebhookStatusCode}`
+                        : ''}
+                    </div>
+                  ) : null}
+                  {workspace.lastOutreachCrmSyncError ? (
+                    <div style={{ color: '#fca5a5', fontSize: 12, lineHeight: 1.7 }}>
+                      最近 CRM API 失败：{workspace.lastOutreachCrmSyncError}
+                      {workspace.lastOutreachCrmSyncStatusCode
+                        ? ` · HTTP ${workspace.lastOutreachCrmSyncStatusCode}`
                         : ''}
                     </div>
                   ) : null}
@@ -962,6 +1091,15 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
                         移交到 CRM 并暂停 48h
                       </button>
                     </form>
+                  ) : null}
+                  {workspace.lastOutreachStatus === 'handed_off' &&
+                  workspace.lastOutreachHandoffChannel === 'crm' &&
+                  !workspace.lastOutreachCrmSyncedAt ? (
+                    <div style={{ color: '#99f6e4', fontSize: 12 }}>
+                      {workspace.nextOutreachCrmSyncAttemptAt
+                        ? `这条 handoff 还没完成 CRM case 同步，系统会在 ${formatDateTime(workspace.nextOutreachCrmSyncAttemptAt)} 自动重试；若要立即重推，可直接用页顶的 CRM Case 入口。`
+                        : '这条 handoff 还没完成 CRM case 同步，可直接用页顶的 CRM Case 入口立即下发。'}
+                    </div>
                   ) : null}
                   {workspace.lastOutreachStatus === 'handed_off' &&
                   !workspace.lastOutreachExportedAt ? (

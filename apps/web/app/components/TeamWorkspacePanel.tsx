@@ -703,6 +703,35 @@ export function TeamWorkspacePanel() {
                                 : ''
                             }`
                           : ''}
+                        {event.lastCrmSyncedAt
+                          ? ` · CRM 已同步${
+                              event.crmExternalRecordId
+                                ? `（Case ${event.crmExternalRecordId}）`
+                                : ''
+                            }${
+                              event.lastCrmSyncAttemptAt
+                                ? `（最近 ${new Date(event.lastCrmSyncAttemptAt).toLocaleString(
+                                    'zh-CN',
+                                  )}）`
+                                : ''
+                            }`
+                          : event.crmSyncCount > 0
+                            ? ` · CRM 已尝试 ${event.crmSyncCount} 次${
+                                event.lastCrmSyncAttemptAt
+                                  ? `（最近 ${new Date(event.lastCrmSyncAttemptAt).toLocaleString(
+                                      'zh-CN',
+                                    )}）`
+                                  : ''
+                              }${
+                                event.nextCrmSyncAttemptAt
+                                  ? ` · 下次自动重试 ${new Date(
+                                      event.nextCrmSyncAttemptAt,
+                                    ).toLocaleString('zh-CN')}`
+                                  : ''
+                              }`
+                            : event.lastCrmSyncError
+                              ? ` · CRM 失败：${event.lastCrmSyncError}`
+                              : ''}
                         {event.webhookDeliveryCount > 0
                           ? ` · webhook 已投递 ${event.webhookDeliveryCount} 次${
                               event.lastWebhookDeliveredAt

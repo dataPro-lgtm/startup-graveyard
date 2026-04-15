@@ -936,6 +936,13 @@ components:
           nextAttemptAt,
           exportCount,
           lastExportedAt,
+          crmSyncCount,
+          lastCrmSyncAttemptAt,
+          nextCrmSyncAttemptAt,
+          lastCrmSyncedAt,
+          crmExternalRecordId,
+          lastCrmSyncStatusCode,
+          lastCrmSyncError,
           webhookAttemptCount,
           lastWebhookAttemptAt,
           nextWebhookAttemptAt,
@@ -974,6 +981,13 @@ components:
         nextAttemptAt: { type: string, nullable: true }
         exportCount: { type: integer, minimum: 0 }
         lastExportedAt: { type: string, nullable: true }
+        crmSyncCount: { type: integer, minimum: 0 }
+        lastCrmSyncAttemptAt: { type: string, nullable: true }
+        nextCrmSyncAttemptAt: { type: string, nullable: true }
+        lastCrmSyncedAt: { type: string, nullable: true }
+        crmExternalRecordId: { type: string, nullable: true }
+        lastCrmSyncStatusCode: { type: integer, nullable: true }
+        lastCrmSyncError: { type: string, nullable: true }
         webhookAttemptCount: { type: integer, minimum: 0 }
         lastWebhookAttemptAt: { type: string, nullable: true }
         nextWebhookAttemptAt: { type: string, nullable: true }
@@ -1030,6 +1044,13 @@ components:
           nextOutreachAttemptAt,
           lastOutreachExportCount,
           lastOutreachExportedAt,
+          lastOutreachCrmSyncCount,
+          lastOutreachCrmSyncAttemptAt,
+          nextOutreachCrmSyncAttemptAt,
+          lastOutreachCrmSyncedAt,
+          lastOutreachCrmExternalRecordId,
+          lastOutreachCrmSyncStatusCode,
+          lastOutreachCrmSyncError,
           lastOutreachWebhookAttemptCount,
           lastOutreachWebhookAttemptAt,
           nextOutreachWebhookAttemptAt,
@@ -1105,6 +1126,13 @@ components:
         nextOutreachAttemptAt: { type: string, nullable: true }
         lastOutreachExportCount: { type: integer, minimum: 0, nullable: true }
         lastOutreachExportedAt: { type: string, nullable: true }
+        lastOutreachCrmSyncCount: { type: integer, minimum: 0, nullable: true }
+        lastOutreachCrmSyncAttemptAt: { type: string, nullable: true }
+        nextOutreachCrmSyncAttemptAt: { type: string, nullable: true }
+        lastOutreachCrmSyncedAt: { type: string, nullable: true }
+        lastOutreachCrmExternalRecordId: { type: string, nullable: true }
+        lastOutreachCrmSyncStatusCode: { type: integer, nullable: true }
+        lastOutreachCrmSyncError: { type: string, nullable: true }
         lastOutreachWebhookAttemptCount: { type: integer, minimum: 0, nullable: true }
         lastOutreachWebhookAttemptAt: { type: string, nullable: true }
         nextOutreachWebhookAttemptAt: { type: string, nullable: true }
@@ -1716,6 +1744,10 @@ components:
               pendingAdmin,
               multiTouchPending,
               pendingExport,
+              pendingCrmSync,
+              retryingCrmSync,
+              syncedCrm,
+              failedCrmSync,
               pendingWebhook,
               retryingWebhook,
               deadLetteredWebhook,
@@ -1733,6 +1765,10 @@ components:
             pendingAdmin: { type: integer, minimum: 0 }
             multiTouchPending: { type: integer, minimum: 0 }
             pendingExport: { type: integer, minimum: 0 }
+            pendingCrmSync: { type: integer, minimum: 0 }
+            retryingCrmSync: { type: integer, minimum: 0 }
+            syncedCrm: { type: integer, minimum: 0 }
+            failedCrmSync: { type: integer, minimum: 0 }
             pendingWebhook: { type: integer, minimum: 0 }
             retryingWebhook: { type: integer, minimum: 0 }
             deadLetteredWebhook: { type: integer, minimum: 0 }
@@ -3427,6 +3463,33 @@ paths:
           description: Unauthorized
         '503':
           description: Admin API disabled
+  /v1/admin/stats/recovery-handoffs/crm:
+    post:
+      summary: Deliver due handed-off CRM recovery outreach rows to the configured CRM API and persist the external case id
+      security:
+        - AdminKey: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                retryIntervalHours:
+                  type: integer
+                  minimum: 0
+                  maximum: 336
+                force:
+                  type: boolean
+      responses:
+        '200':
+          description: CRM handoffs synced or skipped when nothing due remains
+        '401':
+          description: Unauthorized
+        '502':
+          description: CRM sync failed
+        '503':
+          description: Recovery CRM API is not configured or admin API disabled
   /v1/admin/stats/recovery-handoffs/webhook:
     post:
       summary: Deliver due and still-retryable handed-off admin recovery outreach rows to the configured external webhook

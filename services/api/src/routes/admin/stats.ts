@@ -5,6 +5,7 @@ import { getPool } from '../../db/pool.js';
 import type { CommercialAdminMetrics } from '@sg/shared/schemas/adminStats';
 import { adminStatsResponseSchema } from '../../schemas/adminStats.js';
 import { handoffTeamWorkspaceRecoveryOutreachBodySchema } from '../../schemas/teamWorkspace.js';
+import { deliverRecoveryOutreachCrmSync } from '../../recoveryOutreach/deliverRecoveryOutreachCrmSync.js';
 import { deliverRecoveryOutreachWebhook } from '../../recoveryOutreach/deliverRecoveryOutreachWebhook.js';
 import { deliverRecoveryOutreachSlackAlert } from '../../recoveryOutreach/deliverRecoveryOutreachSlackAlert.js';
 
@@ -114,6 +115,35 @@ export async function adminStatsRoutes(app: FastifyInstance) {
     } catch (err) {
       app.log.error(err, 'Failed to export recovery handoff CSV');
       return reply.code(500).send({ error: 'recovery_handoff_export_unavailable' });
+    }
+  });
+
+  app.post('/recovery-handoffs/crm', async (_request, reply) => {
+    try {
+      const parsed = recoveryWebhookDeliveryBodySchema.safeParse(_request.body ?? {});
+      if (!parsed.success) {
+        return reply.code(400).send({ error: 'invalid_recovery_crm_delivery_body' });
+      }
+      const delivered = await deliverRecoveryOutreachCrmSync(app.teamWorkspacesRepo, parsed.data);
+      if (!delivered.ok) {
+        return reply.code(delivered.error === 'recovery_handoff_crm_disabled' ? 503 : 502).send({
+          error: delivered.error,
+          detail: delivered.detail,
+          attemptedCount: delivered.attemptedCount,
+          syncedCount: delivered.syncedCount,
+          failedCount: delivered.failedCount,
+        });
+      }
+      return reply.send({
+        ok: true,
+        attemptedCount: delivered.attemptedCount,
+        syncedCount: delivered.syncedCount,
+        failedCount: delivered.failedCount,
+        skipped: delivered.skipped,
+      });
+    } catch (err) {
+      app.log.error(err, 'Failed to sync recovery handoffs to CRM API');
+      return reply.code(500).send({ error: 'recovery_handoff_crm_unavailable' });
     }
   });
 
@@ -313,6 +343,13 @@ function renderRecoveryQueueCsv(
     'next_outreach_attempt_at',
     'last_outreach_export_count',
     'last_outreach_exported_at',
+    'last_outreach_crm_sync_count',
+    'last_outreach_crm_sync_attempt_at',
+    'next_outreach_crm_sync_attempt_at',
+    'last_outreach_crm_synced_at',
+    'last_outreach_crm_external_record_id',
+    'last_outreach_crm_sync_status_code',
+    'last_outreach_crm_sync_error',
     'last_outreach_webhook_attempt_count',
     'last_outreach_webhook_attempt_at',
     'next_outreach_webhook_attempt_at',
@@ -358,6 +395,13 @@ function renderRecoveryQueueCsv(
         item.nextOutreachAttemptAt,
         item.lastOutreachExportCount,
         item.lastOutreachExportedAt,
+        item.lastOutreachCrmSyncCount,
+        item.lastOutreachCrmSyncAttemptAt,
+        item.nextOutreachCrmSyncAttemptAt,
+        item.lastOutreachCrmSyncedAt,
+        item.lastOutreachCrmExternalRecordId,
+        item.lastOutreachCrmSyncStatusCode,
+        item.lastOutreachCrmSyncError,
         item.lastOutreachWebhookAttemptCount,
         item.lastOutreachWebhookAttemptAt,
         item.nextOutreachWebhookAttemptAt,
@@ -401,6 +445,13 @@ function renderRecoveryHandoffCsv(
     'last_outreach_handoff_at',
     'last_outreach_export_count',
     'last_outreach_exported_at',
+    'last_outreach_crm_sync_count',
+    'last_outreach_crm_sync_attempt_at',
+    'next_outreach_crm_sync_attempt_at',
+    'last_outreach_crm_synced_at',
+    'last_outreach_crm_external_record_id',
+    'last_outreach_crm_sync_status_code',
+    'last_outreach_crm_sync_error',
     'last_outreach_webhook_attempt_count',
     'last_outreach_webhook_attempt_at',
     'next_outreach_webhook_attempt_at',
@@ -433,6 +484,13 @@ function renderRecoveryHandoffCsv(
         item.lastOutreachHandoffAt,
         item.lastOutreachExportCount,
         item.lastOutreachExportedAt,
+        item.lastOutreachCrmSyncCount,
+        item.lastOutreachCrmSyncAttemptAt,
+        item.nextOutreachCrmSyncAttemptAt,
+        item.lastOutreachCrmSyncedAt,
+        item.lastOutreachCrmExternalRecordId,
+        item.lastOutreachCrmSyncStatusCode,
+        item.lastOutreachCrmSyncError,
         item.lastOutreachWebhookAttemptCount,
         item.lastOutreachWebhookAttemptAt,
         item.nextOutreachWebhookAttemptAt,

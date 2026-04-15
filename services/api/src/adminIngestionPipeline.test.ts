@@ -21,6 +21,9 @@ describe('admin ingestion pipeline (mock DB)', () => {
 
   afterEach(async () => {
     vi.restoreAllMocks();
+    delete process.env.TEAM_WORKSPACE_RECOVERY_CRM_API_URL;
+    delete process.env.TEAM_WORKSPACE_RECOVERY_CRM_API_BEARER_TOKEN;
+    delete process.env.TEAM_WORKSPACE_RECOVERY_CRM_API_TIMEOUT_MS;
     delete process.env.TEAM_WORKSPACE_RECOVERY_WEBHOOK_URL;
     delete process.env.TEAM_WORKSPACE_RECOVERY_WEBHOOK_BEARER_TOKEN;
     delete process.env.TEAM_WORKSPACE_RECOVERY_WEBHOOK_TIMEOUT_MS;
@@ -1322,6 +1325,145 @@ describe('admin ingestion pipeline (mock DB)', () => {
               lastOutreachSlackAlertCount: 1,
               lastOutreachSlackAlertedAt: expect.any(String),
               lastOutreachSlackAlertError: null,
+            }),
+          ]),
+        },
+      },
+    });
+  });
+
+  it('deliver_team_workspace_recovery_crm_sync syncs handed-off CRM items via scheduler', async () => {
+    const ownerEmail = `pipeline-recovery-crm-owner-${Date.now()}@example.com`;
+    const ownerRegisterRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        email: ownerEmail,
+        password: 'password123',
+        displayName: 'Pipeline Recovery CRM Owner',
+      },
+    });
+    const ownerRegistered = JSON.parse(ownerRegisterRes.body) as {
+      accessToken: string;
+      user: { id: string };
+    };
+
+    await app.usersRepo.updateBillingAccount(ownerRegistered.user.id, {
+      subscription: 'team',
+      billingStatus: 'active',
+      billingInterval: 'month',
+    });
+
+    const createWorkspaceRes = await app.inject({
+      method: 'POST',
+      url: '/v1/team-workspace',
+      headers: {
+        authorization: `Bearer ${ownerRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: { name: 'Pipeline Recovery CRM Workspace' },
+    });
+    const createdWorkspace = JSON.parse(createWorkspaceRes.body) as {
+      workspace: { id: string };
+    };
+
+    await app.inject({
+      method: 'POST',
+      url: '/v1/team-workspace/invites',
+      headers: {
+        authorization: `Bearer ${ownerRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        email: `pipeline-recovery-crm-member-${Date.now()}@example.com`,
+        role: 'member',
+      },
+    });
+
+    await app.usersRepo.updateBillingAccount(ownerRegistered.user.id, {
+      subscription: 'pro',
+      billingStatus: 'active',
+      billingInterval: 'month',
+      cancelAtPeriodEnd: true,
+    });
+
+    await app.inject({
+      method: 'POST',
+      url: '/v1/admin/scheduler/trigger',
+      headers: {
+        ...headers,
+        'content-type': 'application/json',
+      },
+      payload: { sourceName: 'reconcile_team_workspace_billing', payload: {} },
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/v1/admin/scheduler/trigger',
+      headers: {
+        ...headers,
+        'content-type': 'application/json',
+      },
+      payload: { sourceName: 'run_team_workspace_recovery_outreach', payload: {} },
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/v1/admin/stats/recovery-outreach/handoff',
+      headers: {
+        ...headers,
+        'content-type': 'application/json',
+      },
+      payload: {
+        workspaceId: createdWorkspace.workspace.id,
+        channel: 'crm',
+        snoozeHours: 0,
+      },
+    });
+
+    process.env.TEAM_WORKSPACE_RECOVERY_CRM_API_URL = 'https://crm.example.com/api/recovery';
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ ticketId: 'crm-ticket-42' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    const crmRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/scheduler/trigger',
+      headers: {
+        ...headers,
+        'content-type': 'application/json',
+      },
+      payload: {
+        sourceName: 'deliver_team_workspace_recovery_crm_sync',
+        payload: { retryIntervalHours: 24 },
+      },
+    });
+    expect(crmRes.statusCode).toBe(200);
+    expect(JSON.parse(crmRes.body)).toMatchObject({
+      ok: true,
+      detail: expect.stringContaining('attempted=1 synced=1 failed=0'),
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    const statsRes = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/stats',
+      headers,
+    });
+    expect(JSON.parse(statsRes.body)).toMatchObject({
+      commercial: {
+        teamWorkspaces: {
+          recoveryOutreach: {
+            syncedCrm: 1,
+            pendingCrmSync: 0,
+          },
+          actionableWorkspaces: expect.arrayContaining([
+            expect.objectContaining({
+              workspaceId: createdWorkspace.workspace.id,
+              lastOutreachCrmSyncCount: 1,
+              lastOutreachCrmSyncedAt: expect.any(String),
+              lastOutreachCrmExternalRecordId: 'crm-ticket-42',
             }),
           ]),
         },
