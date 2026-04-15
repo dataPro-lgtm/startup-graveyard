@@ -24,6 +24,7 @@ import type {
   TeamWorkspace,
   TeamWorkspaceContextResponse,
   TeamWorkspaceInvite,
+  TeamWorkspaceMemberRecoveryNotification,
   TeamWorkspaceMember,
   TeamWorkspaceRole,
   TeamWorkspaceSharedCase,
@@ -176,6 +177,11 @@ type WorkspaceRecoveryOutreachDescriptor = {
   actionCode: TeamWorkspaceBillingRecoveryActionCode | null;
 };
 
+type WorkspaceMemberRecoveryNotificationDescriptor = {
+  title: string;
+  detail: string;
+};
+
 type AdminBillingEvent = TeamWorkspaceAdminMetrics['recentBillingEvents'][number];
 type AdminRecoveryAction = TeamWorkspaceAdminMetrics['recoveryActions'][number];
 type AdminActionableWorkspace = TeamWorkspaceAdminMetrics['actionableWorkspaces'][number];
@@ -211,6 +217,12 @@ type PgWorkspaceRecoveryOutreachRow = {
   created_at: Date | string;
   last_attempt_at: Date | string;
   next_attempt_at: Date | string | null;
+  email_attempt_count: number;
+  last_email_attempt_at: Date | string | null;
+  next_email_attempt_at: Date | string | null;
+  last_email_delivered_at: Date | string | null;
+  last_email_message_id: string | null;
+  last_email_error: string | null;
   export_count: number;
   last_exported_at: Date | string | null;
   crm_sync_count: number;
@@ -237,6 +249,46 @@ type PgWorkspaceRecoveryOutreachRow = {
   handoff_note: string | null;
   handoff_at: Date | string | null;
   resolved_at: Date | string | null;
+};
+
+type PgWorkspaceMemberRecoveryNotificationRow = {
+  id: string;
+  workspace_id: string;
+  user_id: string;
+  email: string;
+  display_name: string | null;
+  status: 'pending' | 'resolved';
+  title: string;
+  detail: string;
+  email_attempt_count: number;
+  created_at: Date | string;
+  last_email_attempt_at: Date | string | null;
+  next_email_attempt_at: Date | string | null;
+  last_email_delivered_at: Date | string | null;
+  last_email_message_id: string | null;
+  last_email_error: string | null;
+  resolved_at: Date | string | null;
+};
+
+export type PendingMemberRecoveryNotificationTarget = {
+  notificationId: string;
+  workspaceId: string;
+  workspaceName: string;
+  userId: string;
+  email: string;
+  displayName: string | null;
+  ownerDisplayName: string | null;
+  ownerEmail: string;
+  subscription: SubscriptionTier;
+  billingStatus: BillingStatus;
+  title: string;
+  detail: string;
+  emailAttemptCount: number;
+  lastEmailAttemptAt: string | null;
+  nextEmailAttemptAt: string | null;
+  lastEmailDeliveredAt: string | null;
+  lastEmailMessageId: string | null;
+  lastEmailError: string | null;
 };
 
 type PgWorkspaceBillingStateRow = {
@@ -548,6 +600,12 @@ function rowToRecoveryOutreach(row: PgWorkspaceRecoveryOutreachRow): AdminRecove
     createdAt: toIso(row.created_at),
     lastAttemptAt: toIso(row.last_attempt_at),
     nextAttemptAt: row.next_attempt_at ? toIso(row.next_attempt_at) : null,
+    emailAttemptCount: row.email_attempt_count,
+    lastEmailAttemptAt: row.last_email_attempt_at ? toIso(row.last_email_attempt_at) : null,
+    nextEmailAttemptAt: row.next_email_attempt_at ? toIso(row.next_email_attempt_at) : null,
+    lastEmailDeliveredAt: row.last_email_delivered_at ? toIso(row.last_email_delivered_at) : null,
+    lastEmailMessageId: row.last_email_message_id,
+    lastEmailError: row.last_email_error,
     exportCount: row.export_count,
     lastExportedAt: row.last_exported_at ? toIso(row.last_exported_at) : null,
     crmSyncCount: row.crm_sync_count,
@@ -577,6 +635,28 @@ function rowToRecoveryOutreach(row: PgWorkspaceRecoveryOutreachRow): AdminRecove
     handoffChannel: row.handoff_channel,
     handoffNote: row.handoff_note,
     handoffAt: row.handoff_at ? toIso(row.handoff_at) : null,
+    resolvedAt: row.resolved_at ? toIso(row.resolved_at) : null,
+  };
+}
+
+function rowToMemberRecoveryNotification(
+  row: PgWorkspaceMemberRecoveryNotificationRow,
+): TeamWorkspaceMemberRecoveryNotification {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    email: row.email,
+    displayName: row.display_name,
+    status: row.status,
+    title: row.title,
+    detail: row.detail,
+    emailAttemptCount: row.email_attempt_count,
+    createdAt: toIso(row.created_at),
+    lastEmailAttemptAt: row.last_email_attempt_at ? toIso(row.last_email_attempt_at) : null,
+    nextEmailAttemptAt: row.next_email_attempt_at ? toIso(row.next_email_attempt_at) : null,
+    lastEmailDeliveredAt: row.last_email_delivered_at ? toIso(row.last_email_delivered_at) : null,
+    lastEmailMessageId: row.last_email_message_id,
+    lastEmailError: row.last_email_error,
     resolvedAt: row.resolved_at ? toIso(row.resolved_at) : null,
   };
 }
@@ -863,6 +943,97 @@ function buildRecoveryOutreachDescriptors(input: {
   return descriptors;
 }
 
+function buildMemberRecoveryNotificationDescriptor(input: {
+  workspaceName: string;
+  ownerDisplayName: string | null;
+  ownerEmail: string;
+  billing: TeamWorkspaceBilling;
+}): WorkspaceMemberRecoveryNotificationDescriptor | null {
+  if (input.billing.fallbackMemberCount === 0) return null;
+  const ownerLabel = input.ownerDisplayName ?? input.ownerEmail;
+  const primaryNotice =
+    input.billing.recoveryNotices.find((notice) => notice.code === 'workspace_plan_inactive') ??
+    input.billing.recoveryNotices[0] ??
+    null;
+
+  return {
+    title: `${input.workspaceName} 已暂时回退到个人权限`,
+    detail: primaryNotice
+      ? `${primaryNotice.detail} 当前账单所有者是 ${ownerLabel}。系统会在恢复后自动重新授予 Team 权限。`
+      : `你当前在 Team Workspace「${input.workspaceName}」里的团队权限已暂时回退到个人套餐，请联系账单所有者 ${ownerLabel} 恢复订阅。系统会在恢复后自动重新授予 Team 权限。`,
+  };
+}
+
+function summarizeMemberRecoveryNotifications(
+  notifications: TeamWorkspaceMemberRecoveryNotification[],
+): {
+  pendingCount: number;
+  retryingCount: number;
+  deliveredCount: number;
+  failedCount: number;
+  nextEmailAttemptAt: string | null;
+  lastEmailDeliveredAt: string | null;
+  lastEmailError: string | null;
+} {
+  let pendingCount = 0;
+  let retryingCount = 0;
+  let deliveredCount = 0;
+  let failedCount = 0;
+  let nextEmailAttemptAt: string | null = null;
+  let lastEmailDeliveredAt: string | null = null;
+  let lastEmailError: string | null = null;
+
+  for (const notification of notifications) {
+    if (notification.status !== 'pending') continue;
+    if (notification.lastEmailDeliveredAt) {
+      deliveredCount += 1;
+      if (
+        lastEmailDeliveredAt == null ||
+        new Date(notification.lastEmailDeliveredAt).getTime() >
+          new Date(lastEmailDeliveredAt).getTime()
+      ) {
+        lastEmailDeliveredAt = notification.lastEmailDeliveredAt;
+      }
+      continue;
+    }
+    if (notification.lastEmailError) {
+      if (notification.nextEmailAttemptAt) {
+        retryingCount += 1;
+        if (
+          nextEmailAttemptAt == null ||
+          new Date(notification.nextEmailAttemptAt).getTime() <
+            new Date(nextEmailAttemptAt).getTime()
+        ) {
+          nextEmailAttemptAt = notification.nextEmailAttemptAt;
+        }
+      } else {
+        failedCount += 1;
+      }
+      lastEmailError = notification.lastEmailError;
+      continue;
+    }
+    pendingCount += 1;
+    if (
+      notification.nextEmailAttemptAt &&
+      (nextEmailAttemptAt == null ||
+        new Date(notification.nextEmailAttemptAt).getTime() <
+          new Date(nextEmailAttemptAt).getTime())
+    ) {
+      nextEmailAttemptAt = notification.nextEmailAttemptAt;
+    }
+  }
+
+  return {
+    pendingCount,
+    retryingCount,
+    deliveredCount,
+    failedCount,
+    nextEmailAttemptAt,
+    lastEmailDeliveredAt,
+    lastEmailError,
+  };
+}
+
 function hasOwnerRecoveryEngagement(touch: BillingFunnelUserTouch | null | undefined): boolean {
   if (!touch) return false;
   return (
@@ -908,6 +1079,12 @@ function toAdminActionableWorkspace(input: {
     | 'status'
     | 'attemptCount'
     | 'nextAttemptAt'
+    | 'emailAttemptCount'
+    | 'lastEmailAttemptAt'
+    | 'nextEmailAttemptAt'
+    | 'lastEmailDeliveredAt'
+    | 'lastEmailMessageId'
+    | 'lastEmailError'
     | 'exportCount'
     | 'lastExportedAt'
     | 'crmSyncCount'
@@ -934,6 +1111,15 @@ function toAdminActionableWorkspace(input: {
     | 'handoffAt'
     | 'handoffNote'
   > | null;
+  memberRecoveryNotifications?: {
+    pendingCount: number;
+    retryingCount: number;
+    deliveredCount: number;
+    failedCount: number;
+    nextEmailAttemptAt: string | null;
+    lastEmailDeliveredAt: string | null;
+    lastEmailError: string | null;
+  } | null;
 }): AdminActionableWorkspace {
   return {
     workspaceId: input.workspaceId,
@@ -966,6 +1152,12 @@ function toAdminActionableWorkspace(input: {
     lastOutreachStatus: input.lastOutreach?.status ?? null,
     lastOutreachAttemptCount: input.lastOutreach?.attemptCount ?? null,
     nextOutreachAttemptAt: input.lastOutreach?.nextAttemptAt ?? null,
+    lastOutreachEmailAttemptCount: input.lastOutreach?.emailAttemptCount ?? null,
+    lastOutreachEmailAttemptAt: input.lastOutreach?.lastEmailAttemptAt ?? null,
+    nextOutreachEmailAttemptAt: input.lastOutreach?.nextEmailAttemptAt ?? null,
+    lastOutreachEmailDeliveredAt: input.lastOutreach?.lastEmailDeliveredAt ?? null,
+    lastOutreachEmailMessageId: input.lastOutreach?.lastEmailMessageId ?? null,
+    lastOutreachEmailError: input.lastOutreach?.lastEmailError ?? null,
     lastOutreachExportCount: input.lastOutreach?.exportCount ?? null,
     lastOutreachExportedAt: input.lastOutreach?.lastExportedAt ?? null,
     lastOutreachCrmSyncCount: input.lastOutreach?.crmSyncCount ?? null,
@@ -991,6 +1183,14 @@ function toAdminActionableWorkspace(input: {
     lastOutreachHandoffChannel: input.lastOutreach?.handoffChannel ?? null,
     lastOutreachHandoffAt: input.lastOutreach?.handoffAt ?? null,
     lastOutreachHandoffNote: input.lastOutreach?.handoffNote ?? null,
+    memberRecoveryPendingCount: input.memberRecoveryNotifications?.pendingCount ?? 0,
+    memberRecoveryRetryingCount: input.memberRecoveryNotifications?.retryingCount ?? 0,
+    memberRecoveryDeliveredCount: input.memberRecoveryNotifications?.deliveredCount ?? 0,
+    memberRecoveryFailedCount: input.memberRecoveryNotifications?.failedCount ?? 0,
+    memberRecoveryNextEmailAttemptAt: input.memberRecoveryNotifications?.nextEmailAttemptAt ?? null,
+    memberRecoveryLastEmailDeliveredAt:
+      input.memberRecoveryNotifications?.lastEmailDeliveredAt ?? null,
+    memberRecoveryLastEmailError: input.memberRecoveryNotifications?.lastEmailError ?? null,
   };
 }
 
@@ -1070,6 +1270,23 @@ export interface TeamWorkspacesRepository {
     note?: string | null;
   }): Promise<'workspace_not_found' | 'outreach_not_found' | { ok: true }>;
   exportHandedOffAdminRecoveryOutreach(): Promise<{ exportedCount: number }>;
+  listPendingMemberRecoveryNotifications(): Promise<PendingMemberRecoveryNotificationTarget[]>;
+  recordPendingOwnerRecoveryOutreachEmailDelivery(input: {
+    workspaceIds: string[];
+    error: string | null;
+    attemptedAt?: string;
+    deliveredAt?: string;
+    retryIntervalHours?: number;
+    messageIdByWorkspaceId?: Record<string, string | null | undefined>;
+  }): Promise<{ deliveredCount: number }>;
+  recordPendingMemberRecoveryNotificationEmailDelivery(input: {
+    notificationIds: string[];
+    error: string | null;
+    attemptedAt?: string;
+    deliveredAt?: string;
+    retryIntervalHours?: number;
+    messageIdByNotificationId?: Record<string, string | null | undefined>;
+  }): Promise<{ deliveredCount: number }>;
   recordHandedOffAdminRecoveryOutreachCrmSync(input: {
     workspaceIds: string[];
     statusCode: number | null;
@@ -1166,6 +1383,9 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
   >();
   private readonly billingEvents: AdminBillingEvent[] = [];
   private readonly recoveryOutreach: AdminRecoveryOutreach[] = [];
+  private readonly memberRecoveryNotifications: Array<
+    TeamWorkspaceMemberRecoveryNotification & { workspaceId: string; workspaceName: string }
+  > = [];
   private readonly billingStateByWorkspaceId = new Map<string, WorkspaceBillingSnapshot>();
   private readonly sharedSavedViews: WorkspaceSharedSavedViewRecord[] = [];
   private readonly sharedCases: WorkspaceSharedCaseRecord[] = [];
@@ -1276,6 +1496,38 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
         workspaceName: workspace.name,
         billing,
       });
+      const memberDescriptor = buildMemberRecoveryNotificationDescriptor({
+        workspaceName: workspace.name,
+        ownerDisplayName: owner.displayName,
+        ownerEmail: owner.email,
+        billing,
+      });
+      const fallbackMembers = (
+        await Promise.all(
+          [...this.membershipByUserId.entries()]
+            .filter(
+              ([, membership]) =>
+                membership.workspaceId === workspaceId && membership.role !== 'owner',
+            )
+            .map(async ([userId]) => {
+              const user = await this.usersRepo.getById(userId);
+              if (!user) return null;
+              return {
+                userId,
+                email: user.email,
+                displayName: user.displayName,
+              };
+            }),
+        )
+      ).filter(
+        (
+          item,
+        ): item is {
+          userId: string;
+          email: string;
+          displayName: string | null;
+        } => item !== null,
+      );
       const ownerDescriptor = descriptors.find((item) => item.audience === 'owner') ?? null;
       const adminDescriptor = descriptors.find((item) => item.audience === 'admin') ?? null;
       const ownerTouch = latestCommercialTouchByOwnerId.get(workspace.ownerUserId);
@@ -1311,6 +1563,12 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
       if (!adminDescriptor) {
         resolvedOutreachCount += this.resolvePendingRecoveryOutreach(workspaceId, 'admin');
       }
+      this.syncPendingMemberRecoveryNotifications(
+        workspaceId,
+        workspace.name,
+        fallbackMembers,
+        memberDescriptor,
+      );
     }
 
     return {
@@ -1337,6 +1595,14 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
     let fallbackMembers = 0;
     let pendingOwnerOutreach = 0;
     let pendingAdminOutreach = 0;
+    let pendingEmail = 0;
+    let retryingEmail = 0;
+    let deliveredEmail = 0;
+    let failedEmail = 0;
+    let pendingMemberEmail = 0;
+    let retryingMemberEmail = 0;
+    let deliveredMemberEmail = 0;
+    let failedMemberEmail = 0;
     let multiTouchPending = 0;
     let pendingExport = 0;
     let pendingCrmSync = 0;
@@ -1376,6 +1642,11 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
         pendingInviteCount: workspacePendingInvites,
         compensation,
       });
+      const memberNotificationSummary = summarizeMemberRecoveryNotifications(
+        this.memberRecoveryNotifications.filter(
+          (notification) => notification.workspaceId === workspace.id,
+        ),
+      );
 
       totalSeatCapacity += billing.seatLimit;
       seatsUsed += billing.seatsUsed;
@@ -1397,6 +1668,7 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
             pendingInvites: workspacePendingInvites,
             lastBillingEvent: this.getRecentBillingEvents(workspace.id)[0] ?? null,
             lastOutreach: latestOutreach,
+            memberRecoveryNotifications: memberNotificationSummary,
           }),
         );
       }
@@ -1415,6 +1687,11 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
       ) {
         atRiskWorkspaces += 1;
       }
+
+      pendingMemberEmail += memberNotificationSummary.pendingCount;
+      retryingMemberEmail += memberNotificationSummary.retryingCount;
+      deliveredMemberEmail += memberNotificationSummary.deliveredCount;
+      failedMemberEmail += memberNotificationSummary.failedCount;
     }
 
     for (const event of this.recoveryOutreach) {
@@ -1422,6 +1699,15 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
         if (event.attemptCount > 1) multiTouchPending += 1;
         if (event.audience === 'owner') pendingOwnerOutreach += 1;
         else pendingAdminOutreach += 1;
+        if (event.audience === 'owner') {
+          if (event.lastEmailDeliveredAt) deliveredEmail += 1;
+          else if (event.lastEmailError) {
+            if (event.nextEmailAttemptAt) retryingEmail += 1;
+            else failedEmail += 1;
+          } else {
+            pendingEmail += 1;
+          }
+        }
       } else if (event.status === 'handed_off') {
         if (event.exportCount === 0) pendingExport += 1;
         if (event.handoffChannel === 'crm') {
@@ -1470,6 +1756,14 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
       recoveryOutreach: {
         pendingOwner: pendingOwnerOutreach,
         pendingAdmin: pendingAdminOutreach,
+        pendingEmail,
+        retryingEmail,
+        deliveredEmail,
+        failedEmail,
+        pendingMemberEmail,
+        retryingMemberEmail,
+        deliveredMemberEmail,
+        failedMemberEmail,
         multiTouchPending,
         pendingExport,
         pendingCrmSync,
@@ -1519,6 +1813,12 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
         status: 'handed_off',
         lastAttemptAt: now,
         nextAttemptAt,
+        emailAttemptCount: 0,
+        lastEmailAttemptAt: null,
+        nextEmailAttemptAt: now,
+        lastEmailDeliveredAt: null,
+        lastEmailMessageId: null,
+        lastEmailError: null,
         exportCount: 0,
         lastExportedAt: null,
         crmSyncCount: 0,
@@ -1564,6 +1864,126 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
       exportedCount += 1;
     }
     return { exportedCount };
+  }
+
+  async listPendingMemberRecoveryNotifications(): Promise<
+    PendingMemberRecoveryNotificationTarget[]
+  > {
+    const targets = await Promise.all(
+      this.memberRecoveryNotifications.map(async (notification) => {
+        if (notification.status !== 'pending') return null;
+        const workspace = this.workspaces.get(notification.workspaceId);
+        if (!workspace) return null;
+        const owner = await this.usersRepo.getById(workspace.ownerUserId);
+        if (!owner) return null;
+        return {
+          notificationId: notification.id,
+          workspaceId: notification.workspaceId,
+          workspaceName: notification.workspaceName,
+          userId: notification.userId,
+          email: notification.email,
+          displayName: notification.displayName,
+          ownerDisplayName: owner.displayName,
+          ownerEmail: owner.email,
+          subscription: owner.subscription,
+          billingStatus: owner.billingStatus,
+          title: notification.title,
+          detail: notification.detail,
+          emailAttemptCount: notification.emailAttemptCount,
+          lastEmailAttemptAt: notification.lastEmailAttemptAt,
+          nextEmailAttemptAt: notification.nextEmailAttemptAt,
+          lastEmailDeliveredAt: notification.lastEmailDeliveredAt,
+          lastEmailMessageId: notification.lastEmailMessageId,
+          lastEmailError: notification.lastEmailError,
+        } satisfies PendingMemberRecoveryNotificationTarget;
+      }),
+    );
+    return targets.filter((item): item is PendingMemberRecoveryNotificationTarget => item !== null);
+  }
+
+  async recordPendingOwnerRecoveryOutreachEmailDelivery(input: {
+    workspaceIds: string[];
+    error: string | null;
+    attemptedAt?: string;
+    deliveredAt?: string;
+    retryIntervalHours?: number;
+    messageIdByWorkspaceId?: Record<string, string | null | undefined>;
+  }): Promise<{ deliveredCount: number }> {
+    const workspaceIds = new Set(input.workspaceIds);
+    const attemptedAt = input.attemptedAt ?? new Date().toISOString();
+    const deliveredAt = input.deliveredAt ?? attemptedAt;
+    const retryIntervalHours = Math.max(
+      0,
+      input.retryIntervalHours ?? DEFAULT_RECOVERY_OUTREACH_RETRY_HOURS,
+    );
+    let deliveredCount = 0;
+    for (let index = 0; index < this.recoveryOutreach.length; index += 1) {
+      const event = this.recoveryOutreach[index]!;
+      if (!workspaceIds.has(event.workspaceId)) continue;
+      if (event.audience !== 'owner' || event.status !== 'pending') continue;
+      this.recoveryOutreach[index] = input.error
+        ? {
+            ...event,
+            emailAttemptCount: event.emailAttemptCount + 1,
+            lastEmailAttemptAt: attemptedAt,
+            nextEmailAttemptAt: nextRecoveryOutreachAttemptAt(attemptedAt, retryIntervalHours),
+            lastEmailError: input.error,
+          }
+        : {
+            ...event,
+            emailAttemptCount: event.emailAttemptCount + 1,
+            lastEmailAttemptAt: attemptedAt,
+            nextEmailAttemptAt: null,
+            lastEmailDeliveredAt: deliveredAt,
+            lastEmailMessageId:
+              input.messageIdByWorkspaceId?.[event.workspaceId] ?? event.lastEmailMessageId,
+            lastEmailError: null,
+          };
+      if (!input.error) deliveredCount += 1;
+    }
+    return { deliveredCount };
+  }
+
+  async recordPendingMemberRecoveryNotificationEmailDelivery(input: {
+    notificationIds: string[];
+    error: string | null;
+    attemptedAt?: string;
+    deliveredAt?: string;
+    retryIntervalHours?: number;
+    messageIdByNotificationId?: Record<string, string | null | undefined>;
+  }): Promise<{ deliveredCount: number }> {
+    const notificationIds = new Set(input.notificationIds);
+    const attemptedAt = input.attemptedAt ?? new Date().toISOString();
+    const deliveredAt = input.deliveredAt ?? attemptedAt;
+    const retryIntervalHours = Math.max(
+      0,
+      input.retryIntervalHours ?? DEFAULT_RECOVERY_OUTREACH_RETRY_HOURS,
+    );
+    let deliveredCount = 0;
+    for (let index = 0; index < this.memberRecoveryNotifications.length; index += 1) {
+      const notification = this.memberRecoveryNotifications[index]!;
+      if (!notificationIds.has(notification.id) || notification.status !== 'pending') continue;
+      this.memberRecoveryNotifications[index] = input.error
+        ? {
+            ...notification,
+            emailAttemptCount: notification.emailAttemptCount + 1,
+            lastEmailAttemptAt: attemptedAt,
+            nextEmailAttemptAt: nextRecoveryOutreachAttemptAt(attemptedAt, retryIntervalHours),
+            lastEmailError: input.error,
+          }
+        : {
+            ...notification,
+            emailAttemptCount: notification.emailAttemptCount + 1,
+            lastEmailAttemptAt: attemptedAt,
+            nextEmailAttemptAt: null,
+            lastEmailDeliveredAt: deliveredAt,
+            lastEmailMessageId:
+              input.messageIdByNotificationId?.[notification.id] ?? notification.lastEmailMessageId,
+            lastEmailError: null,
+          };
+      if (!input.error) deliveredCount += 1;
+    }
+    return { deliveredCount };
   }
 
   async recordDeadLetteredAdminRecoveryOutreachSlackAlert(input: {
@@ -1967,6 +2387,18 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
       .map(({ workspaceId: _workspaceId, workspaceName: _workspaceName, ...event }) => event);
   }
 
+  private getRecentMemberRecoveryNotifications(
+    workspaceId: string,
+  ): TeamWorkspaceMemberRecoveryNotification[] {
+    return this.memberRecoveryNotifications
+      .filter((notification) => notification.workspaceId === workspaceId)
+      .slice(0, 6)
+      .map(
+        ({ workspaceId: _workspaceId, workspaceName: _workspaceName, ...notification }) =>
+          notification,
+      );
+  }
+
   private ensurePendingRecoveryOutreach(
     workspaceId: string,
     workspaceName: string,
@@ -1998,6 +2430,12 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
       createdAt: new Date().toISOString(),
       lastAttemptAt: new Date().toISOString(),
       nextAttemptAt: nextRecoveryOutreachAttemptAt(new Date().toISOString(), retryIntervalHours),
+      emailAttemptCount: 0,
+      lastEmailAttemptAt: null,
+      nextEmailAttemptAt: new Date().toISOString(),
+      lastEmailDeliveredAt: null,
+      lastEmailMessageId: null,
+      lastEmailError: null,
       exportCount: 0,
       lastExportedAt: null,
       crmSyncCount: 0,
@@ -2054,6 +2492,12 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
         attemptCount: event.attemptCount + 1,
         lastAttemptAt: now,
         nextAttemptAt: nextRecoveryOutreachAttemptAt(now, retryIntervalHours),
+        emailAttemptCount: 0,
+        lastEmailAttemptAt: null,
+        nextEmailAttemptAt: now,
+        lastEmailDeliveredAt: null,
+        lastEmailMessageId: null,
+        lastEmailError: null,
         exportCount: 0,
         lastExportedAt: null,
         crmSyncCount: 0,
@@ -2099,6 +2543,7 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
         ...event,
         status: 'resolved',
         nextAttemptAt: null,
+        nextEmailAttemptAt: null,
         nextWebhookAttemptAt: null,
         webhookExhaustedAt: null,
         lastSlackAlertError: null,
@@ -2107,6 +2552,72 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
       resolved += 1;
     }
     return resolved;
+  }
+
+  private syncPendingMemberRecoveryNotifications(
+    workspaceId: string,
+    workspaceName: string,
+    members: Array<{ userId: string; email: string; displayName: string | null }>,
+    descriptor: WorkspaceMemberRecoveryNotificationDescriptor | null,
+  ) {
+    const resolvedAt = new Date().toISOString();
+    const activeUserIds = descriptor
+      ? new Set(members.map((member) => member.userId))
+      : new Set<string>();
+    for (let index = 0; index < this.memberRecoveryNotifications.length; index += 1) {
+      const notification = this.memberRecoveryNotifications[index]!;
+      if (notification.workspaceId !== workspaceId || notification.status !== 'pending') continue;
+      const member = members.find((item) => item.userId === notification.userId) ?? null;
+      if (!descriptor || !activeUserIds.has(notification.userId) || !member) {
+        this.memberRecoveryNotifications[index] = {
+          ...notification,
+          status: 'resolved',
+          nextEmailAttemptAt: null,
+          resolvedAt,
+        };
+        continue;
+      }
+      this.memberRecoveryNotifications[index] = {
+        ...notification,
+        workspaceName,
+        email: member.email,
+        displayName: member.displayName,
+        title: descriptor.title,
+        detail: descriptor.detail,
+      };
+    }
+    if (!descriptor) return;
+    for (const member of members) {
+      const exists = this.memberRecoveryNotifications.some(
+        (notification) =>
+          notification.workspaceId === workspaceId &&
+          notification.userId === member.userId &&
+          notification.status === 'pending',
+      );
+      if (exists) continue;
+      this.memberRecoveryNotifications.unshift({
+        id: randomUUID(),
+        workspaceId,
+        workspaceName,
+        userId: member.userId,
+        email: member.email,
+        displayName: member.displayName,
+        status: 'pending',
+        title: descriptor.title,
+        detail: descriptor.detail,
+        emailAttemptCount: 0,
+        createdAt: resolvedAt,
+        lastEmailAttemptAt: null,
+        nextEmailAttemptAt: resolvedAt,
+        lastEmailDeliveredAt: null,
+        lastEmailMessageId: null,
+        lastEmailError: null,
+        resolvedAt: null,
+      });
+    }
+    if (this.memberRecoveryNotifications.length > 128) {
+      this.memberRecoveryNotifications.length = 128;
+    }
   }
 
   private recordBillingEvents(
@@ -2335,6 +2846,8 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
     const recentBillingEvents = this.getRecentBillingEvents(workspace.id);
     const recentRecoveryOutreach =
       membership.role === 'owner' ? this.getRecentRecoveryOutreach(workspace.id, 'owner') : [];
+    const recentMemberRecoveryNotifications =
+      membership.role === 'owner' ? this.getRecentMemberRecoveryNotifications(workspace.id) : [];
 
     return {
       id: workspace.id,
@@ -2355,6 +2868,7 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
       }),
       recentBillingEvents,
       recentRecoveryOutreach,
+      recentMemberRecoveryNotifications,
       members,
       invites,
       sharedSavedViews,
@@ -2516,6 +3030,27 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
         workspaceName: row.workspace_name,
         billing,
       });
+      const memberDescriptor = buildMemberRecoveryNotificationDescriptor({
+        workspaceName: row.workspace_name,
+        ownerDisplayName: row.owner_display_name,
+        ownerEmail: row.owner_email,
+        billing,
+      });
+      const fallbackMembersRes =
+        memberDescriptor == null
+          ? { rows: [] as Array<{ user_id: string; email: string; display_name: string | null }> }
+          : await this.pool.query<{
+              user_id: string;
+              email: string;
+              display_name: string | null;
+            }>(
+              `SELECT u.id AS user_id, u.email, u.display_name
+               FROM team_workspace_members m
+               JOIN users u ON u.id = m.user_id
+               WHERE m.workspace_id = $1
+                 AND m.role <> 'owner'`,
+              [row.workspace_id],
+            );
       const ownerDescriptor = descriptors.find((item) => item.audience === 'owner') ?? null;
       const adminDescriptor = descriptors.find((item) => item.audience === 'admin') ?? null;
       const ownerTouch = latestCommercialTouchByOwnerId.get(row.owner_user_id);
@@ -2558,6 +3093,16 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
           'admin',
         );
       }
+      await this.syncPendingMemberRecoveryNotifications(
+        row.workspace_id,
+        row.workspace_name,
+        fallbackMembersRes.rows.map((member) => ({
+          userId: member.user_id,
+          email: member.email,
+          displayName: member.display_name,
+        })),
+        memberDescriptor,
+      );
     }
 
     return {
@@ -2635,10 +3180,118 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
       rows.map((row) => row.workspace_id),
     );
     const recoveryOutreachRecent = await this.getRecentRecoveryOutreach();
+    const memberRecoveryNotificationCountsRes = await this.pool.query<{
+      email_bucket:
+        | 'pending_member_email'
+        | 'retrying_member_email'
+        | 'delivered_member_email'
+        | 'failed_member_email'
+        | 'member_email_na';
+      count: string;
+    }>(
+      `SELECT
+         CASE
+           WHEN status = 'pending'
+             AND last_email_delivered_at IS NOT NULL THEN 'delivered_member_email'
+           WHEN status = 'pending'
+             AND last_email_error IS NOT NULL
+             AND next_email_attempt_at IS NOT NULL THEN 'retrying_member_email'
+           WHEN status = 'pending'
+             AND last_email_error IS NOT NULL THEN 'failed_member_email'
+           WHEN status = 'pending' THEN 'pending_member_email'
+           ELSE 'member_email_na'
+         END AS email_bucket,
+         COUNT(*)::text AS count
+       FROM team_workspace_member_recovery_notifications
+       GROUP BY email_bucket`,
+    );
+    const memberRecoverySummaryRes =
+      rows.length === 0
+        ? {
+            rows: [] as Array<{
+              workspace_id: string;
+              pending_count: string;
+              retrying_count: string;
+              delivered_count: string;
+              failed_count: string;
+              next_email_attempt_at: Date | string | null;
+              last_email_delivered_at: Date | string | null;
+              last_email_error: string | null;
+            }>,
+          }
+        : await this.pool.query<{
+            workspace_id: string;
+            pending_count: string;
+            retrying_count: string;
+            delivered_count: string;
+            failed_count: string;
+            next_email_attempt_at: Date | string | null;
+            last_email_delivered_at: Date | string | null;
+            last_email_error: string | null;
+          }>(
+            `SELECT
+               workspace_id,
+               COUNT(*) FILTER (
+                 WHERE status = 'pending'
+                   AND last_email_delivered_at IS NULL
+                   AND last_email_error IS NULL
+               )::text AS pending_count,
+               COUNT(*) FILTER (
+                 WHERE status = 'pending'
+                   AND last_email_error IS NOT NULL
+                   AND next_email_attempt_at IS NOT NULL
+               )::text AS retrying_count,
+               COUNT(*) FILTER (
+                 WHERE status = 'pending'
+                   AND last_email_delivered_at IS NOT NULL
+               )::text AS delivered_count,
+               COUNT(*) FILTER (
+                 WHERE status = 'pending'
+                   AND last_email_error IS NOT NULL
+                   AND next_email_attempt_at IS NULL
+               )::text AS failed_count,
+               MIN(next_email_attempt_at) FILTER (
+                 WHERE status = 'pending'
+                   AND next_email_attempt_at IS NOT NULL
+               ) AS next_email_attempt_at,
+               MAX(last_email_delivered_at) FILTER (
+                 WHERE last_email_delivered_at IS NOT NULL
+               ) AS last_email_delivered_at,
+               (
+                 ARRAY_AGG(last_email_error ORDER BY COALESCE(last_email_attempt_at, created_at) DESC)
+                 FILTER (WHERE last_email_error IS NOT NULL)
+               )[1] AS last_email_error
+             FROM team_workspace_member_recovery_notifications
+             WHERE workspace_id = ANY($1::uuid[])
+             GROUP BY workspace_id`,
+            [rows.map((row) => row.workspace_id)],
+          );
+    const memberRecoverySummaryByWorkspaceId = new Map(
+      memberRecoverySummaryRes.rows.map((row) => [
+        row.workspace_id,
+        {
+          pendingCount: Number(row.pending_count),
+          retryingCount: Number(row.retrying_count),
+          deliveredCount: Number(row.delivered_count),
+          failedCount: Number(row.failed_count),
+          nextEmailAttemptAt: row.next_email_attempt_at ? toIso(row.next_email_attempt_at) : null,
+          lastEmailDeliveredAt: row.last_email_delivered_at
+            ? toIso(row.last_email_delivered_at)
+            : null,
+          lastEmailError: row.last_email_error,
+        },
+      ]),
+    );
     const recoveryOutreachCountsRes = await this.pool.query<{
       audience: TeamWorkspaceRecoveryOutreachAudience;
       status: TeamWorkspaceRecoveryOutreachStatus;
       attempt_bucket: 'single' | 'multi';
+      email_bucket:
+        | 'pending_email'
+        | 'retrying_email'
+        | 'delivered_email'
+        | 'failed_email'
+        | 'email_na';
       export_bucket: 'pending_export' | 'exported_or_na';
       crm_bucket:
         | 'pending_crm_sync'
@@ -2660,6 +3313,21 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
          audience,
          status,
          CASE WHEN attempt_count > 1 THEN 'multi' ELSE 'single' END AS attempt_bucket,
+         CASE
+           WHEN audience = 'owner'
+             AND status = 'pending'
+             AND last_email_delivered_at IS NOT NULL THEN 'delivered_email'
+           WHEN audience = 'owner'
+             AND status = 'pending'
+             AND last_email_error IS NOT NULL
+             AND next_email_attempt_at IS NOT NULL THEN 'retrying_email'
+           WHEN audience = 'owner'
+             AND status = 'pending'
+             AND last_email_error IS NOT NULL THEN 'failed_email'
+           WHEN audience = 'owner'
+             AND status = 'pending' THEN 'pending_email'
+           ELSE 'email_na'
+         END AS email_bucket,
          CASE
            WHEN status = 'handed_off' AND export_count = 0 THEN 'pending_export'
            ELSE 'exported_or_na'
@@ -2702,10 +3370,26 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
          END AS slack_bucket,
          COUNT(*)::text AS count
        FROM team_workspace_recovery_outreach_events
-       GROUP BY audience, status, attempt_bucket, export_bucket, crm_bucket, webhook_bucket, slack_bucket`,
+       GROUP BY
+         audience,
+         status,
+         attempt_bucket,
+         email_bucket,
+         export_bucket,
+         crm_bucket,
+         webhook_bucket,
+         slack_bucket`,
     );
     let pendingOwnerOutreach = 0;
     let pendingAdminOutreach = 0;
+    let pendingEmail = 0;
+    let retryingEmail = 0;
+    let deliveredEmail = 0;
+    let failedEmail = 0;
+    let pendingMemberEmail = 0;
+    let retryingMemberEmail = 0;
+    let deliveredMemberEmail = 0;
+    let failedMemberEmail = 0;
     let multiTouchPending = 0;
     let pendingExport = 0;
     let pendingCrmSync = 0;
@@ -2728,6 +3412,10 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
         if (row.attempt_bucket === 'multi') multiTouchPending += count;
         if (row.audience === 'owner') pendingOwnerOutreach += count;
         else pendingAdminOutreach += count;
+        if (row.email_bucket === 'pending_email') pendingEmail += count;
+        else if (row.email_bucket === 'retrying_email') retryingEmail += count;
+        else if (row.email_bucket === 'delivered_email') deliveredEmail += count;
+        else if (row.email_bucket === 'failed_email') failedEmail += count;
       } else if (row.status === 'handed_off') {
         if (row.export_bucket === 'pending_export') pendingExport += count;
         if (row.crm_bucket === 'pending_crm_sync') pendingCrmSync += count;
@@ -2746,6 +3434,13 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
       } else {
         resolvedOutreach += count;
       }
+    }
+    for (const row of memberRecoveryNotificationCountsRes.rows) {
+      const count = Number(row.count);
+      if (row.email_bucket === 'pending_member_email') pendingMemberEmail += count;
+      else if (row.email_bucket === 'retrying_member_email') retryingMemberEmail += count;
+      else if (row.email_bucket === 'delivered_member_email') deliveredMemberEmail += count;
+      else if (row.email_bucket === 'failed_member_email') failedMemberEmail += count;
     }
 
     let activeWorkspaces = 0;
@@ -2788,6 +3483,8 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
       const workspaceFallbackMembers = seatLimit === 0 ? Math.max(0, workspaceSeatsUsed - 1) : 0;
       fallbackMembers += workspaceFallbackMembers;
       const latestOutreach = latestRecoveryOutreachByWorkspaceId.get(row.workspace_id) ?? null;
+      const memberRecoveryNotifications =
+        memberRecoverySummaryByWorkspaceId.get(row.workspace_id) ?? null;
       const recommendedActions = buildRecoveryActions({
         subscription: row.subscription,
         billingStatus: row.billing_status,
@@ -2835,6 +3532,7 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
             pendingInvites: workspacePendingInvites,
             lastBillingEvent: latestBillingEventsByWorkspaceId.get(row.workspace_id) ?? null,
             lastOutreach: latestOutreach,
+            memberRecoveryNotifications,
           }),
         );
       }
@@ -2875,6 +3573,14 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
       recoveryOutreach: {
         pendingOwner: pendingOwnerOutreach,
         pendingAdmin: pendingAdminOutreach,
+        pendingEmail,
+        retryingEmail,
+        deliveredEmail,
+        failedEmail,
+        pendingMemberEmail,
+        retryingMemberEmail,
+        deliveredMemberEmail,
+        failedMemberEmail,
         multiTouchPending,
         pendingExport,
         pendingCrmSync,
@@ -2974,6 +3680,194 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
          AND status = 'handed_off'`,
     );
     return { exportedCount: rowCount ?? 0 };
+  }
+
+  async listPendingMemberRecoveryNotifications(): Promise<
+    PendingMemberRecoveryNotificationTarget[]
+  > {
+    const { rows } = await this.pool.query<{
+      notification_id: string;
+      workspace_id: string;
+      workspace_name: string;
+      user_id: string;
+      email: string;
+      display_name: string | null;
+      owner_display_name: string | null;
+      owner_email: string;
+      subscription: SubscriptionTier;
+      billing_status: BillingStatus;
+      title: string;
+      detail: string;
+      email_attempt_count: number;
+      last_email_attempt_at: Date | string | null;
+      next_email_attempt_at: Date | string | null;
+      last_email_delivered_at: Date | string | null;
+      last_email_message_id: string | null;
+      last_email_error: string | null;
+    }>(
+      `SELECT
+         n.id AS notification_id,
+         n.workspace_id,
+         w.name AS workspace_name,
+         n.user_id,
+         u.email,
+         u.display_name,
+         owner.display_name AS owner_display_name,
+         owner.email AS owner_email,
+         owner.subscription,
+         owner.billing_status,
+         n.title,
+         n.detail,
+         n.email_attempt_count,
+         n.last_email_attempt_at,
+         n.next_email_attempt_at,
+         n.last_email_delivered_at,
+         n.last_email_message_id,
+         n.last_email_error
+       FROM team_workspace_member_recovery_notifications n
+       JOIN team_workspaces w ON w.id = n.workspace_id
+       JOIN users u ON u.id = n.user_id
+       JOIN users owner ON owner.id = w.owner_user_id
+       WHERE n.status = 'pending'
+       ORDER BY n.created_at DESC`,
+    );
+    return rows.map((row) => ({
+      notificationId: row.notification_id,
+      workspaceId: row.workspace_id,
+      workspaceName: row.workspace_name,
+      userId: row.user_id,
+      email: row.email,
+      displayName: row.display_name,
+      ownerDisplayName: row.owner_display_name,
+      ownerEmail: row.owner_email,
+      subscription: row.subscription,
+      billingStatus: row.billing_status,
+      title: row.title,
+      detail: row.detail,
+      emailAttemptCount: row.email_attempt_count,
+      lastEmailAttemptAt: row.last_email_attempt_at ? toIso(row.last_email_attempt_at) : null,
+      nextEmailAttemptAt: row.next_email_attempt_at ? toIso(row.next_email_attempt_at) : null,
+      lastEmailDeliveredAt: row.last_email_delivered_at ? toIso(row.last_email_delivered_at) : null,
+      lastEmailMessageId: row.last_email_message_id,
+      lastEmailError: row.last_email_error,
+    }));
+  }
+
+  async recordPendingOwnerRecoveryOutreachEmailDelivery(input: {
+    workspaceIds: string[];
+    error: string | null;
+    attemptedAt?: string;
+    deliveredAt?: string;
+    retryIntervalHours?: number;
+    messageIdByWorkspaceId?: Record<string, string | null | undefined>;
+  }): Promise<{ deliveredCount: number }> {
+    if (input.workspaceIds.length === 0) return { deliveredCount: 0 };
+    const attemptedAt = input.attemptedAt ?? new Date().toISOString();
+    const deliveredAt = input.deliveredAt ?? attemptedAt;
+    const retryIntervalHours = Math.max(
+      0,
+      input.retryIntervalHours ?? DEFAULT_RECOVERY_OUTREACH_RETRY_HOURS,
+    );
+    const messageIdByWorkspaceId = input.messageIdByWorkspaceId ?? {};
+    const messageIds = input.workspaceIds.map(
+      (workspaceId) => messageIdByWorkspaceId[workspaceId] ?? null,
+    );
+    const { rowCount } = await this.pool.query(
+      input.error
+        ? `UPDATE team_workspace_recovery_outreach_events
+           SET email_attempt_count = email_attempt_count + 1,
+               last_email_attempt_at = $2,
+               next_email_attempt_at = $3,
+               last_email_error = $4
+           WHERE id IN (
+             SELECT DISTINCT ON (workspace_id) id
+             FROM team_workspace_recovery_outreach_events
+             WHERE workspace_id = ANY($1::uuid[])
+               AND audience = 'owner'
+               AND status = 'pending'
+             ORDER BY workspace_id, created_at DESC
+           )`
+        : `UPDATE team_workspace_recovery_outreach_events AS o
+           SET email_attempt_count = o.email_attempt_count + 1,
+               last_email_attempt_at = $2,
+               next_email_attempt_at = NULL,
+               last_email_delivered_at = $3,
+               last_email_message_id = mapped.message_id,
+               last_email_error = NULL
+           FROM (
+             SELECT UNNEST($1::uuid[]) AS workspace_id, UNNEST($4::text[]) AS message_id
+           ) AS mapped
+           WHERE o.workspace_id = mapped.workspace_id
+             AND o.id IN (
+               SELECT DISTINCT ON (workspace_id) id
+               FROM team_workspace_recovery_outreach_events
+               WHERE workspace_id = ANY($1::uuid[])
+                 AND audience = 'owner'
+                 AND status = 'pending'
+               ORDER BY workspace_id, created_at DESC
+             )`,
+      input.error
+        ? [
+            input.workspaceIds,
+            attemptedAt,
+            nextRecoveryOutreachAttemptAt(attemptedAt, retryIntervalHours),
+            input.error,
+          ]
+        : [input.workspaceIds, attemptedAt, deliveredAt, messageIds],
+    );
+    return { deliveredCount: input.error ? 0 : (rowCount ?? 0) };
+  }
+
+  async recordPendingMemberRecoveryNotificationEmailDelivery(input: {
+    notificationIds: string[];
+    error: string | null;
+    attemptedAt?: string;
+    deliveredAt?: string;
+    retryIntervalHours?: number;
+    messageIdByNotificationId?: Record<string, string | null | undefined>;
+  }): Promise<{ deliveredCount: number }> {
+    if (input.notificationIds.length === 0) return { deliveredCount: 0 };
+    const attemptedAt = input.attemptedAt ?? new Date().toISOString();
+    const deliveredAt = input.deliveredAt ?? attemptedAt;
+    const retryIntervalHours = Math.max(
+      0,
+      input.retryIntervalHours ?? DEFAULT_RECOVERY_OUTREACH_RETRY_HOURS,
+    );
+    const messageIdByNotificationId = input.messageIdByNotificationId ?? {};
+    const messageIds = input.notificationIds.map(
+      (notificationId) => messageIdByNotificationId[notificationId] ?? null,
+    );
+    const { rowCount } = await this.pool.query(
+      input.error
+        ? `UPDATE team_workspace_member_recovery_notifications
+           SET email_attempt_count = email_attempt_count + 1,
+               last_email_attempt_at = $2,
+               next_email_attempt_at = $3,
+               last_email_error = $4
+           WHERE id = ANY($1::uuid[])
+             AND status = 'pending'`
+        : `UPDATE team_workspace_member_recovery_notifications AS n
+           SET email_attempt_count = n.email_attempt_count + 1,
+               last_email_attempt_at = $2,
+               next_email_attempt_at = NULL,
+               last_email_delivered_at = $3,
+               last_email_message_id = mapped.message_id,
+               last_email_error = NULL
+           FROM (
+             SELECT UNNEST($1::uuid[]) AS notification_id, UNNEST($4::text[]) AS message_id
+           ) AS mapped
+           WHERE n.id = mapped.notification_id
+             AND n.status = 'pending'`,
+      input.error
+        ? [
+            input.notificationIds,
+            attemptedAt,
+            nextRecoveryOutreachAttemptAt(attemptedAt, retryIntervalHours),
+            input.error,
+          ]
+        : [input.notificationIds, attemptedAt, deliveredAt, messageIds],
+    );
+    return { deliveredCount: input.error ? 0 : (rowCount ?? 0) };
   }
 
   async recordHandedOffAdminRecoveryOutreachCrmSync(input: {
@@ -3674,6 +4568,12 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
          o.created_at,
          o.last_attempt_at,
          o.next_attempt_at,
+         o.email_attempt_count,
+         o.last_email_attempt_at,
+         o.next_email_attempt_at,
+         o.last_email_delivered_at,
+         o.last_email_message_id,
+         o.last_email_error,
          o.export_count,
          o.last_exported_at,
          o.crm_sync_count,
@@ -3729,6 +4629,12 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
          o.created_at,
          o.last_attempt_at,
          o.next_attempt_at,
+         o.email_attempt_count,
+         o.last_email_attempt_at,
+         o.next_email_attempt_at,
+         o.last_email_delivered_at,
+         o.last_email_message_id,
+         o.last_email_error,
          o.export_count,
          o.last_exported_at,
          o.crm_sync_count,
@@ -3764,6 +4670,110 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
     return new Map(rows.map((row) => [row.workspace_id, rowToRecoveryOutreach(row)]));
   }
 
+  private async getRecentMemberRecoveryNotifications(
+    workspaceId: string,
+  ): Promise<TeamWorkspaceMemberRecoveryNotification[]> {
+    const { rows } = await this.pool.query<PgWorkspaceMemberRecoveryNotificationRow>(
+      `SELECT
+         n.id,
+         n.workspace_id,
+         n.user_id,
+         u.email,
+         u.display_name,
+         n.status,
+         n.title,
+         n.detail,
+         n.email_attempt_count,
+         n.created_at,
+         n.last_email_attempt_at,
+         n.next_email_attempt_at,
+         n.last_email_delivered_at,
+         n.last_email_message_id,
+         n.last_email_error,
+         n.resolved_at
+       FROM team_workspace_member_recovery_notifications n
+       JOIN users u ON u.id = n.user_id
+       WHERE n.workspace_id = $1
+       ORDER BY n.created_at DESC
+       LIMIT 6`,
+      [workspaceId],
+    );
+    return rows.map(rowToMemberRecoveryNotification);
+  }
+
+  private async syncPendingMemberRecoveryNotifications(
+    workspaceId: string,
+    _workspaceName: string,
+    members: Array<{ userId: string; email: string; displayName: string | null }>,
+    descriptor: WorkspaceMemberRecoveryNotificationDescriptor | null,
+  ): Promise<void> {
+    if (!descriptor || members.length === 0) {
+      await this.pool.query(
+        `UPDATE team_workspace_member_recovery_notifications
+         SET status = 'resolved',
+             next_email_attempt_at = NULL,
+             resolved_at = NOW()
+         WHERE workspace_id = $1
+           AND status = 'pending'`,
+        [workspaceId],
+      );
+      return;
+    }
+    await this.pool.query(
+      `UPDATE team_workspace_member_recovery_notifications
+       SET status = 'resolved',
+           next_email_attempt_at = NULL,
+           resolved_at = NOW()
+       WHERE workspace_id = $1
+         AND status = 'pending'
+         AND user_id <> ALL($2::uuid[])`,
+      [workspaceId, members.map((member) => member.userId)],
+    );
+    for (const member of members) {
+      const updated = await this.pool.query(
+        `UPDATE team_workspace_member_recovery_notifications
+         SET email = $3,
+             display_name = $4,
+             title = $5,
+             detail = $6
+         WHERE workspace_id = $1
+           AND user_id = $2
+           AND status = 'pending'`,
+        [
+          workspaceId,
+          member.userId,
+          member.email,
+          member.displayName,
+          descriptor.title,
+          descriptor.detail,
+        ],
+      );
+      if ((updated.rowCount ?? 0) > 0) continue;
+      await this.pool.query(
+        `INSERT INTO team_workspace_member_recovery_notifications (
+           workspace_id,
+           user_id,
+           email,
+           display_name,
+           status,
+           title,
+           detail,
+           email_attempt_count,
+           next_email_attempt_at
+         )
+         VALUES ($1, $2, $3, $4, 'pending', $5, $6, 0, NOW())`,
+        [
+          workspaceId,
+          member.userId,
+          member.email,
+          member.displayName,
+          descriptor.title,
+          descriptor.detail,
+        ],
+      );
+    }
+  }
+
   private async ensurePendingRecoveryOutreach(
     workspaceId: string,
     descriptor: WorkspaceRecoveryOutreachDescriptor | null,
@@ -3782,6 +4792,12 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
          attempt_count,
          last_attempt_at,
          next_attempt_at,
+         email_attempt_count,
+         last_email_attempt_at,
+         next_email_attempt_at,
+         last_email_delivered_at,
+         last_email_message_id,
+         last_email_error,
          export_count,
          last_exported_at,
          crm_sync_count,
@@ -3806,7 +4822,7 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
          last_slack_alert_error
        )
        SELECT
-         $1, $2, $3, 'pending', $4, $5, $6, 1, NOW(), NOW() + ($7 * INTERVAL '1 hour'), 0, NULL, 0, NULL, NOW(), NULL, NULL, NULL, NULL, 0, NULL, NOW(), NULL, 0, NULL, NULL, NULL, 0, NULL, NULL, NULL, NULL
+         $1, $2, $3, 'pending', $4, $5, $6, 1, NOW(), NOW() + ($7 * INTERVAL '1 hour'), 0, NULL, NOW(), NULL, NULL, NULL, 0, NULL, 0, NULL, NOW(), NULL, NULL, NULL, NULL, 0, NULL, NOW(), NULL, 0, NULL, NULL, NULL, 0, NULL, NULL, NULL, NULL
        WHERE NOT EXISTS (
          SELECT 1
          FROM team_workspace_recovery_outreach_events
@@ -3850,6 +4866,12 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
            attempt_count = attempt_count + 1,
            last_attempt_at = NOW(),
            next_attempt_at = NOW() + ($7 * INTERVAL '1 hour'),
+           email_attempt_count = 0,
+           last_email_attempt_at = NULL,
+           next_email_attempt_at = NOW(),
+           last_email_delivered_at = NULL,
+           last_email_message_id = NULL,
+           last_email_error = NULL,
            export_count = 0,
            last_exported_at = NULL,
            crm_sync_count = 0,
@@ -3906,6 +4928,7 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
       `UPDATE team_workspace_recovery_outreach_events
        SET status = 'resolved',
            next_attempt_at = NULL,
+           next_email_attempt_at = NULL,
            next_webhook_attempt_at = NULL,
            webhook_exhausted_at = NULL,
            last_slack_alert_error = NULL,
@@ -4155,6 +5178,7 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
       compensation,
       recentBillingEvents,
       recentRecoveryOutreach,
+      recentMemberRecoveryNotifications,
     ] = await Promise.all([
       this.pool.query<PgWorkspaceMemberRow>(
         `SELECT
@@ -4264,6 +5288,7 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
       this.getCompensationSummary(workspaceId),
       this.getRecentBillingEvents(workspaceId),
       membership.role === 'owner' ? this.getRecentRecoveryOutreach(workspaceId, 'owner') : [],
+      membership.role === 'owner' ? this.getRecentMemberRecoveryNotifications(workspaceId) : [],
     ]);
 
     const owner = ownerRows.rows[0];
@@ -4305,6 +5330,7 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
               ({ workspaceId: _workspaceId, workspaceName: _workspaceName, ...event }) => event,
             )
           : [],
+      recentMemberRecoveryNotifications,
       members: memberRows.rows.map(rowToMember),
       invites: inviteRows.rows.map(rowToInvite),
       sharedSavedViews: sharedSavedViewRows.rows.map(rowToSharedSavedView),

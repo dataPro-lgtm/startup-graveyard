@@ -6,6 +6,9 @@ import type { CommercialAdminMetrics } from '@sg/shared/schemas/adminStats';
 import { adminStatsResponseSchema } from '../../schemas/adminStats.js';
 import { handoffTeamWorkspaceRecoveryOutreachBodySchema } from '../../schemas/teamWorkspace.js';
 import { deliverRecoveryOutreachCrmSync } from '../../recoveryOutreach/deliverRecoveryOutreachCrmSync.js';
+import { deliverRecoveryFallbackMemberEmail } from '../../recoveryOutreach/deliverRecoveryFallbackMemberEmail.js';
+import { deliverRecoveryOutreachOwnerEmail } from '../../recoveryOutreach/deliverRecoveryOutreachOwnerEmail.js';
+import { runRecoveryOutreachPlaybook } from '../../recoveryOutreach/runRecoveryOutreachPlaybook.js';
 import { deliverRecoveryOutreachWebhook } from '../../recoveryOutreach/deliverRecoveryOutreachWebhook.js';
 import { deliverRecoveryOutreachSlackAlert } from '../../recoveryOutreach/deliverRecoveryOutreachSlackAlert.js';
 
@@ -115,6 +118,95 @@ export async function adminStatsRoutes(app: FastifyInstance) {
     } catch (err) {
       app.log.error(err, 'Failed to export recovery handoff CSV');
       return reply.code(500).send({ error: 'recovery_handoff_export_unavailable' });
+    }
+  });
+
+  app.post('/recovery-owner-email', async (_request, reply) => {
+    try {
+      const parsed = recoveryWebhookDeliveryBodySchema.safeParse(_request.body ?? {});
+      if (!parsed.success) {
+        return reply.code(400).send({ error: 'invalid_recovery_owner_email_body' });
+      }
+      const delivered = await deliverRecoveryOutreachOwnerEmail(
+        app.teamWorkspacesRepo,
+        parsed.data,
+      );
+      if (!delivered.ok) {
+        return reply.code(delivered.error === 'recovery_owner_email_disabled' ? 503 : 502).send({
+          error: delivered.error,
+          detail: delivered.detail,
+          attemptedCount: delivered.attemptedCount,
+          deliveredCount: delivered.deliveredCount,
+          failedCount: delivered.failedCount,
+        });
+      }
+      return reply.send({
+        ok: true,
+        attemptedCount: delivered.attemptedCount,
+        deliveredCount: delivered.deliveredCount,
+        failedCount: delivered.failedCount,
+        skipped: delivered.skipped,
+      });
+    } catch (err) {
+      app.log.error(err, 'Failed to deliver recovery owner emails');
+      return reply.code(500).send({ error: 'recovery_owner_email_unavailable' });
+    }
+  });
+
+  app.post('/recovery-member-email', async (_request, reply) => {
+    try {
+      const parsed = recoveryWebhookDeliveryBodySchema.safeParse(_request.body ?? {});
+      if (!parsed.success) {
+        return reply.code(400).send({ error: 'invalid_recovery_member_email_body' });
+      }
+      const delivered = await deliverRecoveryFallbackMemberEmail(
+        app.teamWorkspacesRepo,
+        parsed.data,
+      );
+      if (!delivered.ok) {
+        return reply.code(delivered.error === 'recovery_member_email_disabled' ? 503 : 502).send({
+          error: delivered.error,
+          detail: delivered.detail,
+          attemptedCount: delivered.attemptedCount,
+          deliveredCount: delivered.deliveredCount,
+          failedCount: delivered.failedCount,
+        });
+      }
+      return reply.send({
+        ok: true,
+        attemptedCount: delivered.attemptedCount,
+        deliveredCount: delivered.deliveredCount,
+        failedCount: delivered.failedCount,
+        skipped: delivered.skipped,
+      });
+    } catch (err) {
+      app.log.error(err, 'Failed to deliver member recovery emails');
+      return reply.code(500).send({ error: 'recovery_member_email_unavailable' });
+    }
+  });
+
+  app.post('/recovery-playbook', async (_request, reply) => {
+    try {
+      const parsed = recoveryWebhookDeliveryBodySchema.safeParse(_request.body ?? {});
+      if (!parsed.success) {
+        return reply.code(400).send({ error: 'invalid_recovery_playbook_body' });
+      }
+      const played = await runRecoveryOutreachPlaybook(app.teamWorkspacesRepo, parsed.data);
+      if (!played.ok) {
+        return reply.code(502).send({
+          error: 'recovery_playbook_failed',
+          summary: played.summary,
+          steps: played.steps,
+        });
+      }
+      return reply.send({
+        ok: true,
+        summary: played.summary,
+        steps: played.steps,
+      });
+    } catch (err) {
+      app.log.error(err, 'Failed to run recovery playbook');
+      return reply.code(500).send({ error: 'recovery_playbook_unavailable' });
     }
   });
 
@@ -341,6 +433,12 @@ function renderRecoveryQueueCsv(
     'last_outreach_at',
     'last_outreach_attempt_count',
     'next_outreach_attempt_at',
+    'last_outreach_email_attempt_count',
+    'last_outreach_email_attempt_at',
+    'next_outreach_email_attempt_at',
+    'last_outreach_email_delivered_at',
+    'last_outreach_email_message_id',
+    'last_outreach_email_error',
     'last_outreach_export_count',
     'last_outreach_exported_at',
     'last_outreach_crm_sync_count',
@@ -366,6 +464,13 @@ function renderRecoveryQueueCsv(
     'last_outreach_handoff_channel',
     'last_outreach_handoff_at',
     'last_outreach_handoff_note',
+    'member_recovery_pending_count',
+    'member_recovery_retrying_count',
+    'member_recovery_delivered_count',
+    'member_recovery_failed_count',
+    'member_recovery_next_email_attempt_at',
+    'member_recovery_last_email_delivered_at',
+    'member_recovery_last_email_error',
     'last_outreach_status',
   ];
   const lines = [header.join(',')];
@@ -393,6 +498,12 @@ function renderRecoveryQueueCsv(
         item.lastOutreachAt,
         item.lastOutreachAttemptCount,
         item.nextOutreachAttemptAt,
+        item.lastOutreachEmailAttemptCount,
+        item.lastOutreachEmailAttemptAt,
+        item.nextOutreachEmailAttemptAt,
+        item.lastOutreachEmailDeliveredAt,
+        item.lastOutreachEmailMessageId,
+        item.lastOutreachEmailError,
         item.lastOutreachExportCount,
         item.lastOutreachExportedAt,
         item.lastOutreachCrmSyncCount,
@@ -418,6 +529,13 @@ function renderRecoveryQueueCsv(
         item.lastOutreachHandoffChannel,
         item.lastOutreachHandoffAt,
         item.lastOutreachHandoffNote,
+        item.memberRecoveryPendingCount,
+        item.memberRecoveryRetryingCount,
+        item.memberRecoveryDeliveredCount,
+        item.memberRecoveryFailedCount,
+        item.memberRecoveryNextEmailAttemptAt,
+        item.memberRecoveryLastEmailDeliveredAt,
+        item.memberRecoveryLastEmailError,
         item.lastOutreachStatus,
       ]
         .map(csvCell)
@@ -443,6 +561,12 @@ function renderRecoveryHandoffCsv(
     'last_outreach_handoff_channel',
     'last_outreach_handoff_note',
     'last_outreach_handoff_at',
+    'last_outreach_email_attempt_count',
+    'last_outreach_email_attempt_at',
+    'next_outreach_email_attempt_at',
+    'last_outreach_email_delivered_at',
+    'last_outreach_email_message_id',
+    'last_outreach_email_error',
     'last_outreach_export_count',
     'last_outreach_exported_at',
     'last_outreach_crm_sync_count',
@@ -482,6 +606,12 @@ function renderRecoveryHandoffCsv(
         item.lastOutreachHandoffChannel,
         item.lastOutreachHandoffNote,
         item.lastOutreachHandoffAt,
+        item.lastOutreachEmailAttemptCount,
+        item.lastOutreachEmailAttemptAt,
+        item.nextOutreachEmailAttemptAt,
+        item.lastOutreachEmailDeliveredAt,
+        item.lastOutreachEmailMessageId,
+        item.lastOutreachEmailError,
         item.lastOutreachExportCount,
         item.lastOutreachExportedAt,
         item.lastOutreachCrmSyncCount,

@@ -652,6 +652,14 @@ export default async function AdminReviewsPage({
             的账单/席位补偿、邀请撤销与自动恢复； <code>run_team_workspace_recovery_outreach</code>{' '}
             → 为仍处于恢复风险中的 workspace 生成/收口 owner banner 与 admin queue 触达记录，并按{' '}
             <code>retryIntervalHours</code> 自动重试逾期跟进；{' '}
+            <code>deliver_team_workspace_recovery_owner_email</code> → 将 owner pending recovery
+            outreach 发送到 SMTP 邮件通道，并按 <code>retryIntervalHours</code> 自动重试失败邮件；
+            默认只发送当前到点且尚未成功发出的项，可用 <code>force=true</code> 立即补发；{' '}
+            <code>deliver_team_workspace_recovery_member_email</code> → 将当前已回退到个人权限的
+            成员通知发送到 SMTP 邮件通道，并按 <code>retryIntervalHours</code> 自动重试失败邮件；
+            默认只发送当前到点且尚未成功发出的项，可用 <code>force=true</code> 立即补发；{' '}
+            <code>run_team_workspace_recovery_playbook</code> → 先刷新 recovery outreach，再串行执行
+            owner/member 邮件、CRM sync、webhook 和 Slack 升级告警，适合挂到定时编排；{' '}
             <code>deliver_team_workspace_recovery_webhook</code> → 将到点且仍可重试的 handoff admin
             恢复触达推送到外部 webhook，并按 retry window 回写状态；达到上限后会停止自动重试，可用{' '}
             <code>force=true</code> 忽略冷却窗口立即重推；{' '}
@@ -782,6 +790,9 @@ backfill_case_search_index → {"limit":25}
 backfill_case_taxonomy → {"limit":100}
 reconcile_team_workspace_billing → {}
 run_team_workspace_recovery_outreach → {"retryIntervalHours":24}
+deliver_team_workspace_recovery_owner_email → {"retryIntervalHours":24}
+deliver_team_workspace_recovery_member_email → {"retryIntervalHours":24}
+run_team_workspace_recovery_playbook → {"retryIntervalHours":24}
 deliver_team_workspace_recovery_crm_sync → {"retryIntervalHours":24}
 deliver_team_workspace_recovery_webhook → {"retryIntervalHours":24}
 deliver_team_workspace_recovery_slack_alert → {"force":true}

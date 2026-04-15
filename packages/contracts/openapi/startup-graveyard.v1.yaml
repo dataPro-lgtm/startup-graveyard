@@ -934,6 +934,12 @@ components:
           createdAt,
           lastAttemptAt,
           nextAttemptAt,
+          emailAttemptCount,
+          lastEmailAttemptAt,
+          nextEmailAttemptAt,
+          lastEmailDeliveredAt,
+          lastEmailMessageId,
+          lastEmailError,
           exportCount,
           lastExportedAt,
           crmSyncCount,
@@ -979,6 +985,12 @@ components:
         createdAt: { type: string }
         lastAttemptAt: { type: string }
         nextAttemptAt: { type: string, nullable: true }
+        emailAttemptCount: { type: integer, minimum: 0 }
+        lastEmailAttemptAt: { type: string, nullable: true }
+        nextEmailAttemptAt: { type: string, nullable: true }
+        lastEmailDeliveredAt: { type: string, nullable: true }
+        lastEmailMessageId: { type: string, nullable: true }
+        lastEmailError: { type: string, nullable: true }
         exportCount: { type: integer, minimum: 0 }
         lastExportedAt: { type: string, nullable: true }
         crmSyncCount: { type: integer, minimum: 0 }
@@ -1007,6 +1019,42 @@ components:
           nullable: true
         handoffNote: { type: string, nullable: true }
         handoffAt: { type: string, nullable: true }
+        resolvedAt: { type: string, nullable: true }
+    TeamWorkspaceMemberRecoveryNotification:
+      type: object
+      required:
+        [
+          id,
+          userId,
+          email,
+          displayName,
+          status,
+          title,
+          detail,
+          emailAttemptCount,
+          createdAt,
+          lastEmailAttemptAt,
+          nextEmailAttemptAt,
+          lastEmailDeliveredAt,
+          lastEmailMessageId,
+          lastEmailError,
+          resolvedAt,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        userId: { type: string, format: uuid }
+        email: { type: string, format: email }
+        displayName: { type: string, nullable: true }
+        status: { type: string, enum: [pending, resolved] }
+        title: { type: string }
+        detail: { type: string }
+        emailAttemptCount: { type: integer, minimum: 0 }
+        createdAt: { type: string }
+        lastEmailAttemptAt: { type: string, nullable: true }
+        nextEmailAttemptAt: { type: string, nullable: true }
+        lastEmailDeliveredAt: { type: string, nullable: true }
+        lastEmailMessageId: { type: string, nullable: true }
+        lastEmailError: { type: string, nullable: true }
         resolvedAt: { type: string, nullable: true }
     TeamWorkspaceAdminActionableWorkspace:
       type: object
@@ -1042,6 +1090,12 @@ components:
           lastOutreachStatus,
           lastOutreachAttemptCount,
           nextOutreachAttemptAt,
+          lastOutreachEmailAttemptCount,
+          lastOutreachEmailAttemptAt,
+          nextOutreachEmailAttemptAt,
+          lastOutreachEmailDeliveredAt,
+          lastOutreachEmailMessageId,
+          lastOutreachEmailError,
           lastOutreachExportCount,
           lastOutreachExportedAt,
           lastOutreachCrmSyncCount,
@@ -1067,6 +1121,13 @@ components:
           lastOutreachHandoffChannel,
           lastOutreachHandoffAt,
           lastOutreachHandoffNote,
+          memberRecoveryPendingCount,
+          memberRecoveryRetryingCount,
+          memberRecoveryDeliveredCount,
+          memberRecoveryFailedCount,
+          memberRecoveryNextEmailAttemptAt,
+          memberRecoveryLastEmailDeliveredAt,
+          memberRecoveryLastEmailError,
         ]
       properties:
         workspaceId: { type: string, format: uuid }
@@ -1124,6 +1185,12 @@ components:
           nullable: true
         lastOutreachAttemptCount: { type: integer, minimum: 0, nullable: true }
         nextOutreachAttemptAt: { type: string, nullable: true }
+        lastOutreachEmailAttemptCount: { type: integer, minimum: 0, nullable: true }
+        lastOutreachEmailAttemptAt: { type: string, nullable: true }
+        nextOutreachEmailAttemptAt: { type: string, nullable: true }
+        lastOutreachEmailDeliveredAt: { type: string, nullable: true }
+        lastOutreachEmailMessageId: { type: string, nullable: true }
+        lastOutreachEmailError: { type: string, nullable: true }
         lastOutreachExportCount: { type: integer, minimum: 0, nullable: true }
         lastOutreachExportedAt: { type: string, nullable: true }
         lastOutreachCrmSyncCount: { type: integer, minimum: 0, nullable: true }
@@ -1152,6 +1219,13 @@ components:
           nullable: true
         lastOutreachHandoffAt: { type: string, nullable: true }
         lastOutreachHandoffNote: { type: string, nullable: true }
+        memberRecoveryPendingCount: { type: integer, minimum: 0 }
+        memberRecoveryRetryingCount: { type: integer, minimum: 0 }
+        memberRecoveryDeliveredCount: { type: integer, minimum: 0 }
+        memberRecoveryFailedCount: { type: integer, minimum: 0 }
+        memberRecoveryNextEmailAttemptAt: { type: string, nullable: true }
+        memberRecoveryLastEmailDeliveredAt: { type: string, nullable: true }
+        memberRecoveryLastEmailError: { type: string, nullable: true }
     TeamWorkspaceBilling:
       type: object
       required:
@@ -1239,6 +1313,7 @@ components:
           billing,
           recentBillingEvents,
           recentRecoveryOutreach,
+          recentMemberRecoveryNotifications,
           members,
           invites,
           sharedSavedViews,
@@ -1264,6 +1339,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/TeamWorkspaceRecoveryOutreach'
+        recentMemberRecoveryNotifications:
+          type: array
+          items:
+            $ref: '#/components/schemas/TeamWorkspaceMemberRecoveryNotification'
         members:
           type: array
           items:
@@ -1742,6 +1821,14 @@ components:
             [
               pendingOwner,
               pendingAdmin,
+              pendingEmail,
+              retryingEmail,
+              deliveredEmail,
+              failedEmail,
+              pendingMemberEmail,
+              retryingMemberEmail,
+              deliveredMemberEmail,
+              failedMemberEmail,
               multiTouchPending,
               pendingExport,
               pendingCrmSync,
@@ -1763,6 +1850,14 @@ components:
           properties:
             pendingOwner: { type: integer, minimum: 0 }
             pendingAdmin: { type: integer, minimum: 0 }
+            pendingEmail: { type: integer, minimum: 0 }
+            retryingEmail: { type: integer, minimum: 0 }
+            deliveredEmail: { type: integer, minimum: 0 }
+            failedEmail: { type: integer, minimum: 0 }
+            pendingMemberEmail: { type: integer, minimum: 0 }
+            retryingMemberEmail: { type: integer, minimum: 0 }
+            deliveredMemberEmail: { type: integer, minimum: 0 }
+            failedMemberEmail: { type: integer, minimum: 0 }
             multiTouchPending: { type: integer, minimum: 0 }
             pendingExport: { type: integer, minimum: 0 }
             pendingCrmSync: { type: integer, minimum: 0 }
@@ -3463,6 +3558,87 @@ paths:
           description: Unauthorized
         '503':
           description: Admin API disabled
+  /v1/admin/stats/recovery-owner-email:
+    post:
+      summary: Deliver pending owner recovery outreach rows to the configured SMTP mailer
+      security:
+        - AdminKey: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                retryIntervalHours:
+                  type: integer
+                  minimum: 0
+                  maximum: 336
+                force:
+                  type: boolean
+      responses:
+        '200':
+          description: Owner recovery emails delivered or skipped when nothing due remains
+        '401':
+          description: Unauthorized
+        '502':
+          description: Owner recovery email delivery failed
+        '503':
+          description: Recovery owner email transport is not configured or admin API disabled
+  /v1/admin/stats/recovery-member-email:
+    post:
+      summary: Deliver due fallback member recovery notification emails to the configured SMTP mailer
+      security:
+        - AdminKey: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                retryIntervalHours:
+                  type: integer
+                  minimum: 0
+                  maximum: 336
+                force:
+                  type: boolean
+      responses:
+        '200':
+          description: Member recovery emails delivered or skipped when nothing due remains
+        '401':
+          description: Unauthorized
+        '502':
+          description: Member recovery email delivery failed
+        '503':
+          description: Recovery member email transport is not configured or admin API disabled
+  /v1/admin/stats/recovery-playbook:
+    post:
+      summary: Run the Team Workspace recovery playbook to refresh outreach and fan out owner/member email, CRM sync, webhook, and Slack escalation
+      security:
+        - AdminKey: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                retryIntervalHours:
+                  type: integer
+                  minimum: 0
+                  maximum: 336
+                force:
+                  type: boolean
+      responses:
+        '200':
+          description: Recovery playbook executed and returned per-channel summary
+        '401':
+          description: Unauthorized
+        '502':
+          description: Recovery playbook finished with at least one failed outbound channel
+        '503':
+          description: Admin API disabled
   /v1/admin/stats/recovery-handoffs/crm:
     post:
       summary: Deliver due handed-off CRM recovery outreach rows to the configured CRM API and persist the external case id
@@ -3654,6 +3830,7 @@ paths:
         create_draft / pipeline_url_draft / backfill_case_taxonomy /
         reconcile_team_workspace_billing /
         run_team_workspace_recovery_outreach with optional retryIntervalHours /
+        run_team_workspace_recovery_playbook with optional retryIntervalHours /
         run_copilot_eval_suite /
         upsert_embedding_stub / noop), then succeeded or failed; audit
         job_succeeded or job_failed
@@ -3697,6 +3874,7 @@ paths:
         backfill_case_search_index / backfill_case_taxonomy /
         reconcile_team_workspace_billing /
         run_team_workspace_recovery_outreach with optional retryIntervalHours /
+        run_team_workspace_recovery_playbook with optional retryIntervalHours /
         run_copilot_eval_suite)
       security:
         - AdminKey: []

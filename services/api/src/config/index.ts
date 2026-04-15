@@ -56,6 +56,17 @@ export const config = {
   },
   get recoveryOutreach() {
     return {
+      emailSmtpHost: process.env.TEAM_WORKSPACE_RECOVERY_EMAIL_SMTP_HOST ?? '',
+      emailSmtpPort: Math.max(
+        1,
+        Math.trunc(Number(process.env.TEAM_WORKSPACE_RECOVERY_EMAIL_SMTP_PORT ?? 587)) || 587,
+      ),
+      emailSmtpSecure: process.env.TEAM_WORKSPACE_RECOVERY_EMAIL_SMTP_SECURE === 'true',
+      emailSmtpUser: process.env.TEAM_WORKSPACE_RECOVERY_EMAIL_SMTP_USER ?? '',
+      emailSmtpPass: process.env.TEAM_WORKSPACE_RECOVERY_EMAIL_SMTP_PASS ?? '',
+      emailFrom: process.env.TEAM_WORKSPACE_RECOVERY_EMAIL_FROM ?? '',
+      emailReplyTo: process.env.TEAM_WORKSPACE_RECOVERY_EMAIL_REPLY_TO ?? '',
+      emailTimeoutMs: Number(process.env.TEAM_WORKSPACE_RECOVERY_EMAIL_TIMEOUT_MS ?? 10000),
       webhookUrl: process.env.TEAM_WORKSPACE_RECOVERY_WEBHOOK_URL ?? '',
       webhookBearerToken: process.env.TEAM_WORKSPACE_RECOVERY_WEBHOOK_BEARER_TOKEN ?? '',
       webhookTimeoutMs: Number(process.env.TEAM_WORKSPACE_RECOVERY_WEBHOOK_TIMEOUT_MS ?? 10000),
@@ -77,6 +88,12 @@ export const config = {
   },
   get hasRecoveryOutreachWebhook(): boolean {
     return (process.env.TEAM_WORKSPACE_RECOVERY_WEBHOOK_URL?.trim() ?? '').length > 0;
+  },
+  get hasRecoveryOutreachEmail(): boolean {
+    return (
+      (process.env.TEAM_WORKSPACE_RECOVERY_EMAIL_SMTP_HOST?.trim() ?? '').length > 0 &&
+      (process.env.TEAM_WORKSPACE_RECOVERY_EMAIL_FROM?.trim() ?? '').length > 0
+    );
   },
   get hasRecoveryOutreachCrmApi(): boolean {
     return (process.env.TEAM_WORKSPACE_RECOVERY_CRM_API_URL?.trim() ?? '').length > 0;

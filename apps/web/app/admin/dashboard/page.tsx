@@ -17,6 +17,12 @@ export default async function DashboardPage({
 }) {
   const adminKey = ADMIN_API_KEY ?? '';
   const raw = await searchParams;
+  const recoveryPlaybook = pickSearchParam(raw.recoveryPlaybook);
+  const recoveryPlaybookError = pickSearchParam(raw.recoveryPlaybookError);
+  const recoveryEmail = pickSearchParam(raw.recoveryEmail);
+  const recoveryEmailError = pickSearchParam(raw.recoveryEmailError);
+  const recoveryMemberEmail = pickSearchParam(raw.recoveryMemberEmail);
+  const recoveryMemberEmailError = pickSearchParam(raw.recoveryMemberEmailError);
   const recoveryCrm = pickSearchParam(raw.recoveryCrm);
   const recoveryCrmError = pickSearchParam(raw.recoveryCrmError);
   const recoveryWebhook = pickSearchParam(raw.recoveryWebhook);
@@ -72,6 +78,51 @@ export default async function DashboardPage({
             同步 CRM Case
           </button>
         </form>
+        <form action="/admin/recovery-playbook" method="post" style={{ margin: 0 }}>
+          <button
+            type="submit"
+            style={{
+              border: '1px solid #b45309',
+              background: '#2a1b0b',
+              color: '#fde68a',
+              borderRadius: 8,
+              padding: '6px 10px',
+              cursor: 'pointer',
+            }}
+          >
+            运行 Recovery Playbook
+          </button>
+        </form>
+        <form action="/admin/recovery-owner-email" method="post" style={{ margin: 0 }}>
+          <button
+            type="submit"
+            style={{
+              border: '1px solid #7c3aed',
+              background: '#20123d',
+              color: '#ddd6fe',
+              borderRadius: 8,
+              padding: '6px 10px',
+              cursor: 'pointer',
+            }}
+          >
+            发送 Owner 恢复邮件
+          </button>
+        </form>
+        <form action="/admin/recovery-member-email" method="post" style={{ margin: 0 }}>
+          <button
+            type="submit"
+            style={{
+              border: '1px solid #2563eb',
+              background: '#13233f',
+              color: '#bfdbfe',
+              borderRadius: 8,
+              padding: '6px 10px',
+              cursor: 'pointer',
+            }}
+          >
+            发送成员回退通知
+          </button>
+        </form>
         <form action="/admin/recovery-handoffs/webhook" method="post" style={{ margin: 0 }}>
           <button
             type="submit"
@@ -106,6 +157,108 @@ export default async function DashboardPage({
 
       <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 32px' }}>运营数据 Dashboard</h1>
 
+      {recoveryPlaybook ? (
+        <div
+          style={{
+            marginBottom: 18,
+            padding: '12px 14px',
+            borderRadius: 12,
+            border: '1px solid #b45309',
+            background: '#2a1b0b',
+            color: '#fde68a',
+            fontSize: 13,
+          }}
+        >
+          Recovery playbook 已执行：{recoveryPlaybook}
+        </div>
+      ) : null}
+      {recoveryPlaybookError ? (
+        <div
+          style={{
+            marginBottom: 18,
+            padding: '12px 14px',
+            borderRadius: 12,
+            border: '1px solid #4b2430',
+            background: '#23131a',
+            color: '#fecdd3',
+            fontSize: 13,
+          }}
+        >
+          Recovery playbook 执行失败：{recoveryPlaybookError}
+        </div>
+      ) : null}
+      {recoveryEmail ? (
+        <div
+          style={{
+            marginBottom: 18,
+            padding: '12px 14px',
+            borderRadius: 12,
+            border: '1px solid #7c3aed',
+            background: '#20123d',
+            color: '#e9d5ff',
+            fontSize: 13,
+          }}
+        >
+          {recoveryEmail === 'no_owner_outreach'
+            ? '当前没有需要发送恢复邮件的 owner outreach。'
+            : recoveryEmail === 'already_delivered'
+              ? '当前 owner recovery outreach 对应的本轮邮件已经全部发出；如需立即补发，可再次点击页顶按钮。'
+              : recoveryEmail === 'no_due_owner_outreach'
+                ? '当前没有到点需要自动重试的 owner recovery 邮件；如需立即补发，可再次点击页顶按钮。'
+                : `已向 owner 发送 ${recoveryEmail} 封恢复邮件。`}
+        </div>
+      ) : null}
+      {recoveryEmailError ? (
+        <div
+          style={{
+            marginBottom: 18,
+            padding: '12px 14px',
+            borderRadius: 12,
+            border: '1px solid #4b2430',
+            background: '#23131a',
+            color: '#fecdd3',
+            fontSize: 13,
+          }}
+        >
+          Owner 恢复邮件发送失败：{recoveryEmailError}
+        </div>
+      ) : null}
+      {recoveryMemberEmail ? (
+        <div
+          style={{
+            marginBottom: 18,
+            padding: '12px 14px',
+            borderRadius: 12,
+            border: '1px solid #2563eb',
+            background: '#13233f',
+            color: '#dbeafe',
+            fontSize: 13,
+          }}
+        >
+          {recoveryMemberEmail === 'no_member_notifications'
+            ? '当前没有需要发送给成员的回退通知。'
+            : recoveryMemberEmail === 'already_delivered'
+              ? '当前成员回退通知在本轮里已经全部发出；如需立即补发，可再次点击页顶按钮。'
+              : recoveryMemberEmail === 'no_due_member_notifications'
+                ? '当前没有到点需要自动重试的成员回退邮件；如需立即补发，可再次点击页顶按钮。'
+                : `已向成员发送 ${recoveryMemberEmail} 封回退通知邮件。`}
+        </div>
+      ) : null}
+      {recoveryMemberEmailError ? (
+        <div
+          style={{
+            marginBottom: 18,
+            padding: '12px 14px',
+            borderRadius: 12,
+            border: '1px solid #4b2430',
+            background: '#23131a',
+            color: '#fecdd3',
+            fontSize: 13,
+          }}
+        >
+          成员回退通知发送失败：{recoveryMemberEmailError}
+        </div>
+      ) : null}
       {recoveryCrm ? (
         <div
           style={{
@@ -326,6 +479,14 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
   const maxRecoveryOutreachMetric = Math.max(
     teamStats.recoveryOutreach.pendingOwner,
     teamStats.recoveryOutreach.pendingAdmin,
+    teamStats.recoveryOutreach.pendingEmail,
+    teamStats.recoveryOutreach.retryingEmail,
+    teamStats.recoveryOutreach.deliveredEmail,
+    teamStats.recoveryOutreach.failedEmail,
+    teamStats.recoveryOutreach.pendingMemberEmail,
+    teamStats.recoveryOutreach.retryingMemberEmail,
+    teamStats.recoveryOutreach.deliveredMemberEmail,
+    teamStats.recoveryOutreach.failedMemberEmail,
     teamStats.recoveryOutreach.multiTouchPending,
     teamStats.recoveryOutreach.pendingExport,
     teamStats.recoveryOutreach.pendingCrmSync,
@@ -645,6 +806,9 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
           {teamStats.recoveryOutreach.recent.length === 0 &&
           teamStats.recoveryOutreach.pendingOwner === 0 &&
           teamStats.recoveryOutreach.pendingAdmin === 0 &&
+          teamStats.recoveryOutreach.pendingMemberEmail === 0 &&
+          teamStats.recoveryOutreach.deliveredMemberEmail === 0 &&
+          teamStats.recoveryOutreach.failedMemberEmail === 0 &&
           teamStats.recoveryOutreach.handedOff === 0 &&
           teamStats.recoveryOutreach.resolved === 0 ? (
             <EmptyState text="当前还没有触达自动化记录。" compact />
@@ -663,6 +827,62 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
                 max={maxRecoveryOutreachMetric}
                 color="#f97316"
                 sub="仍需运营队列推进的 workspace"
+              />
+              <BarRow
+                label="待发 Owner 邮件"
+                value={teamStats.recoveryOutreach.pendingEmail}
+                max={maxRecoveryOutreachMetric}
+                color="#8b5cf6"
+                sub="owner 待恢复触达里还没成功发出的邮件"
+              />
+              <BarRow
+                label="Owner 邮件重试中"
+                value={teamStats.recoveryOutreach.retryingEmail}
+                max={maxRecoveryOutreachMetric}
+                color="#a855f7"
+                sub="最近一次 SMTP 失败，系统会在下个窗口自动再发"
+              />
+              <BarRow
+                label="Owner 邮件已送达"
+                value={teamStats.recoveryOutreach.deliveredEmail}
+                max={maxRecoveryOutreachMetric}
+                color="#22c55e"
+                sub="本轮恢复触达的 owner 邮件已经成功发出"
+              />
+              <BarRow
+                label="Owner 邮件失败"
+                value={teamStats.recoveryOutreach.failedEmail}
+                max={maxRecoveryOutreachMetric}
+                color="#ef4444"
+                sub="owner 邮件最近一次失败且没有自动重试窗口"
+              />
+              <BarRow
+                label="待发成员邮件"
+                value={teamStats.recoveryOutreach.pendingMemberEmail}
+                max={maxRecoveryOutreachMetric}
+                color="#60a5fa"
+                sub="已回退成员里还没成功发出的通知邮件"
+              />
+              <BarRow
+                label="成员邮件重试中"
+                value={teamStats.recoveryOutreach.retryingMemberEmail}
+                max={maxRecoveryOutreachMetric}
+                color="#3b82f6"
+                sub="最近一次成员通知 SMTP 失败，系统会自动补发"
+              />
+              <BarRow
+                label="成员邮件已送达"
+                value={teamStats.recoveryOutreach.deliveredMemberEmail}
+                max={maxRecoveryOutreachMetric}
+                color="#10b981"
+                sub="本轮成员回退通知已经成功发出"
+              />
+              <BarRow
+                label="成员邮件失败"
+                value={teamStats.recoveryOutreach.failedMemberEmail}
+                max={maxRecoveryOutreachMetric}
+                color="#dc2626"
+                sub="成员通知最近一次失败且没有自动重试窗口"
               />
               <BarRow
                 label="多次跟进中"
@@ -805,6 +1025,31 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
                     {event.nextAttemptAt
                       ? ` · 下次重试 ${formatDateTime(event.nextAttemptAt)}`
                       : ''}
+                    {event.lastEmailDeliveredAt
+                      ? ` · owner 邮件已发${
+                          event.lastEmailMessageId ? `（${event.lastEmailMessageId}）` : ''
+                        }${
+                          event.lastEmailAttemptAt
+                            ? `（最近 ${formatDateTime(event.lastEmailAttemptAt)}）`
+                            : ''
+                        }`
+                      : event.lastEmailError
+                        ? ` · owner 邮件失败：${event.lastEmailError}${
+                            event.nextEmailAttemptAt
+                              ? ` · 下次自动重试 ${formatDateTime(event.nextEmailAttemptAt)}`
+                              : ''
+                          }`
+                        : event.emailAttemptCount > 0
+                          ? ` · owner 邮件已尝试 ${event.emailAttemptCount} 次${
+                              event.lastEmailAttemptAt
+                                ? `（最近 ${formatDateTime(event.lastEmailAttemptAt)}）`
+                                : ''
+                            }${
+                              event.nextEmailAttemptAt
+                                ? ` · 下次自动重试 ${formatDateTime(event.nextEmailAttemptAt)}`
+                                : ''
+                            }`
+                          : ''}
                     {event.exportCount > 0
                       ? ` · 已导出 ${event.exportCount} 次${
                           event.lastExportedAt
@@ -978,6 +1223,25 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
                     {workspace.lastOutreachAttemptCount
                       ? ` · 第 ${workspace.lastOutreachAttemptCount} 次`
                       : ''}
+                    {workspace.lastOutreachEmailDeliveredAt
+                      ? ` · owner 邮件已发${
+                          workspace.lastOutreachEmailMessageId
+                            ? `（${workspace.lastOutreachEmailMessageId}）`
+                            : ''
+                        }`
+                      : workspace.lastOutreachEmailError
+                        ? ` · owner 邮件失败：${workspace.lastOutreachEmailError}${
+                            workspace.nextOutreachEmailAttemptAt
+                              ? ` · 下次自动重试 ${formatDateTime(workspace.nextOutreachEmailAttemptAt)}`
+                              : ''
+                          }`
+                        : workspace.lastOutreachEmailAttemptCount
+                          ? ` · owner 邮件已尝试 ${workspace.lastOutreachEmailAttemptCount} 次${
+                              workspace.nextOutreachEmailAttemptAt
+                                ? ` · 下次自动重试 ${formatDateTime(workspace.nextOutreachEmailAttemptAt)}`
+                                : ''
+                            }`
+                          : ''}
                     {workspace.nextOutreachAttemptAt
                       ? ` · 下次自动重试 ${formatDateTime(workspace.nextOutreachAttemptAt)}`
                       : ''}
@@ -1027,6 +1291,16 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
                       ? ` · Ops Slack 已告警 ${formatDateTime(workspace.lastOutreachSlackAlertedAt)}`
                       : ''}
                   </div>
+                  <div style={{ color: '#93c5fd', fontSize: 12, lineHeight: 1.7 }}>
+                    成员回退通知：
+                    {` 待发 ${workspace.memberRecoveryPendingCount} / 重试中 ${workspace.memberRecoveryRetryingCount} / 已送达 ${workspace.memberRecoveryDeliveredCount} / 失败 ${workspace.memberRecoveryFailedCount}`}
+                    {workspace.memberRecoveryNextEmailAttemptAt
+                      ? ` · 下次自动重试 ${formatDateTime(workspace.memberRecoveryNextEmailAttemptAt)}`
+                      : ''}
+                    {workspace.memberRecoveryLastEmailDeliveredAt
+                      ? ` · 最近送达 ${formatDateTime(workspace.memberRecoveryLastEmailDeliveredAt)}`
+                      : ''}
+                  </div>
                   {workspace.lastOutreachWebhookError ? (
                     <div style={{ color: '#fca5a5', fontSize: 12, lineHeight: 1.7 }}>
                       最近 webhook 失败：{workspace.lastOutreachWebhookError}
@@ -1049,6 +1323,11 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
                       {workspace.lastOutreachSlackAlertStatusCode
                         ? ` · HTTP ${workspace.lastOutreachSlackAlertStatusCode}`
                         : ''}
+                    </div>
+                  ) : null}
+                  {workspace.memberRecoveryLastEmailError ? (
+                    <div style={{ color: '#fca5a5', fontSize: 12, lineHeight: 1.7 }}>
+                      最近成员回退邮件失败：{workspace.memberRecoveryLastEmailError}
                     </div>
                   ) : null}
                   {workspace.lastOutreachHandoffChannel || workspace.lastOutreachHandoffNote ? (

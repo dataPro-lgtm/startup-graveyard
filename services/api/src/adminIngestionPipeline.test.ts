@@ -1,6 +1,8 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from './buildApp.js';
+import * as memberRecoveryEmailClient from './recoveryOutreach/sendRecoveryFallbackMemberEmail.js';
+import * as recoveryEmailClient from './recoveryOutreach/sendRecoveryOutreachEmail.js';
 
 describe('admin ingestion pipeline (mock DB)', () => {
   let app: FastifyInstance;
@@ -24,6 +26,14 @@ describe('admin ingestion pipeline (mock DB)', () => {
     delete process.env.TEAM_WORKSPACE_RECOVERY_CRM_API_URL;
     delete process.env.TEAM_WORKSPACE_RECOVERY_CRM_API_BEARER_TOKEN;
     delete process.env.TEAM_WORKSPACE_RECOVERY_CRM_API_TIMEOUT_MS;
+    delete process.env.TEAM_WORKSPACE_RECOVERY_EMAIL_SMTP_HOST;
+    delete process.env.TEAM_WORKSPACE_RECOVERY_EMAIL_SMTP_PORT;
+    delete process.env.TEAM_WORKSPACE_RECOVERY_EMAIL_SMTP_SECURE;
+    delete process.env.TEAM_WORKSPACE_RECOVERY_EMAIL_SMTP_USER;
+    delete process.env.TEAM_WORKSPACE_RECOVERY_EMAIL_SMTP_PASS;
+    delete process.env.TEAM_WORKSPACE_RECOVERY_EMAIL_FROM;
+    delete process.env.TEAM_WORKSPACE_RECOVERY_EMAIL_REPLY_TO;
+    delete process.env.TEAM_WORKSPACE_RECOVERY_EMAIL_TIMEOUT_MS;
     delete process.env.TEAM_WORKSPACE_RECOVERY_WEBHOOK_URL;
     delete process.env.TEAM_WORKSPACE_RECOVERY_WEBHOOK_BEARER_TOKEN;
     delete process.env.TEAM_WORKSPACE_RECOVERY_WEBHOOK_TIMEOUT_MS;
@@ -1469,5 +1479,489 @@ describe('admin ingestion pipeline (mock DB)', () => {
         },
       },
     });
+  });
+
+  it('deliver_team_workspace_recovery_owner_email retries failed owner emails and stores message ids', async () => {
+    const ownerEmail = `pipeline-recovery-email-owner-${Date.now()}@example.com`;
+    const ownerRegisterRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        email: ownerEmail,
+        password: 'password123',
+        displayName: 'Pipeline Recovery Email Owner',
+      },
+    });
+    const ownerRegistered = JSON.parse(ownerRegisterRes.body) as {
+      accessToken: string;
+      user: { id: string };
+    };
+
+    await app.usersRepo.updateBillingAccount(ownerRegistered.user.id, {
+      subscription: 'team',
+      billingStatus: 'active',
+      billingInterval: 'month',
+    });
+
+    await app.inject({
+      method: 'POST',
+      url: '/v1/team-workspace',
+      headers: {
+        authorization: `Bearer ${ownerRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: { name: 'Pipeline Recovery Email Workspace' },
+    });
+
+    await app.usersRepo.updateBillingAccount(ownerRegistered.user.id, {
+      subscription: 'pro',
+      billingStatus: 'active',
+      billingInterval: 'month',
+      cancelAtPeriodEnd: true,
+    });
+
+    await app.inject({
+      method: 'POST',
+      url: '/v1/admin/scheduler/trigger',
+      headers: {
+        ...headers,
+        'content-type': 'application/json',
+      },
+      payload: { sourceName: 'reconcile_team_workspace_billing', payload: {} },
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/v1/admin/scheduler/trigger',
+      headers: {
+        ...headers,
+        'content-type': 'application/json',
+      },
+      payload: { sourceName: 'run_team_workspace_recovery_outreach', payload: {} },
+    });
+
+    process.env.TEAM_WORKSPACE_RECOVERY_EMAIL_SMTP_HOST = 'smtp.example.com';
+    process.env.TEAM_WORKSPACE_RECOVERY_EMAIL_FROM = 'Startup Graveyard <ops@example.com>';
+    const emailSpy = vi
+      .spyOn(recoveryEmailClient, 'sendRecoveryOutreachEmail')
+      .mockRejectedValueOnce(new Error('smtp_temp_fail'))
+      .mockResolvedValueOnce({ messageId: 'smtp-msg-456' });
+
+    const failedRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/scheduler/trigger',
+      headers: {
+        ...headers,
+        'content-type': 'application/json',
+      },
+      payload: {
+        sourceName: 'deliver_team_workspace_recovery_owner_email',
+        payload: { retryIntervalHours: 0 },
+      },
+    });
+    expect(failedRes.statusCode).toBe(200);
+    expect(JSON.parse(failedRes.body)).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('recovery_owner_email_failed'),
+    });
+
+    const retryRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/scheduler/trigger',
+      headers: {
+        ...headers,
+        'content-type': 'application/json',
+      },
+      payload: {
+        sourceName: 'deliver_team_workspace_recovery_owner_email',
+        payload: { retryIntervalHours: 0 },
+      },
+    });
+    expect(retryRes.statusCode).toBe(200);
+    expect(JSON.parse(retryRes.body)).toMatchObject({
+      ok: true,
+      detail: expect.stringContaining('attempted=1 delivered=1 failed=0'),
+    });
+    expect(emailSpy).toHaveBeenCalledTimes(2);
+
+    const statsRes = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/stats',
+      headers,
+    });
+    expect(JSON.parse(statsRes.body)).toMatchObject({
+      commercial: {
+        teamWorkspaces: {
+          recoveryOutreach: {
+            deliveredEmail: 1,
+            retryingEmail: 0,
+          },
+          actionableWorkspaces: expect.arrayContaining([
+            expect.objectContaining({
+              ownerEmail,
+              lastOutreachEmailAttemptCount: 2,
+              lastOutreachEmailDeliveredAt: expect.any(String),
+              lastOutreachEmailMessageId: 'smtp-msg-456',
+            }),
+          ]),
+        },
+      },
+    });
+  });
+
+  it('deliver_team_workspace_recovery_member_email retries failed member emails and stores message ids', async () => {
+    const ownerEmail = `pipeline-member-owner-${Date.now()}@example.com`;
+    const memberEmail = `pipeline-member-${Date.now()}@example.com`;
+    const [ownerRegisterRes, memberRegisterRes] = await Promise.all([
+      app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: ownerEmail,
+          password: 'password123',
+          displayName: 'Pipeline Member Owner',
+        },
+      }),
+      app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: memberEmail,
+          password: 'password123',
+          displayName: 'Pipeline Fallback Member',
+        },
+      }),
+    ]);
+    const ownerRegistered = JSON.parse(ownerRegisterRes.body) as {
+      user: { id: string };
+      accessToken: string;
+    };
+    const memberRegistered = JSON.parse(memberRegisterRes.body) as {
+      accessToken: string;
+    };
+
+    await app.usersRepo.updateBillingAccount(ownerRegistered.user.id, {
+      subscription: 'team',
+      billingStatus: 'active',
+      billingInterval: 'month',
+    });
+
+    await app.inject({
+      method: 'POST',
+      url: '/v1/team-workspace',
+      headers: {
+        authorization: `Bearer ${ownerRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: { name: 'Pipeline Member Email Workspace' },
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/v1/team-workspace/invites',
+      headers: {
+        authorization: `Bearer ${ownerRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: { email: memberEmail, role: 'member' },
+    });
+
+    const memberContextRes = await app.inject({
+      method: 'GET',
+      url: '/v1/team-workspace/me',
+      headers: {
+        authorization: `Bearer ${memberRegistered.accessToken}`,
+      },
+    });
+    const memberContext = JSON.parse(memberContextRes.body) as {
+      pendingInvites: Array<{ id: string }>;
+    };
+    await app.inject({
+      method: 'POST',
+      url: `/v1/team-workspace/invites/${memberContext.pendingInvites[0]!.id}/accept`,
+      headers: {
+        authorization: `Bearer ${memberRegistered.accessToken}`,
+      },
+    });
+
+    await app.usersRepo.updateBillingAccount(ownerRegistered.user.id, {
+      subscription: 'pro',
+      billingStatus: 'active',
+      billingInterval: 'month',
+      cancelAtPeriodEnd: true,
+    });
+
+    await app.inject({
+      method: 'POST',
+      url: '/v1/admin/scheduler/trigger',
+      headers: {
+        ...headers,
+        'content-type': 'application/json',
+      },
+      payload: { sourceName: 'reconcile_team_workspace_billing', payload: {} },
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/v1/admin/scheduler/trigger',
+      headers: {
+        ...headers,
+        'content-type': 'application/json',
+      },
+      payload: { sourceName: 'run_team_workspace_recovery_outreach', payload: {} },
+    });
+
+    process.env.TEAM_WORKSPACE_RECOVERY_EMAIL_SMTP_HOST = 'smtp.example.com';
+    process.env.TEAM_WORKSPACE_RECOVERY_EMAIL_FROM = 'Startup Graveyard <ops@example.com>';
+    const emailSpy = vi
+      .spyOn(memberRecoveryEmailClient, 'sendRecoveryFallbackMemberEmail')
+      .mockRejectedValueOnce(new Error('smtp_member_temp_fail'))
+      .mockResolvedValueOnce({ messageId: 'member-msg-456' });
+
+    const failedRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/scheduler/trigger',
+      headers: {
+        ...headers,
+        'content-type': 'application/json',
+      },
+      payload: {
+        sourceName: 'deliver_team_workspace_recovery_member_email',
+        payload: { retryIntervalHours: 0 },
+      },
+    });
+    expect(failedRes.statusCode).toBe(200);
+    expect(JSON.parse(failedRes.body)).toMatchObject({
+      ok: false,
+      error: expect.stringContaining('recovery_member_email_failed'),
+    });
+
+    const retryRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/scheduler/trigger',
+      headers: {
+        ...headers,
+        'content-type': 'application/json',
+      },
+      payload: {
+        sourceName: 'deliver_team_workspace_recovery_member_email',
+        payload: { retryIntervalHours: 0 },
+      },
+    });
+    expect(retryRes.statusCode).toBe(200);
+    expect(JSON.parse(retryRes.body)).toMatchObject({
+      ok: true,
+      detail: expect.stringContaining('attempted=1 delivered=1 failed=0'),
+    });
+    expect(emailSpy).toHaveBeenCalledTimes(2);
+
+    const statsRes = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/stats',
+      headers,
+    });
+    expect(JSON.parse(statsRes.body)).toMatchObject({
+      commercial: {
+        teamWorkspaces: {
+          recoveryOutreach: {
+            deliveredMemberEmail: 1,
+            retryingMemberEmail: 0,
+          },
+          actionableWorkspaces: expect.arrayContaining([
+            expect.objectContaining({
+              ownerEmail,
+              memberRecoveryDeliveredCount: 1,
+              memberRecoveryPendingCount: 0,
+              memberRecoveryLastEmailDeliveredAt: expect.any(String),
+            }),
+          ]),
+        },
+      },
+    });
+  });
+
+  it('run_team_workspace_recovery_playbook orchestrates owner/member email and CRM sync via scheduler', async () => {
+    const ownerEmail = `pipeline-playbook-owner-${Date.now()}@example.com`;
+    const memberEmail = `pipeline-playbook-member-${Date.now()}@example.com`;
+    const [ownerRegisterRes, memberRegisterRes] = await Promise.all([
+      app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: ownerEmail,
+          password: 'password123',
+          displayName: 'Pipeline Playbook Owner',
+        },
+      }),
+      app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: memberEmail,
+          password: 'password123',
+          displayName: 'Pipeline Playbook Member',
+        },
+      }),
+    ]);
+    const ownerRegistered = JSON.parse(ownerRegisterRes.body) as {
+      user: { id: string };
+      accessToken: string;
+    };
+    const memberRegistered = JSON.parse(memberRegisterRes.body) as {
+      accessToken: string;
+    };
+
+    await app.usersRepo.updateBillingAccount(ownerRegistered.user.id, {
+      subscription: 'team',
+      billingStatus: 'active',
+      billingInterval: 'month',
+    });
+
+    const createWorkspaceRes = await app.inject({
+      method: 'POST',
+      url: '/v1/team-workspace',
+      headers: {
+        authorization: `Bearer ${ownerRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: { name: 'Pipeline Recovery Playbook Workspace' },
+    });
+    const createdWorkspace = JSON.parse(createWorkspaceRes.body) as {
+      workspace: { id: string };
+    };
+
+    await app.inject({
+      method: 'POST',
+      url: '/v1/team-workspace/invites',
+      headers: {
+        authorization: `Bearer ${ownerRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: { email: memberEmail, role: 'member' },
+    });
+
+    const memberContextRes = await app.inject({
+      method: 'GET',
+      url: '/v1/team-workspace/me',
+      headers: {
+        authorization: `Bearer ${memberRegistered.accessToken}`,
+      },
+    });
+    const memberContext = JSON.parse(memberContextRes.body) as {
+      pendingInvites: Array<{ id: string }>;
+    };
+    await app.inject({
+      method: 'POST',
+      url: `/v1/team-workspace/invites/${memberContext.pendingInvites[0]!.id}/accept`,
+      headers: {
+        authorization: `Bearer ${memberRegistered.accessToken}`,
+      },
+    });
+
+    await app.usersRepo.updateBillingAccount(ownerRegistered.user.id, {
+      subscription: 'pro',
+      billingStatus: 'active',
+      billingInterval: 'month',
+      cancelAtPeriodEnd: true,
+    });
+
+    await app.inject({
+      method: 'POST',
+      url: '/v1/admin/scheduler/trigger',
+      headers: {
+        ...headers,
+        'content-type': 'application/json',
+      },
+      payload: { sourceName: 'reconcile_team_workspace_billing', payload: {} },
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/v1/admin/scheduler/trigger',
+      headers: {
+        ...headers,
+        'content-type': 'application/json',
+      },
+      payload: { sourceName: 'run_team_workspace_recovery_outreach', payload: {} },
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/v1/admin/stats/recovery-outreach/handoff',
+      headers: {
+        ...headers,
+        'content-type': 'application/json',
+      },
+      payload: {
+        workspaceId: createdWorkspace.workspace.id,
+        channel: 'crm',
+        snoozeHours: 24,
+        note: 'Scheduler playbook handoff to CRM.',
+      },
+    });
+
+    process.env.TEAM_WORKSPACE_RECOVERY_EMAIL_SMTP_HOST = 'smtp.example.com';
+    process.env.TEAM_WORKSPACE_RECOVERY_EMAIL_FROM = 'Startup Graveyard <ops@example.com>';
+    process.env.TEAM_WORKSPACE_RECOVERY_CRM_API_URL = 'https://crm.example.com/recovery';
+    const ownerEmailSpy = vi
+      .spyOn(recoveryEmailClient, 'sendRecoveryOutreachEmail')
+      .mockResolvedValue({ messageId: 'pipeline-owner-msg-1' });
+    const memberEmailSpy = vi
+      .spyOn(memberRecoveryEmailClient, 'sendRecoveryFallbackMemberEmail')
+      .mockResolvedValue({ messageId: 'pipeline-member-msg-1' });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ recordId: 'crm-case-789' }), {
+        status: 201,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    const playbookRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/scheduler/trigger',
+      headers: {
+        ...headers,
+        'content-type': 'application/json',
+      },
+      payload: {
+        sourceName: 'run_team_workspace_recovery_playbook',
+        payload: { retryIntervalHours: 0 },
+      },
+    });
+    expect(playbookRes.statusCode).toBe(200);
+    expect(JSON.parse(playbookRes.body)).toMatchObject({
+      ok: true,
+      detail: expect.stringContaining('member=ok:1'),
+    });
+    expect(ownerEmailSpy).toHaveBeenCalledTimes(0);
+    expect(memberEmailSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    const statsRes = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/stats',
+      headers,
+    });
+    const statsBody = JSON.parse(statsRes.body) as {
+      commercial: {
+        teamWorkspaces: {
+          recoveryOutreach: {
+            deliveredMemberEmail: number;
+            syncedCrm: number;
+          };
+          actionableWorkspaces: Array<Record<string, unknown>>;
+        };
+      };
+    };
+    expect(
+      statsBody.commercial.teamWorkspaces.recoveryOutreach.deliveredMemberEmail,
+    ).toBeGreaterThanOrEqual(1);
+    expect(statsBody.commercial.teamWorkspaces.recoveryOutreach.syncedCrm).toBeGreaterThanOrEqual(
+      1,
+    );
+    expect(statsBody.commercial.teamWorkspaces.actionableWorkspaces).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          workspaceId: createdWorkspace.workspace.id,
+          lastOutreachCrmSyncedAt: expect.any(String),
+          memberRecoveryDeliveredCount: 1,
+        }),
+      ]),
+    );
   });
 });

@@ -696,6 +696,33 @@ export function TeamWorkspacePanel() {
                               'zh-CN',
                             )}`
                           : ''}
+                        {event.lastEmailDeliveredAt
+                          ? ` · 恢复邮件已发${
+                              event.lastEmailMessageId ? `（${event.lastEmailMessageId}）` : ''
+                            }${
+                              event.lastEmailAttemptAt
+                                ? `（最近 ${new Date(event.lastEmailAttemptAt).toLocaleString(
+                                    'zh-CN',
+                                  )}）`
+                                : ''
+                            }`
+                          : event.lastEmailError
+                            ? ` · 恢复邮件失败：${event.lastEmailError}${
+                                event.nextEmailAttemptAt
+                                  ? ` · 下次自动重试 ${new Date(
+                                      event.nextEmailAttemptAt,
+                                    ).toLocaleString('zh-CN')}`
+                                  : ''
+                              }`
+                            : event.emailAttemptCount > 0
+                              ? ` · 恢复邮件已尝试 ${event.emailAttemptCount} 次${
+                                  event.lastEmailAttemptAt
+                                    ? `（最近 ${new Date(event.lastEmailAttemptAt).toLocaleString(
+                                        'zh-CN',
+                                      )}）`
+                                    : ''
+                                }`
+                              : ''}
                         {event.exportCount > 0
                           ? ` · 已导出 ${event.exportCount} 次${
                               event.lastExportedAt
@@ -778,6 +805,85 @@ export function TeamWorkspacePanel() {
                           : ''}
                         <br />
                         首次创建于 {new Date(event.createdAt).toLocaleString('zh-CN')}
+                        {event.resolvedAt
+                          ? ` · 已于 ${new Date(event.resolvedAt).toLocaleString('zh-CN')} 收敛`
+                          : ''}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : null}
+
+          {workspace.role === 'owner' ? (
+            <div style={{ ...cardStyle, display: 'grid', gap: 12 }}>
+              <div style={{ fontSize: 16, fontWeight: 700 }}>成员回退通知</div>
+              {workspace.recentMemberRecoveryNotifications.length === 0 ? (
+                <div style={{ color: '#8a96b0', fontSize: 13 }}>
+                  当前还没有成员回退通知记录。成员真正回退到个人套餐权限后，系统会在这里展示外发通知的送达与重试状态。
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gap: 10 }}>
+                  {workspace.recentMemberRecoveryNotifications.map((event) => (
+                    <div
+                      key={event.id}
+                      style={{
+                        borderRadius: 12,
+                        border: '1px solid #23345a',
+                        background: '#0f1830',
+                        padding: '12px 14px',
+                        display: 'grid',
+                        gap: 6,
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          gap: 12,
+                          flexWrap: 'wrap',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <div style={{ fontWeight: 700 }}>
+                          {event.displayName ?? event.email}
+                          <span style={{ color: '#9fb3ff', fontSize: 12, marginLeft: 8 }}>
+                            · {event.status === 'pending' ? '待恢复中' : '已收敛'}
+                          </span>
+                        </div>
+                        <div style={{ color: '#9fb3ff', fontSize: 12 }}>
+                          {new Date(event.createdAt).toLocaleString('zh-CN')}
+                        </div>
+                      </div>
+                      <div style={{ color: '#d7deef', fontSize: 13, lineHeight: 1.7 }}>
+                        {event.title}
+                      </div>
+                      <div style={{ color: '#8a96b0', fontSize: 12, lineHeight: 1.7 }}>
+                        {event.detail}
+                        {event.lastEmailDeliveredAt
+                          ? ` · 通知邮件已发${
+                              event.lastEmailMessageId ? `（${event.lastEmailMessageId}）` : ''
+                            } · 最近送达 ${new Date(event.lastEmailDeliveredAt).toLocaleString(
+                              'zh-CN',
+                            )}`
+                          : event.lastEmailError
+                            ? ` · 邮件失败：${event.lastEmailError}${
+                                event.nextEmailAttemptAt
+                                  ? ` · 下次自动重试 ${new Date(
+                                      event.nextEmailAttemptAt,
+                                    ).toLocaleString('zh-CN')}`
+                                  : ''
+                              }`
+                            : event.emailAttemptCount > 0
+                              ? ` · 邮件已尝试 ${event.emailAttemptCount} 次${
+                                  event.lastEmailAttemptAt
+                                    ? `（最近 ${new Date(event.lastEmailAttemptAt).toLocaleString(
+                                        'zh-CN',
+                                      )}）`
+                                    : ''
+                                }`
+                              : ' · 邮件待发送'}
                         {event.resolvedAt
                           ? ` · 已于 ${new Date(event.resolvedAt).toLocaleString('zh-CN')} 收敛`
                           : ''}
