@@ -1,0 +1,2 @@
+ALTER TABLE team_workspace_recovery_outreach_events
+  ADD COLUMN webhook_exhausted_at TIMESTAMPTZ;

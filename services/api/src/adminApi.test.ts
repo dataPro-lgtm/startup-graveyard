@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from './buildApp.js';
 
@@ -14,6 +14,16 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
   afterAll(async () => {
     await app.close();
     delete process.env.ADMIN_API_KEY;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete process.env.TEAM_WORKSPACE_RECOVERY_WEBHOOK_URL;
+    delete process.env.TEAM_WORKSPACE_RECOVERY_WEBHOOK_BEARER_TOKEN;
+    delete process.env.TEAM_WORKSPACE_RECOVERY_WEBHOOK_TIMEOUT_MS;
+    delete process.env.TEAM_WORKSPACE_RECOVERY_WEBHOOK_MAX_ATTEMPTS;
+    delete process.env.TEAM_WORKSPACE_RECOVERY_SLACK_WEBHOOK_URL;
+    delete process.env.TEAM_WORKSPACE_RECOVERY_SLACK_WEBHOOK_TIMEOUT_MS;
   });
 
   it('GET /v1/admin/audit 401 without key', async () => {
@@ -271,6 +281,18 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
           recoveryStages: expect.arrayContaining([
             expect.objectContaining({ stage: 'recovered_followup', count: 1 }),
           ]),
+          followUpStates: expect.arrayContaining([
+            expect.objectContaining({ state: 'recovered_followup', count: 1 }),
+          ]),
+          recoveryOutreach: {
+            pendingOwner: 0,
+            pendingAdmin: 0,
+            multiTouchPending: 0,
+            pendingExport: 0,
+            handedOff: 0,
+            resolved: 0,
+            recent: [],
+          },
           actionableWorkspaces: expect.arrayContaining([
             expect.objectContaining({
               workspaceName: 'Admin Metrics Workspace',
@@ -284,8 +306,17 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
                 expect.objectContaining({ code: 'free_up_seats' }),
               ]),
               recoveryStage: 'recovered_followup',
+              followUpState: 'recovered_followup',
+              nextFollowUpAt: null,
               lastCommercialEventType: 'subscription_recovered',
               lastCommercialEventSource: 'team_workspace',
+              lastOutreachAt: null,
+              lastOutreachTitle: null,
+              lastOutreachAudience: null,
+              lastOutreachChannel: null,
+              lastOutreachStatus: null,
+              lastOutreachAttemptCount: null,
+              nextOutreachAttemptAt: null,
             }),
           ]),
           recentBillingEvents: [],
@@ -326,6 +357,649 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
           }),
         ],
       },
+    });
+  });
+
+  it('GET /v1/admin/stats/recovery-queue.csv exports actionable workspace follow-up rows', async () => {
+    const ownerEmail = `recovery-export-owner-${Date.now()}@example.com`;
+    const ownerRegisterRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        email: ownerEmail,
+        password: 'password123',
+        displayName: 'Recovery Export Owner',
+      },
+    });
+    expect(ownerRegisterRes.statusCode).toBe(201);
+    const ownerRegistered = JSON.parse(ownerRegisterRes.body) as {
+      user: { id: string };
+      accessToken: string;
+    };
+
+    await app.usersRepo.updateBillingAccount(ownerRegistered.user.id, {
+      subscription: 'team',
+      billingStatus: 'active',
+      billingInterval: 'month',
+    });
+
+    const createWorkspaceRes = await app.inject({
+      method: 'POST',
+      url: '/v1/team-workspace',
+      headers: {
+        authorization: `Bearer ${ownerRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: { name: 'Recovery Export Workspace' },
+    });
+    expect(createWorkspaceRes.statusCode).toBe(200);
+
+    for (const inviteIndex of [1, 2, 3, 4]) {
+      const inviteRes = await app.inject({
+        method: 'POST',
+        url: '/v1/team-workspace/invites',
+        headers: {
+          authorization: `Bearer ${ownerRegistered.accessToken}`,
+          'content-type': 'application/json',
+        },
+        payload: {
+          email: `recovery-export-member-${inviteIndex}-${Date.now()}@example.com`,
+          role: 'member',
+        },
+      });
+      expect(inviteRes.statusCode).toBe(200);
+    }
+
+    const csvRes = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/stats/recovery-queue.csv',
+      headers: { 'x-admin-key': key },
+    });
+    expect(csvRes.statusCode).toBe(200);
+    expect(csvRes.headers['content-type']).toContain('text/csv');
+    expect(csvRes.body).toContain('workspace_name,owner_email');
+    expect(csvRes.body).toContain('last_outreach_attempt_count');
+    expect(csvRes.body).toContain('Recovery Export Workspace');
+    expect(csvRes.body).toContain(ownerEmail);
+    expect(csvRes.body).toContain('needs_initial_touch');
+  });
+
+  it('POST /v1/admin/stats/recovery-outreach/handoff hands off admin outreach and records snooze metadata', async () => {
+    const ownerEmail = `recovery-handoff-owner-${Date.now()}@example.com`;
+    const ownerRegisterRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        email: ownerEmail,
+        password: 'password123',
+        displayName: 'Recovery Handoff Owner',
+      },
+    });
+    expect(ownerRegisterRes.statusCode).toBe(201);
+    const ownerRegistered = JSON.parse(ownerRegisterRes.body) as {
+      user: { id: string };
+      accessToken: string;
+    };
+
+    await app.usersRepo.updateBillingAccount(ownerRegistered.user.id, {
+      subscription: 'team',
+      billingStatus: 'active',
+      billingInterval: 'month',
+    });
+
+    const createWorkspaceRes = await app.inject({
+      method: 'POST',
+      url: '/v1/team-workspace',
+      headers: {
+        authorization: `Bearer ${ownerRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: { name: 'Recovery Handoff Workspace' },
+    });
+    expect(createWorkspaceRes.statusCode).toBe(200);
+    const createdWorkspace = JSON.parse(createWorkspaceRes.body) as {
+      workspace: { id: string };
+    };
+
+    const inviteRes = await app.inject({
+      method: 'POST',
+      url: '/v1/team-workspace/invites',
+      headers: {
+        authorization: `Bearer ${ownerRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        email: `recovery-handoff-member-${Date.now()}@example.com`,
+        role: 'member',
+      },
+    });
+    expect(inviteRes.statusCode).toBe(200);
+
+    await app.usersRepo.updateBillingAccount(ownerRegistered.user.id, {
+      subscription: 'pro',
+      billingStatus: 'active',
+      billingInterval: 'month',
+      cancelAtPeriodEnd: true,
+    });
+
+    const reconcileRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/scheduler/trigger',
+      headers: {
+        'x-admin-key': key,
+        'content-type': 'application/json',
+      },
+      payload: { sourceName: 'reconcile_team_workspace_billing', payload: {} },
+    });
+    expect(reconcileRes.statusCode).toBe(200);
+
+    const outreachRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/scheduler/trigger',
+      headers: {
+        'x-admin-key': key,
+        'content-type': 'application/json',
+      },
+      payload: { sourceName: 'run_team_workspace_recovery_outreach', payload: {} },
+    });
+    expect(outreachRes.statusCode).toBe(200);
+
+    const handoffRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/stats/recovery-outreach/handoff',
+      headers: {
+        'x-admin-key': key,
+        'content-type': 'application/json',
+      },
+      payload: {
+        workspaceId: createdWorkspace.workspace.id,
+        channel: 'crm',
+        snoozeHours: 48,
+        note: '已转交 CRM 跟进，静默 48 小时。',
+      },
+    });
+    expect(handoffRes.statusCode).toBe(200);
+    expect(JSON.parse(handoffRes.body)).toMatchObject({ ok: true });
+
+    const workspaceStats = await app.teamWorkspacesRepo.getAdminMetrics();
+    expect(workspaceStats).toMatchObject({
+      recoveryOutreach: {
+        pendingExport: 1,
+        handedOff: 1,
+      },
+      actionableWorkspaces: expect.arrayContaining([
+        expect.objectContaining({
+          workspaceId: createdWorkspace.workspace.id,
+          lastOutreachStatus: 'handed_off',
+          lastOutreachHandoffChannel: 'crm',
+          lastOutreachHandoffAt: expect.any(String),
+          lastOutreachHandoffNote: '已转交 CRM 跟进，静默 48 小时。',
+        }),
+      ]),
+    });
+
+    const exportRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/stats/recovery-handoffs/export',
+      headers: { 'x-admin-key': key },
+    });
+    expect(exportRes.statusCode).toBe(200);
+    expect(exportRes.headers['content-type']).toContain('text/csv');
+    expect(exportRes.body).toContain('workspace_name,owner_email');
+    expect(exportRes.body).toContain('last_outreach_export_count');
+    expect(exportRes.body).toContain('Recovery Handoff Workspace');
+
+    const exportedStats = await app.teamWorkspacesRepo.getAdminMetrics();
+    expect(exportedStats).toMatchObject({
+      recoveryOutreach: {
+        pendingExport: 0,
+        handedOff: 1,
+      },
+      actionableWorkspaces: expect.arrayContaining([
+        expect.objectContaining({
+          workspaceId: createdWorkspace.workspace.id,
+          lastOutreachExportCount: 1,
+          lastOutreachExportedAt: expect.any(String),
+        }),
+      ]),
+    });
+
+    process.env.TEAM_WORKSPACE_RECOVERY_WEBHOOK_URL = 'https://crm.example.com/recovery';
+    process.env.TEAM_WORKSPACE_RECOVERY_WEBHOOK_BEARER_TOKEN = 'test-token';
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: 'upstream_failed' }), {
+          status: 502,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), {
+          status: 202,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+
+    const webhookFailRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/stats/recovery-handoffs/webhook',
+      headers: {
+        'x-admin-key': key,
+        'content-type': 'application/json',
+      },
+      payload: { retryIntervalHours: 12 },
+    });
+    expect(webhookFailRes.statusCode).toBe(502);
+    expect(JSON.parse(webhookFailRes.body)).toMatchObject({
+      error: 'recovery_handoff_webhook_failed',
+      attemptedCount: 1,
+      deliveredCount: 0,
+      statusCode: 502,
+    });
+    expect(fetchSpy).toHaveBeenCalledWith(
+      'https://crm.example.com/recovery',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.any(Headers),
+      }),
+    );
+
+    const failedStats = await app.teamWorkspacesRepo.getAdminMetrics();
+    expect(failedStats).toMatchObject({
+      recoveryOutreach: {
+        pendingWebhook: 0,
+        retryingWebhook: 1,
+        deliveredWebhook: 0,
+        failedWebhook: 1,
+      },
+      actionableWorkspaces: expect.arrayContaining([
+        expect.objectContaining({
+          workspaceId: createdWorkspace.workspace.id,
+          lastOutreachWebhookAttemptCount: 1,
+          lastOutreachWebhookAttemptAt: expect.any(String),
+          nextOutreachWebhookAttemptAt: expect.any(String),
+          lastOutreachWebhookDeliveryCount: 0,
+          lastOutreachWebhookDeliveredAt: null,
+          lastOutreachWebhookStatusCode: 502,
+          lastOutreachWebhookError: expect.stringContaining('HTTP 502'),
+        }),
+      ]),
+    });
+
+    const webhookSkipRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/stats/recovery-handoffs/webhook',
+      headers: { 'x-admin-key': key },
+    });
+    expect(webhookSkipRes.statusCode).toBe(200);
+    expect(JSON.parse(webhookSkipRes.body)).toMatchObject({
+      ok: true,
+      attemptedCount: 0,
+      deliveredCount: 0,
+      skipped: 'no_due_handoffs',
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    const webhookRetryRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/stats/recovery-handoffs/webhook',
+      headers: {
+        'x-admin-key': key,
+        'content-type': 'application/json',
+      },
+      payload: {
+        force: true,
+        retryIntervalHours: 0,
+      },
+    });
+    expect(webhookRetryRes.statusCode).toBe(200);
+    expect(JSON.parse(webhookRetryRes.body)).toMatchObject({
+      ok: true,
+      attemptedCount: 1,
+      deliveredCount: 1,
+      statusCode: 202,
+      skipped: null,
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+
+    const deliveredStats = await app.teamWorkspacesRepo.getAdminMetrics();
+    expect(deliveredStats).toMatchObject({
+      recoveryOutreach: {
+        pendingWebhook: 0,
+        retryingWebhook: 0,
+        deliveredWebhook: 1,
+        failedWebhook: 0,
+      },
+      actionableWorkspaces: expect.arrayContaining([
+        expect.objectContaining({
+          workspaceId: createdWorkspace.workspace.id,
+          lastOutreachWebhookAttemptCount: 2,
+          lastOutreachWebhookAttemptAt: expect.any(String),
+          nextOutreachWebhookAttemptAt: null,
+          lastOutreachWebhookDeliveryCount: 1,
+          lastOutreachWebhookDeliveredAt: expect.any(String),
+          lastOutreachWebhookStatusCode: 202,
+          lastOutreachWebhookError: null,
+        }),
+      ]),
+    });
+  });
+
+  it('POST /v1/admin/stats/recovery-handoffs/webhook dead-letters exhausted handoffs until force=true', async () => {
+    const ownerRegisterRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        email: `recovery-dead-letter-owner-${Date.now()}@example.com`,
+        password: 'password123',
+        displayName: 'Recovery Dead Letter Owner',
+      },
+    });
+    expect(ownerRegisterRes.statusCode).toBe(201);
+    const ownerRegistered = JSON.parse(ownerRegisterRes.body) as {
+      user: { id: string };
+      accessToken: string;
+    };
+
+    await app.usersRepo.updateBillingAccount(ownerRegistered.user.id, {
+      subscription: 'team',
+      billingStatus: 'active',
+      billingInterval: 'month',
+    });
+
+    const createWorkspaceRes = await app.inject({
+      method: 'POST',
+      url: '/v1/team-workspace',
+      headers: {
+        authorization: `Bearer ${ownerRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: { name: 'Recovery Dead Letter Workspace' },
+    });
+    const createdWorkspace = JSON.parse(createWorkspaceRes.body) as {
+      workspace: { id: string };
+    };
+
+    await app.inject({
+      method: 'POST',
+      url: '/v1/team-workspace/invites',
+      headers: {
+        authorization: `Bearer ${ownerRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        email: `recovery-dead-letter-member-${Date.now()}@example.com`,
+        role: 'member',
+      },
+    });
+
+    await app.usersRepo.updateBillingAccount(ownerRegistered.user.id, {
+      subscription: 'pro',
+      billingStatus: 'active',
+      billingInterval: 'month',
+      cancelAtPeriodEnd: true,
+    });
+
+    await app.inject({
+      method: 'POST',
+      url: '/v1/admin/scheduler/trigger',
+      headers: {
+        'x-admin-key': key,
+        'content-type': 'application/json',
+      },
+      payload: { sourceName: 'reconcile_team_workspace_billing', payload: {} },
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/v1/admin/scheduler/trigger',
+      headers: {
+        'x-admin-key': key,
+        'content-type': 'application/json',
+      },
+      payload: { sourceName: 'run_team_workspace_recovery_outreach', payload: {} },
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/v1/admin/stats/recovery-outreach/handoff',
+      headers: {
+        'x-admin-key': key,
+        'content-type': 'application/json',
+      },
+      payload: {
+        workspaceId: createdWorkspace.workspace.id,
+        channel: 'crm',
+        snoozeHours: 0,
+        note: '切到 dead-letter 演示链路。',
+      },
+    });
+
+    process.env.TEAM_WORKSPACE_RECOVERY_WEBHOOK_URL = 'https://crm.example.com/recovery';
+    process.env.TEAM_WORKSPACE_RECOVERY_WEBHOOK_MAX_ATTEMPTS = '1';
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: 'terminal_failure' }), {
+          status: 500,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ ok: true }), {
+          status: 202,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+
+    const failRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/stats/recovery-handoffs/webhook',
+      headers: { 'x-admin-key': key },
+    });
+    expect(failRes.statusCode).toBe(502);
+
+    const deadLetterStats = await app.teamWorkspacesRepo.getAdminMetrics();
+    expect(deadLetterStats).toMatchObject({
+      recoveryOutreach: {
+        deadLetteredWebhook: 1,
+        retryingWebhook: 0,
+      },
+      actionableWorkspaces: expect.arrayContaining([
+        expect.objectContaining({
+          workspaceId: createdWorkspace.workspace.id,
+          lastOutreachWebhookAttemptCount: 1,
+          lastOutreachWebhookExhaustedAt: expect.any(String),
+          nextOutreachWebhookAttemptAt: null,
+          lastOutreachWebhookDeliveredAt: null,
+        }),
+      ]),
+    });
+
+    const skipRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/stats/recovery-handoffs/webhook',
+      headers: { 'x-admin-key': key },
+    });
+    expect(skipRes.statusCode).toBe(200);
+    expect(JSON.parse(skipRes.body)).toMatchObject({
+      ok: true,
+      attemptedCount: 0,
+      deliveredCount: 0,
+      skipped: 'no_retryable_handoffs',
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    const forceRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/stats/recovery-handoffs/webhook',
+      headers: {
+        'x-admin-key': key,
+        'content-type': 'application/json',
+      },
+      payload: { force: true },
+    });
+    expect(forceRes.statusCode).toBe(200);
+    expect(JSON.parse(forceRes.body)).toMatchObject({
+      ok: true,
+      attemptedCount: 1,
+      deliveredCount: 1,
+      skipped: null,
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('POST /v1/admin/stats/recovery-handoffs/slack alerts webhook dead-letters to ops', async () => {
+    const ownerRegisterRes = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: {
+        email: `recovery-slack-owner-${Date.now()}@example.com`,
+        password: 'password123',
+        displayName: 'Recovery Slack Owner',
+      },
+    });
+    expect(ownerRegisterRes.statusCode).toBe(201);
+    const ownerRegistered = JSON.parse(ownerRegisterRes.body) as {
+      user: { id: string };
+      accessToken: string;
+    };
+
+    await app.usersRepo.updateBillingAccount(ownerRegistered.user.id, {
+      subscription: 'team',
+      billingStatus: 'active',
+      billingInterval: 'month',
+    });
+
+    const createWorkspaceRes = await app.inject({
+      method: 'POST',
+      url: '/v1/team-workspace',
+      headers: {
+        authorization: `Bearer ${ownerRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: { name: 'Recovery Slack Workspace' },
+    });
+    const createdWorkspace = JSON.parse(createWorkspaceRes.body) as {
+      workspace: { id: string };
+    };
+
+    await app.inject({
+      method: 'POST',
+      url: '/v1/team-workspace/invites',
+      headers: {
+        authorization: `Bearer ${ownerRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: {
+        email: `recovery-slack-member-${Date.now()}@example.com`,
+        role: 'member',
+      },
+    });
+
+    await app.usersRepo.updateBillingAccount(ownerRegistered.user.id, {
+      subscription: 'pro',
+      billingStatus: 'active',
+      billingInterval: 'month',
+      cancelAtPeriodEnd: true,
+    });
+
+    await app.inject({
+      method: 'POST',
+      url: '/v1/admin/scheduler/trigger',
+      headers: {
+        'x-admin-key': key,
+        'content-type': 'application/json',
+      },
+      payload: { sourceName: 'reconcile_team_workspace_billing', payload: {} },
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/v1/admin/scheduler/trigger',
+      headers: {
+        'x-admin-key': key,
+        'content-type': 'application/json',
+      },
+      payload: { sourceName: 'run_team_workspace_recovery_outreach', payload: {} },
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/v1/admin/stats/recovery-outreach/handoff',
+      headers: {
+        'x-admin-key': key,
+        'content-type': 'application/json',
+      },
+      payload: {
+        workspaceId: createdWorkspace.workspace.id,
+        channel: 'crm',
+        snoozeHours: 0,
+        note: '切到 Slack 告警演示链路。',
+      },
+    });
+
+    process.env.TEAM_WORKSPACE_RECOVERY_WEBHOOK_URL = 'https://crm.example.com/recovery';
+    process.env.TEAM_WORKSPACE_RECOVERY_WEBHOOK_MAX_ATTEMPTS = '1';
+    process.env.TEAM_WORKSPACE_RECOVERY_SLACK_WEBHOOK_URL =
+      'https://hooks.slack.com/services/test/team/workspace';
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: 'terminal_failure' }), {
+          status: 500,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response('ok', {
+          status: 200,
+          headers: { 'content-type': 'text/plain; charset=utf-8' },
+        }),
+      );
+
+    const deadLetterRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/stats/recovery-handoffs/webhook',
+      headers: { 'x-admin-key': key },
+    });
+    expect(deadLetterRes.statusCode).toBe(502);
+
+    const slackRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/stats/recovery-handoffs/slack',
+      headers: { 'x-admin-key': key },
+    });
+    expect(slackRes.statusCode).toBe(200);
+    expect(JSON.parse(slackRes.body)).toMatchObject({
+      ok: true,
+      attemptedCount: 1,
+      alertedCount: 1,
+      skipped: null,
+    });
+    expect(fetchSpy).toHaveBeenNthCalledWith(
+      2,
+      'https://hooks.slack.com/services/test/team/workspace',
+      expect.objectContaining({
+        method: 'POST',
+      }),
+    );
+
+    const slackStats = await app.teamWorkspacesRepo.getAdminMetrics();
+    expect(slackStats).toMatchObject({
+      recoveryOutreach: {
+        deadLetteredWebhook: 1,
+        pendingSlackAlert: 0,
+        alertedSlack: 1,
+        failedSlackAlert: 0,
+      },
+      actionableWorkspaces: expect.arrayContaining([
+        expect.objectContaining({
+          workspaceId: createdWorkspace.workspace.id,
+          lastOutreachWebhookExhaustedAt: expect.any(String),
+          lastOutreachSlackAlertCount: 1,
+          lastOutreachSlackAlertAttemptAt: expect.any(String),
+          lastOutreachSlackAlertedAt: expect.any(String),
+          lastOutreachSlackAlertError: null,
+        }),
+      ]),
     });
   });
 });

@@ -298,3 +298,19 @@
 - Admin Dashboard 的高风险 workspace 队列现在不只区分“有没有动作”，还会给每个 workspace 标记恢复阶段：`尚未触达 / Owner 已开始恢复 / 已恢复待收尾`，运营优先级不再只能靠人工判断最近事件。
 - Team Workspace 面板也不再只展示 warning codes。现在会基于当前 viewer 角色生成正式的 recovery notices：owner 会看到恢复订阅、补款、续费、释放席位等明确提示；成员则会看到“当前已回退到个人套餐权限 / 需要联系 owner 恢复”的分层说明。
 - 这让恢复闭环第一次同时覆盖“运营视角”和“用户视角”，避免用户只能看到一串技术状态码，却不知道当前该做什么。
+
+已完成 M3 第四段第十三部分（recovery outreach automation baseline）：
+
+- 系统现在已经有正式的 `run_team_workspace_recovery_outreach` ingestion handler，会按当前 workspace 的恢复 notices 和推荐动作，生成持久化的 recovery outreach 记录，而不是只在页面临时拼出提醒文案。
+- 这些触达记录会区分 `owner_banner` 和 `admin_queue` 两个 audience/channel，并具备去重与 resolved 收口逻辑：同一 workspace 同一 audience 只会保留一条 pending 触达；当风险消失时，旧触达会自动标记为 resolved。
+- 这套收口逻辑也已经开始消费真实商业化动作：当 owner 已经从账户页或 Team Workspace 打开 checkout / billing portal、开始恢复流程时，系统会自动收口 owner 侧 pending outreach，避免同一风险仍被当成“尚未触达”。
+- Team Workspace 面板会直接显示 owner 侧最近触达记录，Admin Dashboard 也会展示 recovery outreach 概览与最近触达队列。因此商业化恢复链第一次具备了“定时扫描 -> 持久化触达 -> owner/admin 两侧可见”的稳定基线。
+- Admin Dashboard 现在还会为每个高风险 workspace 计算 follow-up cadence：区分 `待首次触达 / 等待 Owner 响应 / 已逾期待跟进 / Owner 已响应 / 恢复待收尾`，并给出下次应跟进时间。运营终于可以按节奏排队，而不只是看“最近一次事件发生在什么时候”。
+- recovery outreach 现在不再只是静态 pending 记录。系统会为每条 owner/admin 触达保留 `attemptCount / lastAttemptAt / nextAttemptAt`，并允许 `run_team_workspace_recovery_outreach` 按 `retryIntervalHours` 自动重试逾期触达；运营 dashboard 和 Team Workspace owner 面板都能直接看到当前已经提醒了第几次、下次什么时候会自动再跟进。
+- 后台现在还可以直接导出 recovery queue CSV，把 workspace 名称、owner、账单状态、恢复阶段、跟进状态、下次应跟进时间和推荐动作一次性交给运营或外部 CRM 流程，避免还要手工从 dashboard 抄数据。
+- 运营现在还可以把最新一条 admin recovery outreach 直接标记为 `handed_off`，记录 `crm / manual_follow_up` 渠道、备注和 `snoozeHours`。在静默窗口结束前，系统不会重新把同一个 admin 触达塞回自动恢复队列；窗口到期后，才会重新进入自动运营链路。
+- 在 `handed_off` 之外，这条外部交接链现在还会保留 `exportCount / lastExportedAt`，并提供专门的 CRM handoff CSV 导出接口。运营可以把当前已 handoff 的 workspace 统一导出给 CRM，同时系统会记住这条外部交付已经发过几次、最近一次是什么时候。
+- 这轮进一步补上了真实 webhook 交接：已 handoff 的 admin recovery outreach 现在可以直接推送到 `TEAM_WORKSPACE_RECOVERY_WEBHOOK_URL`，系统会回写 `webhookAttemptCount / lastWebhookAttemptAt / nextWebhookAttemptAt / webhookExhaustedAt / webhookDeliveryCount / lastWebhookDeliveredAt / lastWebhookStatusCode / lastWebhookError`，运营台和 owner 面板也能直接看到“待推送 / 自动重试中 / 已推送 / 推送失败 / 已停止自动重试”的状态，而不再只停留在 CSV 导出。
+- `deliver_team_workspace_recovery_webhook` 现在不再是“见到 handoff 就全量推一次”，而是只会发送当前到点且仍可重试的 handoff；失败后会按 `retryIntervalHours` 自动排下次重试时间，并在达到 `TEAM_WORKSPACE_RECOVERY_WEBHOOK_MAX_ATTEMPTS` 后转成 dead-letter，停止自动重试。运营台的手动按钮则支持 `force=true` 立即重推，用来覆盖冷却窗口或接管 dead-letter 项。
+- 在 dead-letter 之后，系统现在还会把这些 handoff 继续交给内部 Ops Slack：`deliver_team_workspace_recovery_slack_alert` 会扫描 `webhookExhaustedAt` 仍未恢复的 handoff，并把 workspace、owner、账单状态、风险信号和推荐动作推到 `TEAM_WORKSPACE_RECOVERY_SLACK_WEBHOOK_URL`。这一步会持久化 `slackAlertCount / lastSlackAlertAttemptAt / lastSlackAlertedAt / lastSlackAlertStatusCode / lastSlackAlertError`，运营台和 owner 面板也能看见“待通知 Slack / 已告警 / 告警失败”的状态。
+- 这一层仍然刻意停在“通用 webhook + 内部恢复编排”基线，还没有接真实邮件、站外消息或更复杂的多步 CRM orchestration；这些会留在下一阶段，而不会混进当前已跑通的主链里。

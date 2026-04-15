@@ -15,6 +15,11 @@ import type {
   TeamWorkspaceBillingEvent,
   TeamWorkspaceBillingEventSeverity,
   TeamWorkspaceBillingEventType,
+  TeamWorkspaceRecoveryOutreach,
+  TeamWorkspaceRecoveryOutreachAudience,
+  TeamWorkspaceRecoveryOutreachChannel,
+  TeamWorkspaceRecoveryOutreachHandoffChannel,
+  TeamWorkspaceRecoveryOutreachStatus,
   TeamWorkspaceBillingWarning,
   TeamWorkspace,
   TeamWorkspaceContextResponse,
@@ -25,8 +30,10 @@ import type {
   TeamWorkspaceSharedSavedView,
 } from '@sg/shared/schemas/teamWorkspace';
 import type { CasesRepository } from './casesRepository.js';
+import type { BillingFunnelRepository, BillingFunnelUserTouch } from './billingFunnelRepository.js';
 import type { SavedViewsRepository } from './savedViewsRepository.js';
 import type { UsersRepository } from './usersRepository.js';
+import { config } from '../config/index.js';
 
 type ManageRole = Exclude<TeamWorkspaceRole, 'owner'>;
 
@@ -161,9 +168,18 @@ type WorkspaceBillingEventDescriptor = {
   count: number | null;
 };
 
+type WorkspaceRecoveryOutreachDescriptor = {
+  audience: TeamWorkspaceRecoveryOutreachAudience;
+  channel: TeamWorkspaceRecoveryOutreachChannel;
+  title: string;
+  detail: string;
+  actionCode: TeamWorkspaceBillingRecoveryActionCode | null;
+};
+
 type AdminBillingEvent = TeamWorkspaceAdminMetrics['recentBillingEvents'][number];
 type AdminRecoveryAction = TeamWorkspaceAdminMetrics['recoveryActions'][number];
 type AdminActionableWorkspace = TeamWorkspaceAdminMetrics['actionableWorkspaces'][number];
+type AdminRecoveryOutreach = TeamWorkspaceAdminMetrics['recoveryOutreach']['recent'][number];
 type WorkspaceReconcileResult = {
   revokedInviteCount: number;
   restoredInviteCount: number;
@@ -179,6 +195,41 @@ type PgWorkspaceBillingEventRow = {
   detail: string;
   event_count: string | number | null;
   created_at: Date | string;
+};
+
+type PgWorkspaceRecoveryOutreachRow = {
+  id: string;
+  workspace_id: string;
+  workspace_name: string;
+  audience: TeamWorkspaceRecoveryOutreachAudience;
+  channel: TeamWorkspaceRecoveryOutreachChannel;
+  status: TeamWorkspaceRecoveryOutreachStatus;
+  title: string;
+  detail: string;
+  action_code: TeamWorkspaceBillingRecoveryActionCode | null;
+  attempt_count: number;
+  created_at: Date | string;
+  last_attempt_at: Date | string;
+  next_attempt_at: Date | string | null;
+  export_count: number;
+  last_exported_at: Date | string | null;
+  webhook_attempt_count: number;
+  last_webhook_attempt_at: Date | string | null;
+  next_webhook_attempt_at: Date | string | null;
+  webhook_exhausted_at: Date | string | null;
+  webhook_delivery_count: number;
+  last_webhook_delivered_at: Date | string | null;
+  last_webhook_status_code: number | null;
+  last_webhook_error: string | null;
+  slack_alert_count: number;
+  last_slack_alert_attempt_at: Date | string | null;
+  last_slack_alerted_at: Date | string | null;
+  last_slack_alert_status_code: number | null;
+  last_slack_alert_error: string | null;
+  handoff_channel: TeamWorkspaceRecoveryOutreachHandoffChannel | null;
+  handoff_note: string | null;
+  handoff_at: Date | string | null;
+  resolved_at: Date | string | null;
 };
 
 type PgWorkspaceBillingStateRow = {
@@ -207,6 +258,7 @@ const COMPENSATION_REASONS: ReadonlySet<WorkspaceInviteRevocationReason> = new S
   'billing_inactive',
   'seat_limit_reduced',
 ]);
+const DEFAULT_RECOVERY_OUTREACH_RETRY_HOURS = 24;
 
 function toIso(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
@@ -474,6 +526,53 @@ function rowToBillingEvent(row: PgWorkspaceBillingEventRow): AdminBillingEvent {
   };
 }
 
+function rowToRecoveryOutreach(row: PgWorkspaceRecoveryOutreachRow): AdminRecoveryOutreach {
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    workspaceName: row.workspace_name,
+    audience: row.audience,
+    channel: row.channel,
+    status: row.status,
+    title: row.title,
+    detail: row.detail,
+    actionCode: row.action_code,
+    attemptCount: row.attempt_count,
+    createdAt: toIso(row.created_at),
+    lastAttemptAt: toIso(row.last_attempt_at),
+    nextAttemptAt: row.next_attempt_at ? toIso(row.next_attempt_at) : null,
+    exportCount: row.export_count,
+    lastExportedAt: row.last_exported_at ? toIso(row.last_exported_at) : null,
+    webhookAttemptCount: row.webhook_attempt_count,
+    lastWebhookAttemptAt: row.last_webhook_attempt_at ? toIso(row.last_webhook_attempt_at) : null,
+    nextWebhookAttemptAt: row.next_webhook_attempt_at ? toIso(row.next_webhook_attempt_at) : null,
+    webhookExhaustedAt: row.webhook_exhausted_at ? toIso(row.webhook_exhausted_at) : null,
+    webhookDeliveryCount: row.webhook_delivery_count,
+    lastWebhookDeliveredAt: row.last_webhook_delivered_at
+      ? toIso(row.last_webhook_delivered_at)
+      : null,
+    lastWebhookStatusCode: row.last_webhook_status_code,
+    lastWebhookError: row.last_webhook_error,
+    slackAlertCount: row.slack_alert_count,
+    lastSlackAlertAttemptAt: row.last_slack_alert_attempt_at
+      ? toIso(row.last_slack_alert_attempt_at)
+      : null,
+    lastSlackAlertedAt: row.last_slack_alerted_at ? toIso(row.last_slack_alerted_at) : null,
+    lastSlackAlertStatusCode: row.last_slack_alert_status_code,
+    lastSlackAlertError: row.last_slack_alert_error,
+    handoffChannel: row.handoff_channel,
+    handoffNote: row.handoff_note,
+    handoffAt: row.handoff_at ? toIso(row.handoff_at) : null,
+    resolvedAt: row.resolved_at ? toIso(row.resolved_at) : null,
+  };
+}
+
+function nextRecoveryOutreachAttemptAt(lastAttemptAt: string, retryIntervalHours: number): string {
+  return new Date(
+    new Date(lastAttemptAt).getTime() + retryIntervalHours * 60 * 60 * 1000,
+  ).toISOString();
+}
+
 function buildBillingWarnings(input: {
   ownerBillingStatus: BillingStatus;
   cancelAtPeriodEnd: boolean;
@@ -707,6 +806,59 @@ function buildRecoveryNotices(input: {
   return notices;
 }
 
+function buildRecoveryOutreachDescriptors(input: {
+  workspaceName: string;
+  billing: TeamWorkspaceBilling;
+}): WorkspaceRecoveryOutreachDescriptor[] {
+  if (input.billing.recommendedActions.length === 0) return [];
+
+  const descriptors: WorkspaceRecoveryOutreachDescriptor[] = [];
+  const primaryAction = input.billing.recommendedActions[0] ?? null;
+  const primaryNotice = input.billing.recoveryNotices[0] ?? null;
+
+  descriptors.push({
+    audience: 'owner',
+    channel: 'owner_banner',
+    title: primaryNotice?.title ?? `请尽快处理 ${input.workspaceName} 的 Team Workspace 账单风险`,
+    detail:
+      primaryNotice?.detail ??
+      primaryAction?.detail ??
+      '当前工作区存在待恢复的账单或席位风险，请尽快处理。',
+    actionCode: primaryAction?.code ?? null,
+  });
+
+  if (
+    input.billing.fallbackMemberCount > 0 ||
+    input.billing.revokedInviteCount > 0 ||
+    input.billing.warningCodes.includes('past_due')
+  ) {
+    descriptors.push({
+      audience: 'admin',
+      channel: 'admin_queue',
+      title: `${input.workspaceName} 需要运营跟进`,
+      detail:
+        input.billing.fallbackMemberCount > 0
+          ? `${input.billing.fallbackMemberCount} 名成员已回退到个人权限，请关注 owner 是否及时恢复订阅。`
+          : input.billing.revokedInviteCount > 0
+            ? `${input.billing.revokedInviteCount} 条邀请已被系统撤销，请跟进 owner 恢复 Team 后重新推进成员加入。`
+            : '当前 Team 订阅存在付款或续费风险，请关注 owner 的恢复动作是否完成。',
+      actionCode: primaryAction?.code ?? null,
+    });
+  }
+
+  return descriptors;
+}
+
+function hasOwnerRecoveryEngagement(touch: BillingFunnelUserTouch | null | undefined): boolean {
+  if (!touch) return false;
+  return (
+    touch.type === 'checkout_started' ||
+    touch.type === 'checkout_completed' ||
+    touch.type === 'portal_started' ||
+    touch.type === 'subscription_recovered'
+  );
+}
+
 function accumulateRecoveryActions(
   actions: TeamWorkspaceBillingRecoveryAction[],
   counts: Map<TeamWorkspaceBillingRecoveryActionCode, AdminRecoveryAction>,
@@ -732,6 +884,35 @@ function toAdminActionableWorkspace(input: {
   billing: TeamWorkspaceBilling;
   pendingInvites: number;
   lastBillingEvent?: Pick<TeamWorkspaceBillingEvent, 'title' | 'createdAt'> | null;
+  lastOutreach?: Pick<
+    AdminRecoveryOutreach,
+    | 'title'
+    | 'createdAt'
+    | 'lastAttemptAt'
+    | 'audience'
+    | 'channel'
+    | 'status'
+    | 'attemptCount'
+    | 'nextAttemptAt'
+    | 'exportCount'
+    | 'lastExportedAt'
+    | 'webhookAttemptCount'
+    | 'lastWebhookAttemptAt'
+    | 'nextWebhookAttemptAt'
+    | 'webhookExhaustedAt'
+    | 'webhookDeliveryCount'
+    | 'lastWebhookDeliveredAt'
+    | 'lastWebhookStatusCode'
+    | 'lastWebhookError'
+    | 'slackAlertCount'
+    | 'lastSlackAlertAttemptAt'
+    | 'lastSlackAlertedAt'
+    | 'lastSlackAlertStatusCode'
+    | 'lastSlackAlertError'
+    | 'handoffChannel'
+    | 'handoffAt'
+    | 'handoffNote'
+  > | null;
 }): AdminActionableWorkspace {
   return {
     workspaceId: input.workspaceId,
@@ -755,6 +936,33 @@ function toAdminActionableWorkspace(input: {
     lastCommercialEventType: null,
     lastCommercialEventSource: null,
     recoveryStage: 'needs_outreach',
+    followUpState: 'needs_initial_touch',
+    nextFollowUpAt: null,
+    lastOutreachAt: input.lastOutreach?.lastAttemptAt ?? null,
+    lastOutreachTitle: input.lastOutreach?.title ?? null,
+    lastOutreachAudience: input.lastOutreach?.audience ?? null,
+    lastOutreachChannel: input.lastOutreach?.channel ?? null,
+    lastOutreachStatus: input.lastOutreach?.status ?? null,
+    lastOutreachAttemptCount: input.lastOutreach?.attemptCount ?? null,
+    nextOutreachAttemptAt: input.lastOutreach?.nextAttemptAt ?? null,
+    lastOutreachExportCount: input.lastOutreach?.exportCount ?? null,
+    lastOutreachExportedAt: input.lastOutreach?.lastExportedAt ?? null,
+    lastOutreachWebhookAttemptCount: input.lastOutreach?.webhookAttemptCount ?? null,
+    lastOutreachWebhookAttemptAt: input.lastOutreach?.lastWebhookAttemptAt ?? null,
+    nextOutreachWebhookAttemptAt: input.lastOutreach?.nextWebhookAttemptAt ?? null,
+    lastOutreachWebhookExhaustedAt: input.lastOutreach?.webhookExhaustedAt ?? null,
+    lastOutreachWebhookDeliveryCount: input.lastOutreach?.webhookDeliveryCount ?? null,
+    lastOutreachWebhookDeliveredAt: input.lastOutreach?.lastWebhookDeliveredAt ?? null,
+    lastOutreachWebhookStatusCode: input.lastOutreach?.lastWebhookStatusCode ?? null,
+    lastOutreachWebhookError: input.lastOutreach?.lastWebhookError ?? null,
+    lastOutreachSlackAlertCount: input.lastOutreach?.slackAlertCount ?? null,
+    lastOutreachSlackAlertAttemptAt: input.lastOutreach?.lastSlackAlertAttemptAt ?? null,
+    lastOutreachSlackAlertedAt: input.lastOutreach?.lastSlackAlertedAt ?? null,
+    lastOutreachSlackAlertStatusCode: input.lastOutreach?.lastSlackAlertStatusCode ?? null,
+    lastOutreachSlackAlertError: input.lastOutreach?.lastSlackAlertError ?? null,
+    lastOutreachHandoffChannel: input.lastOutreach?.handoffChannel ?? null,
+    lastOutreachHandoffAt: input.lastOutreach?.handoffAt ?? null,
+    lastOutreachHandoffNote: input.lastOutreach?.handoffNote ?? null,
   };
 }
 
@@ -827,6 +1035,36 @@ export interface TeamWorkspacesRepository {
   resolveEffectiveUserProfile(user: UserProfile): Promise<UserProfile>;
   getContextForUser(user: UserProfile): Promise<TeamWorkspaceContextResponse>;
   getAdminMetrics(): Promise<TeamWorkspaceAdminMetrics>;
+  handoffAdminRecoveryOutreach(input: {
+    workspaceId: string;
+    channel: TeamWorkspaceRecoveryOutreachHandoffChannel;
+    snoozeHours: number;
+    note?: string | null;
+  }): Promise<'workspace_not_found' | 'outreach_not_found' | { ok: true }>;
+  exportHandedOffAdminRecoveryOutreach(): Promise<{ exportedCount: number }>;
+  recordDeadLetteredAdminRecoveryOutreachSlackAlert(input: {
+    workspaceIds: string[];
+    statusCode: number | null;
+    error: string | null;
+    attemptedAt?: string;
+    alertedAt?: string;
+  }): Promise<{ alertedCount: number }>;
+  recordHandedOffAdminRecoveryOutreachWebhookDelivery(input: {
+    workspaceIds: string[];
+    statusCode: number | null;
+    error: string | null;
+    attemptedAt?: string;
+    deliveredAt?: string;
+    retryIntervalHours?: number;
+    maxAttempts?: number;
+  }): Promise<{ deliveredCount: number }>;
+  runRecoveryOutreachAutomation(options?: { retryIntervalHours?: number }): Promise<{
+    workspaceCount: number;
+    ownerOutreachCreated: number;
+    adminOutreachCreated: number;
+    retriedOutreachCount: number;
+    resolvedOutreachCount: number;
+  }>;
   reconcileAllBilling(): Promise<{
     workspaceCount: number;
     revokedInviteCount: number;
@@ -890,6 +1128,7 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
     }
   >();
   private readonly billingEvents: AdminBillingEvent[] = [];
+  private readonly recoveryOutreach: AdminRecoveryOutreach[] = [];
   private readonly billingStateByWorkspaceId = new Map<string, WorkspaceBillingSnapshot>();
   private readonly sharedSavedViews: WorkspaceSharedSavedViewRecord[] = [];
   private readonly sharedCases: WorkspaceSharedCaseRecord[] = [];
@@ -898,6 +1137,7 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
     private readonly usersRepo: UsersRepository,
     private readonly savedViewsRepo: SavedViewsRepository,
     private readonly casesRepo: CasesRepository,
+    private readonly billingFunnelRepo: BillingFunnelRepository,
   ) {}
 
   async resolveEffectiveUserProfile(user: UserProfile): Promise<UserProfile> {
@@ -950,6 +1190,101 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
     };
   }
 
+  async runRecoveryOutreachAutomation(options?: { retryIntervalHours?: number }): Promise<{
+    workspaceCount: number;
+    ownerOutreachCreated: number;
+    adminOutreachCreated: number;
+    retriedOutreachCount: number;
+    resolvedOutreachCount: number;
+  }> {
+    const retryIntervalHours = Math.max(
+      0,
+      options?.retryIntervalHours ?? DEFAULT_RECOVERY_OUTREACH_RETRY_HOURS,
+    );
+    const workspaces = [...this.workspaces.values()];
+    const workspaceIds = workspaces.map((workspace) => workspace.id);
+    const latestCommercialTouches = await this.billingFunnelRepo.getLatestEventsByUserIds(
+      workspaces.map((workspace) => workspace.ownerUserId),
+    );
+    const latestCommercialTouchByOwnerId = new Map(
+      latestCommercialTouches.map((touch) => [touch.userId, touch]),
+    );
+    let ownerOutreachCreated = 0;
+    let adminOutreachCreated = 0;
+    let retriedOutreachCount = 0;
+    let resolvedOutreachCount = 0;
+
+    for (const workspaceId of workspaceIds) {
+      await this.reconcileWorkspaceBillingState(workspaceId);
+      const workspace = this.workspaces.get(workspaceId);
+      if (!workspace) continue;
+      const owner = await this.usersRepo.getById(workspace.ownerUserId);
+      if (!owner) continue;
+      const seatsUsed = [...this.membershipByUserId.values()].filter(
+        (item) => item.workspaceId === workspaceId,
+      ).length;
+      const pendingInviteCount = [...this.invites.values()].filter(
+        (invite) => invite.workspaceId === workspaceId && invite.status === 'pending',
+      ).length;
+      const compensation = this.getCompensationSummary(workspaceId);
+      const billing = buildWorkspaceBilling({
+        owner,
+        seatsUsed,
+        pendingInviteCount,
+        compensation,
+        viewerRole: 'owner',
+        recentBillingEvents: this.getRecentBillingEvents(workspaceId),
+      });
+      const descriptors = buildRecoveryOutreachDescriptors({
+        workspaceName: workspace.name,
+        billing,
+      });
+      const ownerDescriptor = descriptors.find((item) => item.audience === 'owner') ?? null;
+      const adminDescriptor = descriptors.find((item) => item.audience === 'admin') ?? null;
+      const ownerTouch = latestCommercialTouchByOwnerId.get(workspace.ownerUserId);
+      if (hasOwnerRecoveryEngagement(ownerTouch)) {
+        resolvedOutreachCount += this.resolvePendingRecoveryOutreach(workspaceId, 'owner');
+      } else {
+        ownerOutreachCreated += this.ensurePendingRecoveryOutreach(
+          workspaceId,
+          workspace.name,
+          ownerDescriptor,
+          retryIntervalHours,
+        );
+        retriedOutreachCount += this.retryPendingRecoveryOutreach(
+          workspaceId,
+          ownerDescriptor,
+          retryIntervalHours,
+        );
+      }
+      adminOutreachCreated += this.ensurePendingRecoveryOutreach(
+        workspaceId,
+        workspace.name,
+        adminDescriptor,
+        retryIntervalHours,
+      );
+      retriedOutreachCount += this.retryPendingRecoveryOutreach(
+        workspaceId,
+        adminDescriptor,
+        retryIntervalHours,
+      );
+      if (!ownerDescriptor) {
+        resolvedOutreachCount += this.resolvePendingRecoveryOutreach(workspaceId, 'owner');
+      }
+      if (!adminDescriptor) {
+        resolvedOutreachCount += this.resolvePendingRecoveryOutreach(workspaceId, 'admin');
+      }
+    }
+
+    return {
+      workspaceCount: workspaceIds.length,
+      ownerOutreachCreated,
+      adminOutreachCreated,
+      retriedOutreachCount,
+      resolvedOutreachCount,
+    };
+  }
+
   async getAdminMetrics(): Promise<TeamWorkspaceAdminMetrics> {
     const workspaces = [...this.workspaces.values()];
     let activeWorkspaces = 0;
@@ -963,6 +1298,20 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
     let inheritedMembers = 0;
     let revokedInvites = 0;
     let fallbackMembers = 0;
+    let pendingOwnerOutreach = 0;
+    let pendingAdminOutreach = 0;
+    let multiTouchPending = 0;
+    let pendingExport = 0;
+    let pendingWebhook = 0;
+    let retryingWebhook = 0;
+    let deadLetteredWebhook = 0;
+    let pendingSlackAlert = 0;
+    let alertedSlack = 0;
+    let failedSlackAlert = 0;
+    let deliveredWebhook = 0;
+    let failedWebhook = 0;
+    let handedOffOutreach = 0;
+    let resolvedOutreach = 0;
     const actionableWorkspaces: AdminActionableWorkspace[] = [];
     const recoveryActionCounts = new Map<
       TeamWorkspaceBillingRecoveryActionCode,
@@ -993,6 +1342,8 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
       pendingInvites += workspacePendingInvites;
       revokedInvites += compensation.revokedInviteCount;
       fallbackMembers += billing.fallbackMemberCount;
+      const latestOutreach =
+        this.recoveryOutreach.find((event) => event.workspaceId === workspace.id) ?? null;
       if (billing.recommendedActions.length > 0) {
         workspacesRequiringAction += 1;
         accumulateRecoveryActions(billing.recommendedActions, recoveryActionCounts);
@@ -1004,6 +1355,7 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
             billing,
             pendingInvites: workspacePendingInvites,
             lastBillingEvent: this.getRecentBillingEvents(workspace.id)[0] ?? null,
+            lastOutreach: latestOutreach,
           }),
         );
       }
@@ -1024,6 +1376,30 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
       }
     }
 
+    for (const event of this.recoveryOutreach) {
+      if (event.status === 'pending') {
+        if (event.attemptCount > 1) multiTouchPending += 1;
+        if (event.audience === 'owner') pendingOwnerOutreach += 1;
+        else pendingAdminOutreach += 1;
+      } else if (event.status === 'handed_off') {
+        if (event.exportCount === 0) pendingExport += 1;
+        if (event.webhookDeliveryCount > 0) deliveredWebhook += 1;
+        else if (event.webhookExhaustedAt) deadLetteredWebhook += 1;
+        else if (event.lastWebhookError) {
+          failedWebhook += 1;
+          if (event.nextWebhookAttemptAt) retryingWebhook += 1;
+        } else pendingWebhook += 1;
+        if (event.webhookExhaustedAt) {
+          if (event.lastSlackAlertedAt) alertedSlack += 1;
+          else if (event.lastSlackAlertError) failedSlackAlert += 1;
+          else pendingSlackAlert += 1;
+        }
+        handedOffOutreach += 1;
+      } else {
+        resolvedOutreach += 1;
+      }
+    }
+
     return {
       totalWorkspaces: workspaces.length,
       activeWorkspaces,
@@ -1040,6 +1416,24 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
       seatUtilizationRate: totalSeatCapacity > 0 ? reservedSeats / totalSeatCapacity : null,
       recoveryActions: [...recoveryActionCounts.values()].sort((a, b) => b.count - a.count),
       recoveryStages: [],
+      followUpStates: [],
+      recoveryOutreach: {
+        pendingOwner: pendingOwnerOutreach,
+        pendingAdmin: pendingAdminOutreach,
+        multiTouchPending,
+        pendingExport,
+        pendingWebhook,
+        retryingWebhook,
+        deadLetteredWebhook,
+        pendingSlackAlert,
+        alertedSlack,
+        failedSlackAlert,
+        deliveredWebhook,
+        failedWebhook,
+        handedOff: handedOffOutreach,
+        resolved: resolvedOutreach,
+        recent: this.recoveryOutreach.slice(0, 8),
+      },
       recentBillingEvents: this.billingEvents.slice(0, 8),
       actionableWorkspaces: actionableWorkspaces.sort((a, b) => {
         const warningDelta = b.warningCodes.length - a.warningCodes.length;
@@ -1050,6 +1444,168 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
         );
       }),
     };
+  }
+
+  async handoffAdminRecoveryOutreach(input: {
+    workspaceId: string;
+    channel: TeamWorkspaceRecoveryOutreachHandoffChannel;
+    snoozeHours: number;
+    note?: string | null;
+  }): Promise<'workspace_not_found' | 'outreach_not_found' | { ok: true }> {
+    const workspace = this.workspaces.get(input.workspaceId);
+    if (!workspace) return 'workspace_not_found';
+    const now = new Date().toISOString();
+    const nextAttemptAt = nextRecoveryOutreachAttemptAt(now, input.snoozeHours);
+    for (let index = 0; index < this.recoveryOutreach.length; index += 1) {
+      const event = this.recoveryOutreach[index]!;
+      if (event.workspaceId !== input.workspaceId || event.audience !== 'admin') continue;
+      if (event.status === 'resolved') continue;
+      this.recoveryOutreach[index] = {
+        ...event,
+        status: 'handed_off',
+        lastAttemptAt: now,
+        nextAttemptAt,
+        exportCount: 0,
+        lastExportedAt: null,
+        webhookAttemptCount: 0,
+        lastWebhookAttemptAt: null,
+        nextWebhookAttemptAt: now,
+        webhookExhaustedAt: null,
+        webhookDeliveryCount: 0,
+        lastWebhookDeliveredAt: null,
+        lastWebhookStatusCode: null,
+        lastWebhookError: null,
+        slackAlertCount: 0,
+        lastSlackAlertAttemptAt: null,
+        lastSlackAlertedAt: null,
+        lastSlackAlertStatusCode: null,
+        lastSlackAlertError: null,
+        handoffChannel: input.channel,
+        handoffNote: input.note?.trim() || null,
+        handoffAt: now,
+      };
+      return { ok: true };
+    }
+    return 'outreach_not_found';
+  }
+
+  async exportHandedOffAdminRecoveryOutreach(): Promise<{ exportedCount: number }> {
+    const now = new Date().toISOString();
+    let exportedCount = 0;
+    for (let index = 0; index < this.recoveryOutreach.length; index += 1) {
+      const event = this.recoveryOutreach[index]!;
+      if (event.audience !== 'admin' || event.status !== 'handed_off') continue;
+      this.recoveryOutreach[index] = {
+        ...event,
+        exportCount: event.exportCount + 1,
+        lastExportedAt: now,
+      };
+      exportedCount += 1;
+    }
+    return { exportedCount };
+  }
+
+  async recordDeadLetteredAdminRecoveryOutreachSlackAlert(input: {
+    workspaceIds: string[];
+    statusCode: number | null;
+    error: string | null;
+    attemptedAt?: string;
+    alertedAt?: string;
+  }): Promise<{ alertedCount: number }> {
+    const workspaceIds = new Set(input.workspaceIds);
+    const attemptedAt = input.attemptedAt ?? new Date().toISOString();
+    const alertedAt = input.alertedAt ?? attemptedAt;
+    let alertedCount = 0;
+    for (let index = 0; index < this.recoveryOutreach.length; index += 1) {
+      const event = this.recoveryOutreach[index]!;
+      if (!workspaceIds.has(event.workspaceId)) continue;
+      if (
+        event.audience !== 'admin' ||
+        event.status !== 'handed_off' ||
+        event.webhookExhaustedAt == null
+      ) {
+        continue;
+      }
+      this.recoveryOutreach[index] = input.error
+        ? {
+            ...event,
+            slackAlertCount: event.slackAlertCount + 1,
+            lastSlackAlertAttemptAt: attemptedAt,
+            lastSlackAlertStatusCode: input.statusCode,
+            lastSlackAlertError: input.error,
+          }
+        : {
+            ...event,
+            slackAlertCount: event.slackAlertCount + 1,
+            lastSlackAlertAttemptAt: attemptedAt,
+            lastSlackAlertedAt: alertedAt,
+            lastSlackAlertStatusCode: input.statusCode,
+            lastSlackAlertError: null,
+          };
+      if (!input.error) alertedCount += 1;
+    }
+    return { alertedCount };
+  }
+
+  async recordHandedOffAdminRecoveryOutreachWebhookDelivery(input: {
+    workspaceIds: string[];
+    statusCode: number | null;
+    error: string | null;
+    attemptedAt?: string;
+    deliveredAt?: string;
+    retryIntervalHours?: number;
+    maxAttempts?: number;
+  }): Promise<{ deliveredCount: number }> {
+    const workspaceIds = new Set(input.workspaceIds);
+    const attemptedAt = input.attemptedAt ?? new Date().toISOString();
+    const deliveredAt = input.deliveredAt ?? new Date().toISOString();
+    const retryIntervalHours = Math.max(
+      0,
+      input.retryIntervalHours ?? DEFAULT_RECOVERY_OUTREACH_RETRY_HOURS,
+    );
+    const maxAttempts = Math.max(
+      1,
+      input.maxAttempts ?? config.recoveryOutreach.webhookMaxAttempts,
+    );
+    let deliveredCount = 0;
+    for (let index = 0; index < this.recoveryOutreach.length; index += 1) {
+      const event = this.recoveryOutreach[index]!;
+      if (!workspaceIds.has(event.workspaceId)) continue;
+      if (event.audience !== 'admin' || event.status !== 'handed_off') continue;
+      const nextWebhookAttemptCount = event.webhookAttemptCount + 1;
+      const webhookExhaustedAt =
+        input.error && nextWebhookAttemptCount >= maxAttempts ? attemptedAt : null;
+      this.recoveryOutreach[index] = input.error
+        ? {
+            ...event,
+            webhookAttemptCount: nextWebhookAttemptCount,
+            lastWebhookAttemptAt: attemptedAt,
+            nextWebhookAttemptAt: webhookExhaustedAt
+              ? null
+              : nextRecoveryOutreachAttemptAt(attemptedAt, retryIntervalHours),
+            webhookExhaustedAt,
+            lastWebhookStatusCode: input.statusCode,
+            lastWebhookError: input.error,
+          }
+        : {
+            ...event,
+            webhookAttemptCount: nextWebhookAttemptCount,
+            lastWebhookAttemptAt: attemptedAt,
+            nextWebhookAttemptAt: null,
+            webhookExhaustedAt: null,
+            webhookDeliveryCount: event.webhookDeliveryCount + 1,
+            lastWebhookDeliveredAt: deliveredAt,
+            lastWebhookStatusCode: input.statusCode,
+            lastWebhookError: null,
+            slackAlertCount: 0,
+            lastSlackAlertAttemptAt: null,
+            lastSlackAlertedAt: null,
+            lastSlackAlertStatusCode: null,
+            lastSlackAlertError: null,
+          };
+      if (!input.error) deliveredCount += 1;
+    }
+    return { deliveredCount };
   }
 
   async createWorkspace(
@@ -1285,6 +1841,147 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
       .map(({ workspaceId: _workspaceId, workspaceName: _workspaceName, ...event }) => event);
   }
 
+  private getRecentRecoveryOutreach(
+    workspaceId: string,
+    audience?: TeamWorkspaceRecoveryOutreachAudience,
+  ): TeamWorkspaceRecoveryOutreach[] {
+    return this.recoveryOutreach
+      .filter(
+        (event) =>
+          event.workspaceId === workspaceId && (audience == null || event.audience === audience),
+      )
+      .slice(0, 6)
+      .map(({ workspaceId: _workspaceId, workspaceName: _workspaceName, ...event }) => event);
+  }
+
+  private ensurePendingRecoveryOutreach(
+    workspaceId: string,
+    workspaceName: string,
+    descriptor: WorkspaceRecoveryOutreachDescriptor | null,
+    retryIntervalHours: number,
+  ): number {
+    if (!descriptor) return 0;
+    const exists = this.recoveryOutreach.some(
+      (event) =>
+        event.workspaceId === workspaceId &&
+        event.audience === descriptor.audience &&
+        (event.status === 'pending' ||
+          (event.status === 'handed_off' &&
+            event.nextAttemptAt != null &&
+            new Date(event.nextAttemptAt).getTime() > Date.now())),
+    );
+    if (exists) return 0;
+    this.recoveryOutreach.unshift({
+      id: randomUUID(),
+      workspaceId,
+      workspaceName,
+      audience: descriptor.audience,
+      channel: descriptor.channel,
+      status: 'pending',
+      title: descriptor.title,
+      detail: descriptor.detail,
+      actionCode: descriptor.actionCode,
+      attemptCount: 1,
+      createdAt: new Date().toISOString(),
+      lastAttemptAt: new Date().toISOString(),
+      nextAttemptAt: nextRecoveryOutreachAttemptAt(new Date().toISOString(), retryIntervalHours),
+      exportCount: 0,
+      lastExportedAt: null,
+      webhookAttemptCount: 0,
+      lastWebhookAttemptAt: null,
+      nextWebhookAttemptAt: new Date().toISOString(),
+      webhookExhaustedAt: null,
+      webhookDeliveryCount: 0,
+      lastWebhookDeliveredAt: null,
+      lastWebhookStatusCode: null,
+      lastWebhookError: null,
+      slackAlertCount: 0,
+      lastSlackAlertAttemptAt: null,
+      lastSlackAlertedAt: null,
+      lastSlackAlertStatusCode: null,
+      lastSlackAlertError: null,
+      handoffChannel: null,
+      handoffNote: null,
+      handoffAt: null,
+      resolvedAt: null,
+    });
+    if (this.recoveryOutreach.length > 64) {
+      this.recoveryOutreach.length = 64;
+    }
+    return 1;
+  }
+
+  private retryPendingRecoveryOutreach(
+    workspaceId: string,
+    descriptor: WorkspaceRecoveryOutreachDescriptor | null,
+    retryIntervalHours: number,
+  ): number {
+    if (!descriptor) return 0;
+    const now = new Date().toISOString();
+    for (let index = 0; index < this.recoveryOutreach.length; index += 1) {
+      const event = this.recoveryOutreach[index]!;
+      if (event.workspaceId !== workspaceId || event.audience !== descriptor.audience) continue;
+      if (event.status !== 'pending') return 0;
+      const dueAt = nextRecoveryOutreachAttemptAt(event.lastAttemptAt, retryIntervalHours);
+      if (new Date(dueAt).getTime() > Date.now()) return 0;
+      this.recoveryOutreach[index] = {
+        ...event,
+        channel: descriptor.channel,
+        status: 'pending',
+        title: descriptor.title,
+        detail: descriptor.detail,
+        actionCode: descriptor.actionCode,
+        attemptCount: event.attemptCount + 1,
+        lastAttemptAt: now,
+        nextAttemptAt: nextRecoveryOutreachAttemptAt(now, retryIntervalHours),
+        exportCount: 0,
+        lastExportedAt: null,
+        webhookAttemptCount: 0,
+        lastWebhookAttemptAt: null,
+        nextWebhookAttemptAt: now,
+        webhookExhaustedAt: null,
+        webhookDeliveryCount: 0,
+        lastWebhookDeliveredAt: null,
+        lastWebhookStatusCode: null,
+        lastWebhookError: null,
+        slackAlertCount: 0,
+        lastSlackAlertAttemptAt: null,
+        lastSlackAlertedAt: null,
+        lastSlackAlertStatusCode: null,
+        lastSlackAlertError: null,
+        handoffChannel: null,
+        handoffNote: null,
+        handoffAt: null,
+      };
+      return 1;
+    }
+    return 0;
+  }
+
+  private resolvePendingRecoveryOutreach(
+    workspaceId: string,
+    audience?: TeamWorkspaceRecoveryOutreachAudience,
+  ): number {
+    let resolved = 0;
+    const resolvedAt = new Date().toISOString();
+    for (let index = 0; index < this.recoveryOutreach.length; index += 1) {
+      const event = this.recoveryOutreach[index]!;
+      if (event.workspaceId !== workspaceId || event.status === 'resolved') continue;
+      if (audience != null && event.audience !== audience) continue;
+      this.recoveryOutreach[index] = {
+        ...event,
+        status: 'resolved',
+        nextAttemptAt: null,
+        nextWebhookAttemptAt: null,
+        webhookExhaustedAt: null,
+        lastSlackAlertError: null,
+        resolvedAt,
+      };
+      resolved += 1;
+    }
+    return resolved;
+  }
+
   private recordBillingEvents(
     workspaceId: string,
     workspaceName: string,
@@ -1509,6 +2206,8 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
     const compensation = this.getCompensationSummary(workspace.id);
 
     const recentBillingEvents = this.getRecentBillingEvents(workspace.id);
+    const recentRecoveryOutreach =
+      membership.role === 'owner' ? this.getRecentRecoveryOutreach(workspace.id, 'owner') : [];
 
     return {
       id: workspace.id,
@@ -1528,6 +2227,7 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
         recentBillingEvents,
       }),
       recentBillingEvents,
+      recentRecoveryOutreach,
       members,
       invites,
       sharedSavedViews,
@@ -1537,7 +2237,10 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
 }
 
 export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
-  constructor(private readonly pool: Pool) {}
+  constructor(
+    private readonly pool: Pool,
+    private readonly billingFunnelRepo: BillingFunnelRepository,
+  ) {}
 
   async resolveEffectiveUserProfile(user: UserProfile): Promise<UserProfile> {
     return applyWorkspaceAccess(user, await this.buildWorkspaceAccessForUser(user));
@@ -1595,6 +2298,147 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
       workspaceCount: rows.length,
       revokedInviteCount,
       restoredInviteCount,
+    };
+  }
+
+  async runRecoveryOutreachAutomation(options?: { retryIntervalHours?: number }): Promise<{
+    workspaceCount: number;
+    ownerOutreachCreated: number;
+    adminOutreachCreated: number;
+    retriedOutreachCount: number;
+    resolvedOutreachCount: number;
+  }> {
+    const retryIntervalHours = Math.max(
+      0,
+      options?.retryIntervalHours ?? DEFAULT_RECOVERY_OUTREACH_RETRY_HOURS,
+    );
+    await this.reconcileAllWorkspaces();
+    const { rows } = await this.pool.query<PgWorkspaceAdminRow>(
+      `WITH member_counts AS (
+         SELECT workspace_id, COUNT(*)::int AS member_count
+         FROM team_workspace_members
+         GROUP BY workspace_id
+       ),
+       invite_counts AS (
+         SELECT workspace_id, COUNT(*)::int AS pending_invite_count
+         FROM team_workspace_invites
+         WHERE status = 'pending'
+         GROUP BY workspace_id
+       ),
+       compensation_counts AS (
+         SELECT workspace_id, COUNT(*)::int AS revoked_invite_count
+         FROM team_workspace_invites
+         WHERE status = 'revoked'
+           AND revoked_reason IN ('billing_inactive', 'seat_limit_reduced')
+         GROUP BY workspace_id
+       )
+       SELECT
+         w.id AS workspace_id,
+         w.name AS workspace_name,
+         owner.id AS owner_user_id,
+         owner.email AS owner_email,
+         owner.display_name AS owner_display_name,
+         owner.subscription,
+         owner.billing_status,
+         owner.cancel_at_period_end,
+         COALESCE(m.member_count, 0)::text AS member_count,
+         COALESCE(i.pending_invite_count, 0)::text AS pending_invite_count,
+         COALESCE(c.revoked_invite_count, 0)::text AS revoked_invite_count
+       FROM team_workspaces w
+       JOIN users owner ON owner.id = w.owner_user_id
+       LEFT JOIN member_counts m ON m.workspace_id = w.id
+       LEFT JOIN invite_counts i ON i.workspace_id = w.id
+       LEFT JOIN compensation_counts c ON c.workspace_id = w.id`,
+    );
+    const latestCommercialTouches = await this.billingFunnelRepo.getLatestEventsByUserIds(
+      rows.map((row) => row.owner_user_id),
+    );
+    const latestCommercialTouchByOwnerId = new Map(
+      latestCommercialTouches.map((touch) => [touch.userId, touch]),
+    );
+    let ownerOutreachCreated = 0;
+    let adminOutreachCreated = 0;
+    let retriedOutreachCount = 0;
+    let resolvedOutreachCount = 0;
+
+    for (const row of rows) {
+      const recentBillingEvents = (await this.getRecentBillingEvents(row.workspace_id)).map(
+        ({ workspaceId: _workspaceId, workspaceName: _workspaceName, ...event }) => event,
+      );
+      const workspaceSeatsUsed = Number(row.member_count);
+      const workspacePendingInvites = Number(row.pending_invite_count);
+      const billing = buildWorkspaceBilling({
+        owner: {
+          id: row.owner_user_id,
+          email: row.owner_email,
+          displayName: row.owner_display_name,
+          subscription: row.subscription,
+          billingStatus: row.billing_status,
+          currentPeriodEnd: null,
+          cancelAtPeriodEnd: row.cancel_at_period_end,
+        },
+        seatsUsed: workspaceSeatsUsed,
+        pendingInviteCount: workspacePendingInvites,
+        compensation: {
+          revokedInviteCount: Number(row.revoked_invite_count),
+        },
+        viewerRole: 'owner',
+        recentBillingEvents,
+      });
+      const descriptors = buildRecoveryOutreachDescriptors({
+        workspaceName: row.workspace_name,
+        billing,
+      });
+      const ownerDescriptor = descriptors.find((item) => item.audience === 'owner') ?? null;
+      const adminDescriptor = descriptors.find((item) => item.audience === 'admin') ?? null;
+      const ownerTouch = latestCommercialTouchByOwnerId.get(row.owner_user_id);
+      if (hasOwnerRecoveryEngagement(ownerTouch)) {
+        resolvedOutreachCount += await this.resolvePendingRecoveryOutreach(
+          row.workspace_id,
+          'owner',
+        );
+      } else {
+        ownerOutreachCreated += await this.ensurePendingRecoveryOutreach(
+          row.workspace_id,
+          ownerDescriptor,
+          retryIntervalHours,
+        );
+        retriedOutreachCount += await this.retryPendingRecoveryOutreach(
+          row.workspace_id,
+          ownerDescriptor,
+          retryIntervalHours,
+        );
+      }
+      adminOutreachCreated += await this.ensurePendingRecoveryOutreach(
+        row.workspace_id,
+        adminDescriptor,
+        retryIntervalHours,
+      );
+      retriedOutreachCount += await this.retryPendingRecoveryOutreach(
+        row.workspace_id,
+        adminDescriptor,
+        retryIntervalHours,
+      );
+      if (!ownerDescriptor) {
+        resolvedOutreachCount += await this.resolvePendingRecoveryOutreach(
+          row.workspace_id,
+          'owner',
+        );
+      }
+      if (!adminDescriptor) {
+        resolvedOutreachCount += await this.resolvePendingRecoveryOutreach(
+          row.workspace_id,
+          'admin',
+        );
+      }
+    }
+
+    return {
+      workspaceCount: rows.length,
+      ownerOutreachCreated,
+      adminOutreachCreated,
+      retriedOutreachCount,
+      resolvedOutreachCount,
     };
   }
 
@@ -1660,6 +2504,93 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
     const latestBillingEventsByWorkspaceId = new Map(
       latestBillingEventsRes.rows.map((row) => [row.workspace_id, rowToBillingEvent(row)]),
     );
+    const latestRecoveryOutreachByWorkspaceId = await this.getLatestRecoveryOutreachByWorkspaceIds(
+      rows.map((row) => row.workspace_id),
+    );
+    const recoveryOutreachRecent = await this.getRecentRecoveryOutreach();
+    const recoveryOutreachCountsRes = await this.pool.query<{
+      audience: TeamWorkspaceRecoveryOutreachAudience;
+      status: TeamWorkspaceRecoveryOutreachStatus;
+      attempt_bucket: 'single' | 'multi';
+      export_bucket: 'pending_export' | 'exported_or_na';
+      webhook_bucket:
+        | 'pending_webhook'
+        | 'retrying_webhook'
+        | 'dead_lettered_webhook'
+        | 'delivered_webhook'
+        | 'failed_webhook'
+        | 'webhook_na';
+      slack_bucket: 'pending_slack_alert' | 'alerted_slack' | 'failed_slack_alert' | 'slack_na';
+      count: string;
+    }>(
+      `SELECT
+         audience,
+         status,
+         CASE WHEN attempt_count > 1 THEN 'multi' ELSE 'single' END AS attempt_bucket,
+         CASE
+           WHEN status = 'handed_off' AND export_count = 0 THEN 'pending_export'
+           ELSE 'exported_or_na'
+         END AS export_bucket,
+         CASE
+           WHEN status = 'handed_off' AND webhook_delivery_count > 0 THEN 'delivered_webhook'
+           WHEN status = 'handed_off' AND webhook_exhausted_at IS NOT NULL THEN 'dead_lettered_webhook'
+           WHEN status = 'handed_off'
+             AND last_webhook_error IS NOT NULL
+             AND next_webhook_attempt_at IS NOT NULL THEN 'retrying_webhook'
+           WHEN status = 'handed_off' AND last_webhook_error IS NOT NULL THEN 'failed_webhook'
+           WHEN status = 'handed_off' THEN 'pending_webhook'
+           ELSE 'webhook_na'
+         END AS webhook_bucket,
+         CASE
+           WHEN status = 'handed_off'
+             AND webhook_exhausted_at IS NOT NULL
+             AND last_slack_alerted_at IS NOT NULL THEN 'alerted_slack'
+           WHEN status = 'handed_off'
+             AND webhook_exhausted_at IS NOT NULL
+             AND last_slack_alert_error IS NOT NULL THEN 'failed_slack_alert'
+           WHEN status = 'handed_off'
+             AND webhook_exhausted_at IS NOT NULL THEN 'pending_slack_alert'
+           ELSE 'slack_na'
+         END AS slack_bucket,
+         COUNT(*)::text AS count
+       FROM team_workspace_recovery_outreach_events
+       GROUP BY audience, status, attempt_bucket, export_bucket, webhook_bucket, slack_bucket`,
+    );
+    let pendingOwnerOutreach = 0;
+    let pendingAdminOutreach = 0;
+    let multiTouchPending = 0;
+    let pendingExport = 0;
+    let pendingWebhook = 0;
+    let retryingWebhook = 0;
+    let deadLetteredWebhook = 0;
+    let pendingSlackAlert = 0;
+    let alertedSlack = 0;
+    let failedSlackAlert = 0;
+    let deliveredWebhook = 0;
+    let failedWebhook = 0;
+    let handedOffOutreach = 0;
+    let resolvedOutreach = 0;
+    for (const row of recoveryOutreachCountsRes.rows) {
+      const count = Number(row.count);
+      if (row.status === 'pending') {
+        if (row.attempt_bucket === 'multi') multiTouchPending += count;
+        if (row.audience === 'owner') pendingOwnerOutreach += count;
+        else pendingAdminOutreach += count;
+      } else if (row.status === 'handed_off') {
+        if (row.export_bucket === 'pending_export') pendingExport += count;
+        if (row.webhook_bucket === 'pending_webhook') pendingWebhook += count;
+        else if (row.webhook_bucket === 'retrying_webhook') retryingWebhook += count;
+        else if (row.webhook_bucket === 'dead_lettered_webhook') deadLetteredWebhook += count;
+        else if (row.webhook_bucket === 'delivered_webhook') deliveredWebhook += count;
+        else if (row.webhook_bucket === 'failed_webhook') failedWebhook += count;
+        if (row.slack_bucket === 'pending_slack_alert') pendingSlackAlert += count;
+        else if (row.slack_bucket === 'alerted_slack') alertedSlack += count;
+        else if (row.slack_bucket === 'failed_slack_alert') failedSlackAlert += count;
+        handedOffOutreach += count;
+      } else {
+        resolvedOutreach += count;
+      }
+    }
 
     let activeWorkspaces = 0;
     let atRiskWorkspaces = 0;
@@ -1700,6 +2631,7 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
       revokedInvites += Number(row.revoked_invite_count);
       const workspaceFallbackMembers = seatLimit === 0 ? Math.max(0, workspaceSeatsUsed - 1) : 0;
       fallbackMembers += workspaceFallbackMembers;
+      const latestOutreach = latestRecoveryOutreachByWorkspaceId.get(row.workspace_id) ?? null;
       const recommendedActions = buildRecoveryActions({
         subscription: row.subscription,
         billingStatus: row.billing_status,
@@ -1746,6 +2678,7 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
             },
             pendingInvites: workspacePendingInvites,
             lastBillingEvent: latestBillingEventsByWorkspaceId.get(row.workspace_id) ?? null,
+            lastOutreach: latestOutreach,
           }),
         );
       }
@@ -1782,6 +2715,24 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
       seatUtilizationRate: totalSeatCapacity > 0 ? reservedSeats / totalSeatCapacity : null,
       recoveryActions: [...recoveryActionCounts.values()].sort((a, b) => b.count - a.count),
       recoveryStages: [],
+      followUpStates: [],
+      recoveryOutreach: {
+        pendingOwner: pendingOwnerOutreach,
+        pendingAdmin: pendingAdminOutreach,
+        multiTouchPending,
+        pendingExport,
+        pendingWebhook,
+        retryingWebhook,
+        deadLetteredWebhook,
+        pendingSlackAlert,
+        alertedSlack,
+        failedSlackAlert,
+        deliveredWebhook,
+        failedWebhook,
+        handedOff: handedOffOutreach,
+        resolved: resolvedOutreach,
+        recent: recoveryOutreachRecent,
+      },
       recentBillingEvents: await this.getRecentBillingEvents(),
       actionableWorkspaces: actionableWorkspaces.sort((a, b) => {
         const warningDelta = b.warningCodes.length - a.warningCodes.length;
@@ -1792,6 +2743,187 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
         );
       }),
     };
+  }
+
+  async handoffAdminRecoveryOutreach(input: {
+    workspaceId: string;
+    channel: TeamWorkspaceRecoveryOutreachHandoffChannel;
+    snoozeHours: number;
+    note?: string | null;
+  }): Promise<'workspace_not_found' | 'outreach_not_found' | { ok: true }> {
+    const { rowCount: workspaceCount } = await this.pool.query(
+      `SELECT 1
+       FROM team_workspaces
+       WHERE id = $1
+       LIMIT 1`,
+      [input.workspaceId],
+    );
+    if ((workspaceCount ?? 0) === 0) return 'workspace_not_found';
+
+    const { rowCount } = await this.pool.query(
+      `UPDATE team_workspace_recovery_outreach_events
+       SET status = 'handed_off',
+           last_attempt_at = NOW(),
+           next_attempt_at = NOW() + ($2 * INTERVAL '1 hour'),
+           export_count = 0,
+           last_exported_at = NULL,
+           webhook_attempt_count = 0,
+           last_webhook_attempt_at = NULL,
+           next_webhook_attempt_at = NOW(),
+           webhook_exhausted_at = NULL,
+           webhook_delivery_count = 0,
+           last_webhook_delivered_at = NULL,
+           last_webhook_status_code = NULL,
+           last_webhook_error = NULL,
+           slack_alert_count = 0,
+           last_slack_alert_attempt_at = NULL,
+           last_slack_alerted_at = NULL,
+           last_slack_alert_status_code = NULL,
+           last_slack_alert_error = NULL,
+           handoff_channel = $3,
+           handoff_note = $4,
+           handoff_at = NOW()
+       WHERE id = (
+         SELECT id
+         FROM team_workspace_recovery_outreach_events
+         WHERE workspace_id = $1
+           AND audience = 'admin'
+           AND status <> 'resolved'
+         ORDER BY created_at DESC
+         LIMIT 1
+       )`,
+      [input.workspaceId, input.snoozeHours, input.channel, input.note?.trim() || null],
+    );
+    if ((rowCount ?? 0) === 0) return 'outreach_not_found';
+    return { ok: true };
+  }
+
+  async exportHandedOffAdminRecoveryOutreach(): Promise<{ exportedCount: number }> {
+    const { rowCount } = await this.pool.query(
+      `UPDATE team_workspace_recovery_outreach_events
+       SET export_count = export_count + 1,
+           last_exported_at = NOW()
+       WHERE audience = 'admin'
+         AND status = 'handed_off'`,
+    );
+    return { exportedCount: rowCount ?? 0 };
+  }
+
+  async recordDeadLetteredAdminRecoveryOutreachSlackAlert(input: {
+    workspaceIds: string[];
+    statusCode: number | null;
+    error: string | null;
+    attemptedAt?: string;
+    alertedAt?: string;
+  }): Promise<{ alertedCount: number }> {
+    if (input.workspaceIds.length === 0) return { alertedCount: 0 };
+    const attemptedAt = input.attemptedAt ?? new Date().toISOString();
+    const alertedAt = input.alertedAt ?? attemptedAt;
+    const { rowCount } = await this.pool.query(
+      input.error
+        ? `UPDATE team_workspace_recovery_outreach_events
+           SET slack_alert_count = slack_alert_count + 1,
+               last_slack_alert_attempt_at = $2,
+               last_slack_alert_status_code = $3,
+               last_slack_alert_error = $4
+           WHERE workspace_id = ANY($1::uuid[])
+             AND audience = 'admin'
+             AND status = 'handed_off'
+             AND webhook_exhausted_at IS NOT NULL`
+        : `UPDATE team_workspace_recovery_outreach_events
+           SET slack_alert_count = slack_alert_count + 1,
+               last_slack_alert_attempt_at = $2,
+               last_slack_alerted_at = $3,
+               last_slack_alert_status_code = $4,
+               last_slack_alert_error = NULL
+           WHERE workspace_id = ANY($1::uuid[])
+             AND audience = 'admin'
+             AND status = 'handed_off'
+             AND webhook_exhausted_at IS NOT NULL`,
+      input.error
+        ? [input.workspaceIds, attemptedAt, input.statusCode, input.error]
+        : [input.workspaceIds, attemptedAt, alertedAt, input.statusCode],
+    );
+    return { alertedCount: input.error ? 0 : (rowCount ?? 0) };
+  }
+
+  async recordHandedOffAdminRecoveryOutreachWebhookDelivery(input: {
+    workspaceIds: string[];
+    statusCode: number | null;
+    error: string | null;
+    attemptedAt?: string;
+    deliveredAt?: string;
+    retryIntervalHours?: number;
+    maxAttempts?: number;
+  }): Promise<{ deliveredCount: number }> {
+    if (input.workspaceIds.length === 0) return { deliveredCount: 0 };
+    const attemptedAt = input.attemptedAt ?? new Date().toISOString();
+    const deliveredAt = input.deliveredAt ?? new Date().toISOString();
+    const retryIntervalHours = Math.max(
+      0,
+      input.retryIntervalHours ?? DEFAULT_RECOVERY_OUTREACH_RETRY_HOURS,
+    );
+    const maxAttempts = Math.max(
+      1,
+      input.maxAttempts ?? config.recoveryOutreach.webhookMaxAttempts,
+    );
+    const { rowCount } = await this.pool.query(
+      input.error
+        ? `UPDATE team_workspace_recovery_outreach_events
+           SET webhook_attempt_count = webhook_attempt_count + 1,
+               last_webhook_attempt_at = $2,
+               next_webhook_attempt_at = CASE
+                 WHEN webhook_attempt_count + 1 >= $6 THEN NULL
+                 ELSE $3
+               END,
+               webhook_exhausted_at = CASE
+                 WHEN webhook_attempt_count + 1 >= $6 THEN $2
+                 ELSE NULL
+               END,
+               last_webhook_status_code = $4,
+               last_webhook_error = $5
+           WHERE id IN (
+             SELECT DISTINCT ON (workspace_id) id
+             FROM team_workspace_recovery_outreach_events
+             WHERE workspace_id = ANY($1::uuid[])
+               AND audience = 'admin'
+               AND status = 'handed_off'
+             ORDER BY workspace_id, created_at DESC
+           )`
+        : `UPDATE team_workspace_recovery_outreach_events
+           SET webhook_attempt_count = webhook_attempt_count + 1,
+               last_webhook_attempt_at = $2,
+               next_webhook_attempt_at = NULL,
+               webhook_exhausted_at = NULL,
+               webhook_delivery_count = webhook_delivery_count + 1,
+               last_webhook_delivered_at = $3,
+               last_webhook_status_code = $4,
+               last_webhook_error = NULL,
+               slack_alert_count = 0,
+               last_slack_alert_attempt_at = NULL,
+               last_slack_alerted_at = NULL,
+               last_slack_alert_status_code = NULL,
+               last_slack_alert_error = NULL
+           WHERE id IN (
+             SELECT DISTINCT ON (workspace_id) id
+             FROM team_workspace_recovery_outreach_events
+             WHERE workspace_id = ANY($1::uuid[])
+               AND audience = 'admin'
+               AND status = 'handed_off'
+             ORDER BY workspace_id, created_at DESC
+           )`,
+      input.error
+        ? [
+            input.workspaceIds,
+            attemptedAt,
+            nextRecoveryOutreachAttemptAt(attemptedAt, retryIntervalHours),
+            input.statusCode,
+            input.error,
+            maxAttempts,
+          ]
+        : [input.workspaceIds, attemptedAt, deliveredAt, input.statusCode],
+    );
+    return { deliveredCount: input.error ? 0 : (rowCount ?? 0) };
   }
 
   async createWorkspace(
@@ -2273,6 +3405,253 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
     }
   }
 
+  private async getRecentRecoveryOutreach(
+    workspaceId?: string,
+    audience?: TeamWorkspaceRecoveryOutreachAudience,
+  ): Promise<AdminRecoveryOutreach[]> {
+    const clauses: string[] = [];
+    const values: Array<string> = [];
+    if (workspaceId) {
+      values.push(workspaceId);
+      clauses.push(`o.workspace_id = $${values.length}`);
+    }
+    if (audience) {
+      values.push(audience);
+      clauses.push(`o.audience = $${values.length}`);
+    }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    const limit = workspaceId ? 6 : 8;
+    const { rows } = await this.pool.query<PgWorkspaceRecoveryOutreachRow>(
+      `SELECT
+         o.id,
+         o.workspace_id,
+         w.name AS workspace_name,
+         o.audience,
+         o.channel,
+         o.status,
+         o.title,
+         o.detail,
+         o.action_code,
+         o.attempt_count,
+         o.created_at,
+         o.last_attempt_at,
+         o.next_attempt_at,
+         o.export_count,
+         o.last_exported_at,
+         o.webhook_attempt_count,
+         o.last_webhook_attempt_at,
+         o.next_webhook_attempt_at,
+         o.webhook_exhausted_at,
+         o.webhook_delivery_count,
+         o.last_webhook_delivered_at,
+         o.last_webhook_status_code,
+         o.last_webhook_error,
+         o.slack_alert_count,
+         o.last_slack_alert_attempt_at,
+         o.last_slack_alerted_at,
+         o.last_slack_alert_status_code,
+         o.last_slack_alert_error,
+         o.handoff_channel,
+         o.handoff_note,
+         o.handoff_at,
+         o.resolved_at
+       FROM team_workspace_recovery_outreach_events o
+       JOIN team_workspaces w ON w.id = o.workspace_id
+       ${where}
+       ORDER BY o.created_at DESC
+       LIMIT ${limit}`,
+      values,
+    );
+    return rows.map(rowToRecoveryOutreach);
+  }
+
+  private async getLatestRecoveryOutreachByWorkspaceIds(
+    workspaceIds: string[],
+  ): Promise<Map<string, AdminRecoveryOutreach>> {
+    if (workspaceIds.length === 0) return new Map();
+    const { rows } = await this.pool.query<PgWorkspaceRecoveryOutreachRow>(
+      `SELECT DISTINCT ON (o.workspace_id)
+         o.id,
+         o.workspace_id,
+         w.name AS workspace_name,
+         o.audience,
+         o.channel,
+         o.status,
+         o.title,
+         o.detail,
+         o.action_code,
+         o.attempt_count,
+         o.created_at,
+         o.last_attempt_at,
+         o.next_attempt_at,
+         o.export_count,
+         o.last_exported_at,
+         o.webhook_attempt_count,
+         o.last_webhook_attempt_at,
+         o.next_webhook_attempt_at,
+         o.webhook_exhausted_at,
+         o.webhook_delivery_count,
+         o.last_webhook_delivered_at,
+         o.last_webhook_status_code,
+         o.last_webhook_error,
+         o.slack_alert_count,
+         o.last_slack_alert_attempt_at,
+         o.last_slack_alerted_at,
+         o.last_slack_alert_status_code,
+         o.last_slack_alert_error,
+         o.handoff_channel,
+         o.handoff_note,
+         o.handoff_at,
+         o.resolved_at
+       FROM team_workspace_recovery_outreach_events o
+       JOIN team_workspaces w ON w.id = o.workspace_id
+       WHERE o.workspace_id = ANY($1::uuid[])
+       ORDER BY o.workspace_id, o.created_at DESC`,
+      [workspaceIds],
+    );
+    return new Map(rows.map((row) => [row.workspace_id, rowToRecoveryOutreach(row)]));
+  }
+
+  private async ensurePendingRecoveryOutreach(
+    workspaceId: string,
+    descriptor: WorkspaceRecoveryOutreachDescriptor | null,
+    retryIntervalHours: number,
+  ): Promise<number> {
+    if (!descriptor) return 0;
+    const { rowCount } = await this.pool.query(
+      `INSERT INTO team_workspace_recovery_outreach_events (
+         workspace_id,
+         audience,
+         channel,
+         status,
+         title,
+         detail,
+         action_code,
+         attempt_count,
+         last_attempt_at,
+         next_attempt_at,
+         export_count,
+         last_exported_at,
+         webhook_attempt_count,
+         last_webhook_attempt_at,
+         next_webhook_attempt_at,
+         webhook_exhausted_at,
+         webhook_delivery_count,
+         last_webhook_delivered_at,
+         last_webhook_status_code,
+         last_webhook_error,
+         slack_alert_count,
+         last_slack_alert_attempt_at,
+         last_slack_alerted_at,
+         last_slack_alert_status_code,
+         last_slack_alert_error
+       )
+       SELECT
+         $1, $2, $3, 'pending', $4, $5, $6, 1, NOW(), NOW() + ($7 * INTERVAL '1 hour'), 0, NULL, 0, NULL, NOW(), NULL, 0, NULL, NULL, NULL, 0, NULL, NULL, NULL, NULL
+       WHERE NOT EXISTS (
+         SELECT 1
+         FROM team_workspace_recovery_outreach_events
+         WHERE workspace_id = $1
+           AND audience = $2
+           AND (
+             status = 'pending'
+             OR (
+               status = 'handed_off'
+               AND next_attempt_at IS NOT NULL
+               AND next_attempt_at > NOW()
+             )
+           )
+       )`,
+      [
+        workspaceId,
+        descriptor.audience,
+        descriptor.channel,
+        descriptor.title,
+        descriptor.detail,
+        descriptor.actionCode,
+        retryIntervalHours,
+      ],
+    );
+    return rowCount ?? 0;
+  }
+
+  private async retryPendingRecoveryOutreach(
+    workspaceId: string,
+    descriptor: WorkspaceRecoveryOutreachDescriptor | null,
+    retryIntervalHours: number,
+  ): Promise<number> {
+    if (!descriptor) return 0;
+    const { rowCount } = await this.pool.query(
+      `UPDATE team_workspace_recovery_outreach_events
+       SET channel = $3,
+           status = 'pending',
+           title = $4,
+           detail = $5,
+           action_code = $6,
+           attempt_count = attempt_count + 1,
+           last_attempt_at = NOW(),
+           next_attempt_at = NOW() + ($7 * INTERVAL '1 hour'),
+           export_count = 0,
+           last_exported_at = NULL,
+           webhook_attempt_count = 0,
+           last_webhook_attempt_at = NULL,
+           next_webhook_attempt_at = NOW(),
+           webhook_exhausted_at = NULL,
+           webhook_delivery_count = 0,
+           last_webhook_delivered_at = NULL,
+           last_webhook_status_code = NULL,
+           last_webhook_error = NULL,
+           slack_alert_count = 0,
+           last_slack_alert_attempt_at = NULL,
+           last_slack_alerted_at = NULL,
+           last_slack_alert_status_code = NULL,
+           last_slack_alert_error = NULL,
+           handoff_channel = NULL,
+           handoff_note = NULL,
+           handoff_at = NULL
+       WHERE workspace_id = $1
+         AND audience = $2
+         AND status = 'pending'
+         AND (last_attempt_at + ($7 * INTERVAL '1 hour')) <= NOW()`,
+      [
+        workspaceId,
+        descriptor.audience,
+        descriptor.channel,
+        descriptor.title,
+        descriptor.detail,
+        descriptor.actionCode,
+        retryIntervalHours,
+      ],
+    );
+    return rowCount ?? 0;
+  }
+
+  private async resolvePendingRecoveryOutreach(
+    workspaceId: string,
+    audience?: TeamWorkspaceRecoveryOutreachAudience,
+  ): Promise<number> {
+    const values: Array<string> = [workspaceId];
+    let audienceClause = '';
+    if (audience) {
+      values.push(audience);
+      audienceClause = `AND audience = $${values.length}`;
+    }
+    const { rowCount } = await this.pool.query(
+      `UPDATE team_workspace_recovery_outreach_events
+       SET status = 'resolved',
+           next_attempt_at = NULL,
+           next_webhook_attempt_at = NULL,
+           webhook_exhausted_at = NULL,
+           last_slack_alert_error = NULL,
+           resolved_at = NOW()
+       WHERE workspace_id = $1
+         ${audienceClause}
+         AND status <> 'resolved'`,
+      values,
+    );
+    return rowCount ?? 0;
+  }
+
   private async reconcileAllWorkspaces(): Promise<void> {
     await this.reconcileAllBilling();
   }
@@ -2509,6 +3888,7 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
       ownerRows,
       compensation,
       recentBillingEvents,
+      recentRecoveryOutreach,
     ] = await Promise.all([
       this.pool.query<PgWorkspaceMemberRow>(
         `SELECT
@@ -2617,6 +3997,7 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
       ),
       this.getCompensationSummary(workspaceId),
       this.getRecentBillingEvents(workspaceId),
+      membership.role === 'owner' ? this.getRecentRecoveryOutreach(workspaceId, 'owner') : [],
     ]);
 
     const owner = ownerRows.rows[0];
@@ -2652,6 +4033,12 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
         recentBillingEvents: mappedRecentBillingEvents,
       }),
       recentBillingEvents: mappedRecentBillingEvents,
+      recentRecoveryOutreach:
+        membership.role === 'owner'
+          ? recentRecoveryOutreach.map(
+              ({ workspaceId: _workspaceId, workspaceName: _workspaceName, ...event }) => event,
+            )
+          : [],
       members: memberRows.rows.map(rowToMember),
       invites: inviteRows.rows.map(rowToInvite),
       sharedSavedViews: sharedSavedViewRows.rows.map(rowToSharedSavedView),

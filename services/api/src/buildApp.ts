@@ -138,8 +138,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
     watchlistsRepo = new PgWatchlistsRepository(pgPool);
     savedViewsRepo = new PgSavedViewsRepository(pgPool);
     reportSharesRepo = new PgReportSharesRepository(pgPool);
-    teamWorkspacesRepo = new PgTeamWorkspacesRepository(pgPool);
     billingFunnelRepo = new PgBillingFunnelRepository(pgPool);
+    teamWorkspacesRepo = new PgTeamWorkspacesRepository(pgPool, billingFunnelRepo);
     ingestionJobsRepo = new PgIngestionJobsRepository(
       pgPool,
       casesRepo,
@@ -165,8 +165,13 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
     watchlistsRepo = new MockWatchlistsRepository(casesRepo);
     savedViewsRepo = new MockSavedViewsRepository();
     reportSharesRepo = new MockReportSharesRepository();
-    teamWorkspacesRepo = new MockTeamWorkspacesRepository(usersRepo, savedViewsRepo, casesRepo);
     billingFunnelRepo = new MockBillingFunnelRepository();
+    teamWorkspacesRepo = new MockTeamWorkspacesRepository(
+      usersRepo,
+      savedViewsRepo,
+      casesRepo,
+      billingFunnelRepo,
+    );
     ingestionJobsRepo = new MockIngestionJobsRepository(
       casesRepo,
       adminWriteRepo,

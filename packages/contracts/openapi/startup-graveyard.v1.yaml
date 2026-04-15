@@ -817,9 +817,24 @@ components:
           invites_restored,
           team_access_restored,
         ]
+    TeamWorkspaceRecoveryOutreachAudience:
+      type: string
+      enum: [owner, admin]
+    TeamWorkspaceRecoveryOutreachChannel:
+      type: string
+      enum: [owner_banner, admin_queue]
+    TeamWorkspaceRecoveryOutreachStatus:
+      type: string
+      enum: [pending, handed_off, resolved]
+    TeamWorkspaceRecoveryOutreachHandoffChannel:
+      type: string
+      enum: [crm, manual_follow_up]
     TeamWorkspaceRecoveryStage:
       type: string
       enum: [needs_outreach, owner_engaged, recovered_followup]
+    TeamWorkspaceFollowUpState:
+      type: string
+      enum: [needs_initial_touch, awaiting_owner, overdue, owner_engaged, recovered_followup]
     TeamWorkspaceBillingEventType:
       type: string
       enum:
@@ -904,6 +919,81 @@ components:
           allOf:
             - $ref: '#/components/schemas/TeamWorkspaceBillingRecoveryActionCode'
           nullable: true
+    TeamWorkspaceRecoveryOutreach:
+      type: object
+      required:
+        [
+          id,
+          audience,
+          channel,
+          status,
+          title,
+          detail,
+          actionCode,
+          attemptCount,
+          createdAt,
+          lastAttemptAt,
+          nextAttemptAt,
+          exportCount,
+          lastExportedAt,
+          webhookAttemptCount,
+          lastWebhookAttemptAt,
+          nextWebhookAttemptAt,
+          webhookExhaustedAt,
+          webhookDeliveryCount,
+          lastWebhookDeliveredAt,
+          lastWebhookStatusCode,
+          lastWebhookError,
+          slackAlertCount,
+          lastSlackAlertAttemptAt,
+          lastSlackAlertedAt,
+          lastSlackAlertStatusCode,
+          lastSlackAlertError,
+          handoffChannel,
+          handoffNote,
+          handoffAt,
+          resolvedAt,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        audience:
+          $ref: '#/components/schemas/TeamWorkspaceRecoveryOutreachAudience'
+        channel:
+          $ref: '#/components/schemas/TeamWorkspaceRecoveryOutreachChannel'
+        status:
+          $ref: '#/components/schemas/TeamWorkspaceRecoveryOutreachStatus'
+        title: { type: string }
+        detail: { type: string }
+        actionCode:
+          allOf:
+            - $ref: '#/components/schemas/TeamWorkspaceBillingRecoveryActionCode'
+          nullable: true
+        attemptCount: { type: integer, minimum: 0 }
+        createdAt: { type: string }
+        lastAttemptAt: { type: string }
+        nextAttemptAt: { type: string, nullable: true }
+        exportCount: { type: integer, minimum: 0 }
+        lastExportedAt: { type: string, nullable: true }
+        webhookAttemptCount: { type: integer, minimum: 0 }
+        lastWebhookAttemptAt: { type: string, nullable: true }
+        nextWebhookAttemptAt: { type: string, nullable: true }
+        webhookExhaustedAt: { type: string, nullable: true }
+        webhookDeliveryCount: { type: integer, minimum: 0 }
+        lastWebhookDeliveredAt: { type: string, nullable: true }
+        lastWebhookStatusCode: { type: integer, nullable: true }
+        lastWebhookError: { type: string, nullable: true }
+        slackAlertCount: { type: integer, minimum: 0 }
+        lastSlackAlertAttemptAt: { type: string, nullable: true }
+        lastSlackAlertedAt: { type: string, nullable: true }
+        lastSlackAlertStatusCode: { type: integer, nullable: true }
+        lastSlackAlertError: { type: string, nullable: true }
+        handoffChannel:
+          allOf:
+            - $ref: '#/components/schemas/TeamWorkspaceRecoveryOutreachHandoffChannel'
+          nullable: true
+        handoffNote: { type: string, nullable: true }
+        handoffAt: { type: string, nullable: true }
+        resolvedAt: { type: string, nullable: true }
     TeamWorkspaceAdminActionableWorkspace:
       type: object
       required:
@@ -929,6 +1019,33 @@ components:
           lastCommercialEventType,
           lastCommercialEventSource,
           recoveryStage,
+          followUpState,
+          nextFollowUpAt,
+          lastOutreachAt,
+          lastOutreachTitle,
+          lastOutreachAudience,
+          lastOutreachChannel,
+          lastOutreachStatus,
+          lastOutreachAttemptCount,
+          nextOutreachAttemptAt,
+          lastOutreachExportCount,
+          lastOutreachExportedAt,
+          lastOutreachWebhookAttemptCount,
+          lastOutreachWebhookAttemptAt,
+          nextOutreachWebhookAttemptAt,
+          lastOutreachWebhookExhaustedAt,
+          lastOutreachWebhookDeliveryCount,
+          lastOutreachWebhookDeliveredAt,
+          lastOutreachWebhookStatusCode,
+          lastOutreachWebhookError,
+          lastOutreachSlackAlertCount,
+          lastOutreachSlackAlertAttemptAt,
+          lastOutreachSlackAlertedAt,
+          lastOutreachSlackAlertStatusCode,
+          lastOutreachSlackAlertError,
+          lastOutreachHandoffChannel,
+          lastOutreachHandoffAt,
+          lastOutreachHandoffNote,
         ]
       properties:
         workspaceId: { type: string, format: uuid }
@@ -967,6 +1084,46 @@ components:
           nullable: true
         recoveryStage:
           $ref: '#/components/schemas/TeamWorkspaceRecoveryStage'
+        followUpState:
+          $ref: '#/components/schemas/TeamWorkspaceFollowUpState'
+        nextFollowUpAt: { type: string, nullable: true }
+        lastOutreachAt: { type: string, nullable: true }
+        lastOutreachTitle: { type: string, nullable: true }
+        lastOutreachAudience:
+          allOf:
+            - $ref: '#/components/schemas/TeamWorkspaceRecoveryOutreachAudience'
+          nullable: true
+        lastOutreachChannel:
+          allOf:
+            - $ref: '#/components/schemas/TeamWorkspaceRecoveryOutreachChannel'
+          nullable: true
+        lastOutreachStatus:
+          allOf:
+            - $ref: '#/components/schemas/TeamWorkspaceRecoveryOutreachStatus'
+          nullable: true
+        lastOutreachAttemptCount: { type: integer, minimum: 0, nullable: true }
+        nextOutreachAttemptAt: { type: string, nullable: true }
+        lastOutreachExportCount: { type: integer, minimum: 0, nullable: true }
+        lastOutreachExportedAt: { type: string, nullable: true }
+        lastOutreachWebhookAttemptCount: { type: integer, minimum: 0, nullable: true }
+        lastOutreachWebhookAttemptAt: { type: string, nullable: true }
+        nextOutreachWebhookAttemptAt: { type: string, nullable: true }
+        lastOutreachWebhookExhaustedAt: { type: string, nullable: true }
+        lastOutreachWebhookDeliveryCount: { type: integer, minimum: 0, nullable: true }
+        lastOutreachWebhookDeliveredAt: { type: string, nullable: true }
+        lastOutreachWebhookStatusCode: { type: integer, nullable: true }
+        lastOutreachWebhookError: { type: string, nullable: true }
+        lastOutreachSlackAlertCount: { type: integer, minimum: 0, nullable: true }
+        lastOutreachSlackAlertAttemptAt: { type: string, nullable: true }
+        lastOutreachSlackAlertedAt: { type: string, nullable: true }
+        lastOutreachSlackAlertStatusCode: { type: integer, nullable: true }
+        lastOutreachSlackAlertError: { type: string, nullable: true }
+        lastOutreachHandoffChannel:
+          allOf:
+            - $ref: '#/components/schemas/TeamWorkspaceRecoveryOutreachHandoffChannel'
+          nullable: true
+        lastOutreachHandoffAt: { type: string, nullable: true }
+        lastOutreachHandoffNote: { type: string, nullable: true }
     TeamWorkspaceBilling:
       type: object
       required:
@@ -1053,6 +1210,7 @@ components:
           createdAt,
           billing,
           recentBillingEvents,
+          recentRecoveryOutreach,
           members,
           invites,
           sharedSavedViews,
@@ -1074,6 +1232,10 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/TeamWorkspaceBillingEvent'
+        recentRecoveryOutreach:
+          type: array
+          items:
+            $ref: '#/components/schemas/TeamWorkspaceRecoveryOutreach'
         members:
           type: array
           items:
@@ -1497,6 +1659,8 @@ components:
           seatUtilizationRate,
           recoveryActions,
           recoveryStages,
+          followUpStates,
+          recoveryOutreach,
           recentBillingEvents,
           actionableWorkspaces,
         ]
@@ -1534,6 +1698,61 @@ components:
                 $ref: '#/components/schemas/TeamWorkspaceRecoveryStage'
               title: { type: string }
               count: { type: integer, minimum: 0 }
+        followUpStates:
+          type: array
+          items:
+            type: object
+            required: [state, title, count]
+            properties:
+              state:
+                $ref: '#/components/schemas/TeamWorkspaceFollowUpState'
+              title: { type: string }
+              count: { type: integer, minimum: 0 }
+        recoveryOutreach:
+          type: object
+          required:
+            [
+              pendingOwner,
+              pendingAdmin,
+              multiTouchPending,
+              pendingExport,
+              pendingWebhook,
+              retryingWebhook,
+              deadLetteredWebhook,
+              pendingSlackAlert,
+              alertedSlack,
+              failedSlackAlert,
+              deliveredWebhook,
+              failedWebhook,
+              handedOff,
+              resolved,
+              recent,
+            ]
+          properties:
+            pendingOwner: { type: integer, minimum: 0 }
+            pendingAdmin: { type: integer, minimum: 0 }
+            multiTouchPending: { type: integer, minimum: 0 }
+            pendingExport: { type: integer, minimum: 0 }
+            pendingWebhook: { type: integer, minimum: 0 }
+            retryingWebhook: { type: integer, minimum: 0 }
+            deadLetteredWebhook: { type: integer, minimum: 0 }
+            pendingSlackAlert: { type: integer, minimum: 0 }
+            alertedSlack: { type: integer, minimum: 0 }
+            failedSlackAlert: { type: integer, minimum: 0 }
+            deliveredWebhook: { type: integer, minimum: 0 }
+            failedWebhook: { type: integer, minimum: 0 }
+            handedOff: { type: integer, minimum: 0 }
+            resolved: { type: integer, minimum: 0 }
+            recent:
+              type: array
+              items:
+                allOf:
+                  - $ref: '#/components/schemas/TeamWorkspaceRecoveryOutreach'
+                  - type: object
+                    required: [workspaceId, workspaceName]
+                    properties:
+                      workspaceId: { type: string, format: uuid }
+                      workspaceName: { type: string }
         recentBillingEvents:
           type: array
           items:
@@ -3141,6 +3360,123 @@ paths:
           description: Unauthorized
         '503':
           description: Admin API disabled
+  /v1/admin/stats/recovery-queue.csv:
+    get:
+      summary: Export actionable Team Workspace recovery queue as CSV
+      security:
+        - AdminKey: []
+      responses:
+        '200':
+          description: CSV export for ops follow-up
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401':
+          description: Unauthorized
+        '503':
+          description: Admin API disabled
+  /v1/admin/stats/recovery-outreach/handoff:
+    post:
+      summary: Hand off the latest admin recovery outreach to CRM/manual follow-up and snooze auto requeue
+      security:
+        - AdminKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [workspaceId]
+              properties:
+                workspaceId: { type: string, format: uuid }
+                channel:
+                  $ref: '#/components/schemas/TeamWorkspaceRecoveryOutreachHandoffChannel'
+                snoozeHours:
+                  type: integer
+                  minimum: 0
+                  maximum: 336
+                  default: 48
+                note:
+                  type: string
+                  maxLength: 500
+      responses:
+        '200':
+          description: Recovery outreach handed off
+        '400':
+          description: Invalid request body
+        '401':
+          description: Unauthorized
+        '404':
+          description: Workspace or outreach not found
+        '503':
+          description: Admin API disabled
+  /v1/admin/stats/recovery-handoffs/export:
+    post:
+      summary: Export currently handed-off admin recovery outreach rows as CRM CSV and mark them exported
+      security:
+        - AdminKey: []
+      responses:
+        '200':
+          description: CSV export for CRM/manual follow-up handoffs
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401':
+          description: Unauthorized
+        '503':
+          description: Admin API disabled
+  /v1/admin/stats/recovery-handoffs/webhook:
+    post:
+      summary: Deliver due and still-retryable handed-off admin recovery outreach rows to the configured external webhook
+      security:
+        - AdminKey: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                retryIntervalHours:
+                  type: integer
+                  minimum: 0
+                  maximum: 336
+                force:
+                  type: boolean
+      responses:
+        '200':
+          description: Recovery handoffs delivered to the webhook or skipped when nothing due or retryable remains
+        '401':
+          description: Unauthorized
+        '502':
+          description: Webhook delivery failed
+        '503':
+          description: Recovery handoff webhook is not configured or admin API disabled
+  /v1/admin/stats/recovery-handoffs/slack:
+    post:
+      summary: Deliver dead-letter handed-off admin recovery outreach rows to the configured Ops Slack webhook
+      security:
+        - AdminKey: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                force:
+                  type: boolean
+      responses:
+        '200':
+          description: Dead-letter handoffs delivered to Ops Slack or skipped when nothing needs alerting
+        '401':
+          description: Unauthorized
+        '502':
+          description: Slack delivery failed
+        '503':
+          description: Recovery Slack webhook is not configured or admin API disabled
   /v1/admin/ingestion-jobs/{id}:
     get:
       summary: Get one ingestion job by id
@@ -3253,7 +3589,9 @@ paths:
       summary: >-
         Claim next queued job (SKIP LOCKED), run processor (echo / fetch_title /
         create_draft / pipeline_url_draft / backfill_case_taxonomy /
-        reconcile_team_workspace_billing / run_copilot_eval_suite /
+        reconcile_team_workspace_billing /
+        run_team_workspace_recovery_outreach with optional retryIntervalHours /
+        run_copilot_eval_suite /
         upsert_embedding_stub / noop), then succeeded or failed; audit
         job_succeeded or job_failed
       security:
@@ -3294,7 +3632,9 @@ paths:
         Trigger a scheduled job immediately by job name or source name
         (for example pipeline_url_draft / extract_case_signals /
         backfill_case_search_index / backfill_case_taxonomy /
-        reconcile_team_workspace_billing / run_copilot_eval_suite)
+        reconcile_team_workspace_billing /
+        run_team_workspace_recovery_outreach with optional retryIntervalHours /
+        run_copilot_eval_suite)
       security:
         - AdminKey: []
       requestBody:

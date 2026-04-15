@@ -649,8 +649,16 @@ export default async function AdminReviewsPage({
             <code>backfill_case_taxonomy</code> → 批量修复历史 taxonomy
             key，并为受影响的已发布案例排入 <code>rebuild_case_search_index</code>；{' '}
             <code>reconcile_team_workspace_billing</code> → 全量重跑 Team Workspace
-            的账单/席位补偿、邀请撤销与自动恢复； <code>run_copilot_eval_suite</code> → 回放内置
-            Copilot eval dataset，生成 prompt regression batch 与失败样本；{' '}
+            的账单/席位补偿、邀请撤销与自动恢复； <code>run_team_workspace_recovery_outreach</code>{' '}
+            → 为仍处于恢复风险中的 workspace 生成/收口 owner banner 与 admin queue 触达记录，并按{' '}
+            <code>retryIntervalHours</code> 自动重试逾期跟进；{' '}
+            <code>deliver_team_workspace_recovery_webhook</code> → 将到点且仍可重试的 handoff admin
+            恢复触达推送到外部 webhook，并按 retry window 回写状态；达到上限后会停止自动重试，可用{' '}
+            <code>force=true</code> 忽略冷却窗口立即重推；{' '}
+            <code>deliver_team_workspace_recovery_slack_alert</code> → 将已进入 dead-letter 的
+            handoff admin 恢复触达推送到 Ops Slack，默认只发送尚未成功告警的项，可用{' '}
+            <code>force=true</code> 重发； <code>run_copilot_eval_suite</code> → 回放内置 Copilot
+            eval dataset，生成 prompt regression batch 与失败样本；{' '}
             <code>upsert_embedding_stub</code> → <code>payload.caseId</code>（仅 case embedding
             演示）；其它 为 noop。审核通过后也会自动排入 <code>rebuild_case_search_index</code>。
             长时间 <code>running</code> 可用下方「回收卡住」 重置为 <code>queued</code>。
@@ -770,6 +778,9 @@ rebuild_case_search_index → {"caseId":"<已发布 case 的 uuid>"}
 backfill_case_search_index → {"limit":25}
 backfill_case_taxonomy → {"limit":100}
 reconcile_team_workspace_billing → {}
+run_team_workspace_recovery_outreach → {"retryIntervalHours":24}
+deliver_team_workspace_recovery_webhook → {"retryIntervalHours":24}
+deliver_team_workspace_recovery_slack_alert → {"force":true}
 run_copilot_eval_suite → {"topK":5,"limit":20}
 upsert_embedding_stub → {"caseId":"<已发布 case 的 uuid>"}`}
           </pre>

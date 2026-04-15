@@ -3,14 +3,24 @@ import Link from 'next/link';
 import { headers } from 'next/headers';
 import { type AdminStats, fetchAdminStats, formatUsd } from '@/lib/statsApi';
 import { ADMIN_API_KEY } from '@/lib/api';
+import { pickSearchParam } from '@/lib/searchParams';
 
 export const metadata: Metadata = { title: '运营 Dashboard' };
 
 // Revalidate every 60 s — shows near-real-time data without hammering the DB
 export const revalidate = 60;
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const adminKey = ADMIN_API_KEY ?? '';
+  const raw = await searchParams;
+  const recoveryWebhook = pickSearchParam(raw.recoveryWebhook);
+  const recoveryWebhookError = pickSearchParam(raw.recoveryWebhookError);
+  const recoverySlack = pickSearchParam(raw.recoverySlack);
+  const recoverySlackError = pickSearchParam(raw.recoverySlackError);
   const stats = await fetchAdminStats(adminKey);
   void headers(); // ensure dynamic rendering when no admin key
 
@@ -24,9 +34,131 @@ export default async function DashboardPage() {
           ← 运营台
         </Link>
         <span style={{ color: '#4a5568' }}>Dashboard</span>
+        <Link
+          href="/admin/recovery-queue.csv"
+          style={{ color: '#9fb3ff', textDecoration: 'none', marginLeft: 'auto' }}
+        >
+          导出 Recovery Queue CSV
+        </Link>
+        <form action="/admin/recovery-handoffs.csv" method="post" style={{ margin: 0 }}>
+          <button
+            type="submit"
+            style={{
+              border: '1px solid #3b4a72',
+              background: '#12192b',
+              color: '#9fb3ff',
+              borderRadius: 8,
+              padding: '6px 10px',
+              cursor: 'pointer',
+            }}
+          >
+            导出 CRM Handoff CSV
+          </button>
+        </form>
+        <form action="/admin/recovery-handoffs/webhook" method="post" style={{ margin: 0 }}>
+          <button
+            type="submit"
+            style={{
+              border: '1px solid #1f4d38',
+              background: '#10251b',
+              color: '#a7f3d0',
+              borderRadius: 8,
+              padding: '6px 10px',
+              cursor: 'pointer',
+            }}
+          >
+            推送 CRM Webhook
+          </button>
+        </form>
+        <form action="/admin/recovery-handoffs/slack" method="post" style={{ margin: 0 }}>
+          <button
+            type="submit"
+            style={{
+              border: '1px solid #4c1d95',
+              background: '#1f1535',
+              color: '#d8b4fe',
+              borderRadius: 8,
+              padding: '6px 10px',
+              cursor: 'pointer',
+            }}
+          >
+            通知 Ops Slack
+          </button>
+        </form>
       </div>
 
       <h1 style={{ fontSize: 28, fontWeight: 700, margin: '0 0 32px' }}>运营数据 Dashboard</h1>
+
+      {recoveryWebhook ? (
+        <div
+          style={{
+            marginBottom: 18,
+            padding: '12px 14px',
+            borderRadius: 12,
+            border: '1px solid #1f4d38',
+            background: '#10251b',
+            color: '#a7f3d0',
+            fontSize: 13,
+          }}
+        >
+          {recoveryWebhook === 'no_handoffs'
+            ? '当前没有需要推送到外部 webhook 的 handoff。'
+            : recoveryWebhook === 'no_due_handoffs'
+              ? '当前没有到点需要自动重试的 webhook handoff；如需立即重推，直接再次点击页顶按钮即可。'
+              : recoveryWebhook === 'no_retryable_handoffs'
+                ? '当前可自动重试的 webhook handoff 已经耗尽重试次数，需要人工强制重推或先排查 CRM endpoint。'
+                : `已向外部 webhook 推送 ${recoveryWebhook} 条 recovery handoff。`}
+        </div>
+      ) : null}
+      {recoveryWebhookError ? (
+        <div
+          style={{
+            marginBottom: 18,
+            padding: '12px 14px',
+            borderRadius: 12,
+            border: '1px solid #4b2430',
+            background: '#23131a',
+            color: '#fecdd3',
+            fontSize: 13,
+          }}
+        >
+          Recovery webhook 推送失败：{recoveryWebhookError}
+        </div>
+      ) : null}
+      {recoverySlack ? (
+        <div
+          style={{
+            marginBottom: 18,
+            padding: '12px 14px',
+            borderRadius: 12,
+            border: '1px solid #4c1d95',
+            background: '#1f1535',
+            color: '#e9d5ff',
+            fontSize: 13,
+          }}
+        >
+          {recoverySlack === 'no_dead_letter_handoffs'
+            ? '当前没有需要通知 Ops Slack 的 webhook dead-letter handoff。'
+            : recoverySlack === 'already_alerted'
+              ? '当前 dead-letter handoff 已经完成 Ops Slack 告警；如需重复提醒，可再次点击页顶按钮。'
+              : `已向 Ops Slack 发送 ${recoverySlack} 条 dead-letter 告警。`}
+        </div>
+      ) : null}
+      {recoverySlackError ? (
+        <div
+          style={{
+            marginBottom: 18,
+            padding: '12px 14px',
+            borderRadius: 12,
+            border: '1px solid #4b2430',
+            background: '#23131a',
+            color: '#fecdd3',
+            fontSize: 13,
+          }}
+        >
+          Ops Slack 告警失败：{recoverySlackError}
+        </div>
+      ) : null}
 
       {!stats ? (
         <p style={{ color: '#f87171' }}>数据加载失败，请检查 API 连接和管理员密钥。</p>
@@ -70,6 +202,25 @@ function recoveryStageLabel(
   if (stage === 'needs_outreach') return '尚未触达';
   if (stage === 'owner_engaged') return 'Owner 已开始恢复';
   return '已恢复待收尾';
+}
+
+function followUpStateLabel(
+  state: AdminStats['commercial']['teamWorkspaces']['actionableWorkspaces'][number]['followUpState'],
+): string {
+  if (state === 'needs_initial_touch') return '待首次触达';
+  if (state === 'awaiting_owner') return '等待 Owner 响应';
+  if (state === 'overdue') return '已逾期待跟进';
+  if (state === 'owner_engaged') return 'Owner 已响应';
+  return '恢复待收尾';
+}
+
+function outreachStatusLabel(
+  status: AdminStats['commercial']['teamWorkspaces']['actionableWorkspaces'][number]['lastOutreachStatus'],
+): string {
+  if (status === 'pending') return '待处理';
+  if (status === 'handed_off') return '已移交外部跟进';
+  if (status === 'resolved') return '已收敛';
+  return '暂无';
 }
 
 function DashboardContent({ stats }: { stats: AdminStats }) {
@@ -118,6 +269,24 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
     1,
   );
   const maxRecoveryStageMetric = Math.max(...teamStats.recoveryStages.map((item) => item.count), 1);
+  const maxFollowUpStateMetric = Math.max(...teamStats.followUpStates.map((item) => item.count), 1);
+  const maxRecoveryOutreachMetric = Math.max(
+    teamStats.recoveryOutreach.pendingOwner,
+    teamStats.recoveryOutreach.pendingAdmin,
+    teamStats.recoveryOutreach.multiTouchPending,
+    teamStats.recoveryOutreach.pendingExport,
+    teamStats.recoveryOutreach.pendingWebhook,
+    teamStats.recoveryOutreach.retryingWebhook,
+    teamStats.recoveryOutreach.deadLetteredWebhook,
+    teamStats.recoveryOutreach.pendingSlackAlert,
+    teamStats.recoveryOutreach.alertedSlack,
+    teamStats.recoveryOutreach.failedSlackAlert,
+    teamStats.recoveryOutreach.deliveredWebhook,
+    teamStats.recoveryOutreach.failedWebhook,
+    teamStats.recoveryOutreach.handedOff,
+    teamStats.recoveryOutreach.resolved,
+    1,
+  );
   const maxBillingFunnelMetric = Math.max(
     billingFunnelStats.checkoutStarts,
     billingFunnelStats.checkoutCompletions,
@@ -415,6 +584,215 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
           )}
         </ChartCard>
 
+        <ChartCard title="Workspace 触达自动化">
+          {teamStats.recoveryOutreach.recent.length === 0 &&
+          teamStats.recoveryOutreach.pendingOwner === 0 &&
+          teamStats.recoveryOutreach.pendingAdmin === 0 &&
+          teamStats.recoveryOutreach.handedOff === 0 &&
+          teamStats.recoveryOutreach.resolved === 0 ? (
+            <EmptyState text="当前还没有触达自动化记录。" compact />
+          ) : (
+            <div style={{ display: 'grid', gap: 12 }}>
+              <BarRow
+                label="Owner 待触达"
+                value={teamStats.recoveryOutreach.pendingOwner}
+                max={maxRecoveryOutreachMetric}
+                color="#38bdf8"
+                sub="系统待向 owner 展示恢复提示"
+              />
+              <BarRow
+                label="运营待跟进"
+                value={teamStats.recoveryOutreach.pendingAdmin}
+                max={maxRecoveryOutreachMetric}
+                color="#f97316"
+                sub="仍需运营队列推进的 workspace"
+              />
+              <BarRow
+                label="多次跟进中"
+                value={teamStats.recoveryOutreach.multiTouchPending}
+                max={maxRecoveryOutreachMetric}
+                color="#facc15"
+                sub="至少已自动重试过一次的 pending 触达"
+              />
+              <BarRow
+                label="已移交外部跟进"
+                value={teamStats.recoveryOutreach.handedOff}
+                max={maxRecoveryOutreachMetric}
+                color="#a78bfa"
+                sub="当前已交给 CRM / 人工跟进并暂停自动入队"
+              />
+              <BarRow
+                label="待导出外部交接"
+                value={teamStats.recoveryOutreach.pendingExport}
+                max={maxRecoveryOutreachMetric}
+                color="#60a5fa"
+                sub="已 handoff 但还没导出到 CRM / 外部工作流"
+              />
+              <BarRow
+                label="待推送 Webhook"
+                value={teamStats.recoveryOutreach.pendingWebhook}
+                max={maxRecoveryOutreachMetric}
+                color="#34d399"
+                sub="已 handoff，但还没完成外部 webhook 投递"
+              />
+              <BarRow
+                label="Webhook 重试中"
+                value={teamStats.recoveryOutreach.retryingWebhook}
+                max={maxRecoveryOutreachMetric}
+                color="#f59e0b"
+                sub="最近一次失败，系统将在下个窗口自动重试"
+              />
+              <BarRow
+                label="Webhook 需人工接管"
+                value={teamStats.recoveryOutreach.deadLetteredWebhook}
+                max={maxRecoveryOutreachMetric}
+                color="#fb7185"
+                sub="已达到自动重试上限，必须人工强制重推或修复外部通道"
+              />
+              <BarRow
+                label="待通知 Ops Slack"
+                value={teamStats.recoveryOutreach.pendingSlackAlert}
+                max={maxRecoveryOutreachMetric}
+                color="#a855f7"
+                sub="dead-letter 已出现，但还没成功告警到内部运维通道"
+              />
+              <BarRow
+                label="Slack 已告警"
+                value={teamStats.recoveryOutreach.alertedSlack}
+                max={maxRecoveryOutreachMetric}
+                color="#8b5cf6"
+                sub="已成功把 dead-letter 交给 Ops Slack"
+              />
+              <BarRow
+                label="Slack 告警失败"
+                value={teamStats.recoveryOutreach.failedSlackAlert}
+                max={maxRecoveryOutreachMetric}
+                color="#ef4444"
+                sub="内部运维告警通道本身也需要人工排查"
+              />
+              <BarRow
+                label="Webhook 已投递"
+                value={teamStats.recoveryOutreach.deliveredWebhook}
+                max={maxRecoveryOutreachMetric}
+                color="#22c55e"
+                sub="已经完成外部 webhook 交接"
+              />
+              <BarRow
+                label="Webhook 失败"
+                value={teamStats.recoveryOutreach.failedWebhook}
+                max={maxRecoveryOutreachMetric}
+                color="#ef4444"
+                sub="最近一次外部 webhook 推送失败"
+              />
+              <BarRow
+                label="已收敛触达"
+                value={teamStats.recoveryOutreach.resolved}
+                max={maxRecoveryOutreachMetric}
+                color="#22c55e"
+                sub="风险恢复后已自动关闭的触达"
+              />
+              {teamStats.recoveryOutreach.recent.slice(0, 4).map((event) => (
+                <div
+                  key={event.id}
+                  style={{
+                    border: '1px solid #24314f',
+                    borderRadius: 12,
+                    background: '#0d1426',
+                    padding: '12px 14px',
+                    display: 'grid',
+                    gap: 6,
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                    <div style={{ fontWeight: 700 }}>{event.workspaceName}</div>
+                    <div style={{ color: '#9fb3ff', fontSize: 12 }}>
+                      {event.audience === 'owner' ? 'Owner' : '运营'} ·{' '}
+                      {event.status === 'pending'
+                        ? '待处理'
+                        : event.status === 'handed_off'
+                          ? '已移交外部跟进'
+                          : '已收敛'}
+                    </div>
+                  </div>
+                  <div style={{ color: '#d7deef', fontSize: 13 }}>{event.title}</div>
+                  <div style={{ color: '#8a96b0', fontSize: 12 }}>
+                    第 {event.attemptCount} 次触达 · 最近一次 {formatDateTime(event.lastAttemptAt)}
+                    {event.nextAttemptAt
+                      ? ` · 下次重试 ${formatDateTime(event.nextAttemptAt)}`
+                      : ''}
+                    {event.exportCount > 0
+                      ? ` · 已导出 ${event.exportCount} 次${
+                          event.lastExportedAt
+                            ? `（最近 ${formatDateTime(event.lastExportedAt)}）`
+                            : ''
+                        }`
+                      : ''}
+                    {event.webhookDeliveryCount > 0
+                      ? ` · webhook 已投递 ${event.webhookDeliveryCount} 次${
+                          event.lastWebhookDeliveredAt
+                            ? `（最近 ${formatDateTime(event.lastWebhookDeliveredAt)}）`
+                            : ''
+                        }`
+                      : event.lastSlackAlertedAt
+                        ? ` · Ops Slack 已告警${
+                            event.lastSlackAlertAttemptAt
+                              ? `（最近 ${formatDateTime(event.lastSlackAlertAttemptAt)}）`
+                              : ''
+                          }`
+                        : event.webhookExhaustedAt
+                          ? ` · webhook 已达到自动重试上限${
+                              event.lastWebhookAttemptAt
+                                ? `（最近 ${formatDateTime(event.lastWebhookAttemptAt)}）`
+                                : ''
+                            }`
+                          : event.webhookAttemptCount > 0
+                            ? ` · webhook 已尝试 ${event.webhookAttemptCount} 次${
+                                event.lastWebhookAttemptAt
+                                  ? `（最近 ${formatDateTime(event.lastWebhookAttemptAt)}）`
+                                  : ''
+                              }${
+                                event.nextWebhookAttemptAt
+                                  ? ` · 下次自动重试 ${formatDateTime(event.nextWebhookAttemptAt)}`
+                                  : ''
+                              }`
+                            : event.lastWebhookError
+                              ? ` · webhook 失败：${event.lastWebhookError}`
+                              : ''}
+                    {event.handoffAt ? ` · 已移交 ${formatDateTime(event.handoffAt)}` : ''}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </ChartCard>
+
+        <ChartCard title="Workspace 跟进节奏">
+          {teamStats.followUpStates.length === 0 ? (
+            <EmptyState text="当前还没有需要跟进节奏判断的 workspace。" compact />
+          ) : (
+            <div style={{ display: 'grid', gap: 12 }}>
+              {teamStats.followUpStates.map((item) => (
+                <BarRow
+                  key={item.state}
+                  label={followUpStateLabel(item.state)}
+                  value={item.count}
+                  max={maxFollowUpStateMetric}
+                  color={
+                    item.state === 'overdue'
+                      ? '#ef4444'
+                      : item.state === 'owner_engaged'
+                        ? '#22c55e'
+                        : item.state === 'recovered_followup'
+                          ? '#38bdf8'
+                          : '#f59e0b'
+                  }
+                  sub={item.title}
+                />
+              ))}
+            </div>
+          )}
+        </ChartCard>
+
         <ChartCard title="Workspace 恢复队列">
           {teamStats.actionableWorkspaces.length === 0 ? (
             <EmptyState text="当前没有需要运营介入的高风险 workspace。" compact />
@@ -467,6 +845,12 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
                   <div style={{ color: '#c4d2ff', fontSize: 12, lineHeight: 1.7 }}>
                     恢复阶段：{recoveryStageLabel(workspace.recoveryStage)}
                   </div>
+                  <div style={{ color: '#c4d2ff', fontSize: 12, lineHeight: 1.7 }}>
+                    跟进状态：{followUpStateLabel(workspace.followUpState)}
+                    {workspace.nextFollowUpAt
+                      ? ` · 下次跟进 ${formatDateTime(workspace.nextFollowUpAt)}`
+                      : ''}
+                  </div>
                   <div style={{ color: '#9fb3ff', fontSize: 12, lineHeight: 1.7 }}>
                     最近商业化动作：{commercialEventLabel(workspace.lastCommercialEventType)} ·{' '}
                     {formatDateTime(workspace.lastCommercialEventAt)}
@@ -474,6 +858,129 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
                       ? ` · 来源 ${workspace.lastCommercialEventSource}`
                       : ''}
                   </div>
+                  <div style={{ color: '#9fb3ff', fontSize: 12, lineHeight: 1.7 }}>
+                    最近触达：
+                    {workspace.lastOutreachTitle
+                      ? ` ${workspace.lastOutreachTitle} · ${formatDateTime(workspace.lastOutreachAt)}`
+                      : ' 暂无'}
+                    {workspace.lastOutreachAudience
+                      ? ` · ${workspace.lastOutreachAudience === 'owner' ? 'Owner' : '运营'}`
+                      : ''}
+                    {workspace.lastOutreachStatus
+                      ? ` · ${outreachStatusLabel(workspace.lastOutreachStatus)}`
+                      : ''}
+                    {workspace.lastOutreachAttemptCount
+                      ? ` · 第 ${workspace.lastOutreachAttemptCount} 次`
+                      : ''}
+                    {workspace.nextOutreachAttemptAt
+                      ? ` · 下次自动重试 ${formatDateTime(workspace.nextOutreachAttemptAt)}`
+                      : ''}
+                    {workspace.lastOutreachHandoffAt
+                      ? ` · 已移交 ${formatDateTime(workspace.lastOutreachHandoffAt)}`
+                      : ''}
+                    {workspace.lastOutreachExportCount
+                      ? ` · 已导出 ${workspace.lastOutreachExportCount} 次`
+                      : ''}
+                    {workspace.lastOutreachExportedAt
+                      ? ` · 最近导出 ${formatDateTime(workspace.lastOutreachExportedAt)}`
+                      : ''}
+                    {workspace.lastOutreachWebhookDeliveryCount
+                      ? ` · webhook 已投递 ${workspace.lastOutreachWebhookDeliveryCount} 次`
+                      : ''}
+                    {workspace.lastOutreachWebhookAttemptCount
+                      ? ` · webhook 已尝试 ${workspace.lastOutreachWebhookAttemptCount} 次`
+                      : ''}
+                    {workspace.lastOutreachWebhookAttemptAt
+                      ? ` · 最近 webhook 尝试 ${formatDateTime(workspace.lastOutreachWebhookAttemptAt)}`
+                      : ''}
+                    {workspace.nextOutreachWebhookAttemptAt
+                      ? ` · 下次 webhook 重试 ${formatDateTime(workspace.nextOutreachWebhookAttemptAt)}`
+                      : ''}
+                    {workspace.lastOutreachWebhookExhaustedAt
+                      ? ` · 已于 ${formatDateTime(workspace.lastOutreachWebhookExhaustedAt)} 停止自动重试`
+                      : ''}
+                    {workspace.lastOutreachWebhookDeliveredAt
+                      ? ` · 最近 webhook ${formatDateTime(workspace.lastOutreachWebhookDeliveredAt)}`
+                      : ''}
+                    {workspace.lastOutreachSlackAlertedAt
+                      ? ` · Ops Slack 已告警 ${formatDateTime(workspace.lastOutreachSlackAlertedAt)}`
+                      : ''}
+                  </div>
+                  {workspace.lastOutreachWebhookError ? (
+                    <div style={{ color: '#fca5a5', fontSize: 12, lineHeight: 1.7 }}>
+                      最近 webhook 失败：{workspace.lastOutreachWebhookError}
+                      {workspace.lastOutreachWebhookStatusCode
+                        ? ` · HTTP ${workspace.lastOutreachWebhookStatusCode}`
+                        : ''}
+                    </div>
+                  ) : null}
+                  {workspace.lastOutreachSlackAlertError ? (
+                    <div style={{ color: '#fca5a5', fontSize: 12, lineHeight: 1.7 }}>
+                      最近 Ops Slack 告警失败：{workspace.lastOutreachSlackAlertError}
+                      {workspace.lastOutreachSlackAlertStatusCode
+                        ? ` · HTTP ${workspace.lastOutreachSlackAlertStatusCode}`
+                        : ''}
+                    </div>
+                  ) : null}
+                  {workspace.lastOutreachHandoffChannel || workspace.lastOutreachHandoffNote ? (
+                    <div style={{ color: '#8a96b0', fontSize: 12, lineHeight: 1.7 }}>
+                      外部跟进：
+                      {workspace.lastOutreachHandoffChannel
+                        ? ` ${workspace.lastOutreachHandoffChannel === 'crm' ? 'CRM' : '人工跟进'}`
+                        : ''}
+                      {workspace.lastOutreachHandoffNote
+                        ? ` · ${workspace.lastOutreachHandoffNote}`
+                        : ''}
+                    </div>
+                  ) : null}
+                  {workspace.lastOutreachStatus !== 'handed_off' ? (
+                    <form
+                      action="/admin/recovery-outreach/handoff"
+                      method="post"
+                      style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}
+                    >
+                      <input type="hidden" name="workspaceId" value={workspace.workspaceId} />
+                      <input type="hidden" name="channel" value="crm" />
+                      <input type="hidden" name="snoozeHours" value="48" />
+                      <input
+                        type="hidden"
+                        name="note"
+                        value="已从运营台移交到 CRM 跟进，48 小时后若未恢复则重新回到队列。"
+                      />
+                      <button
+                        type="submit"
+                        style={{
+                          padding: '8px 12px',
+                          borderRadius: 10,
+                          border: '1px solid #5b4fd1',
+                          background: '#171433',
+                          color: '#d8ccff',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        移交到 CRM 并暂停 48h
+                      </button>
+                    </form>
+                  ) : null}
+                  {workspace.lastOutreachStatus === 'handed_off' &&
+                  !workspace.lastOutreachExportedAt ? (
+                    <div style={{ color: '#bfdbfe', fontSize: 12 }}>
+                      这条 handoff 还没导出到外部系统，可用页顶的 CRM CSV 导出入口统一交付。
+                    </div>
+                  ) : null}
+                  {workspace.lastOutreachStatus === 'handed_off' &&
+                  !workspace.lastOutreachWebhookDeliveredAt ? (
+                    <div style={{ color: '#a7f3d0', fontSize: 12 }}>
+                      {workspace.lastOutreachWebhookExhaustedAt
+                        ? workspace.lastOutreachSlackAlertedAt
+                          ? '这条 handoff 已达到 webhook 自动重试上限，Ops Slack 已收到告警；接下来需要人工强制重推或先处理 CRM endpoint。'
+                          : '这条 handoff 已达到 webhook 自动重试上限，不会再自动外推；建议先通知 Ops Slack，再决定是否人工强制重推。'
+                        : workspace.nextOutreachWebhookAttemptAt
+                          ? `这条 handoff 还没完成 webhook 推送，系统会在 ${formatDateTime(workspace.nextOutreachWebhookAttemptAt)} 自动重试；若要立即重推，可直接用页顶的 CRM Webhook 入口。`
+                          : '这条 handoff 还没完成 webhook 推送，可用页顶的 CRM Webhook 入口直接投递。'}
+                    </div>
+                  ) : null}
                   {workspace.lastBillingEventTitle ? (
                     <div style={{ color: '#8a96b0', fontSize: 12 }}>
                       最新事件：{workspace.lastBillingEventTitle}

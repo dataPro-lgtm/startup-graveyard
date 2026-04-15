@@ -26,6 +26,7 @@ import { industryLabel, primaryFailureReasonLabel } from '@sg/shared/taxonomy';
 import type {
   TeamWorkspaceBilling,
   TeamWorkspaceBillingEventSeverity,
+  TeamWorkspaceRecoveryOutreach,
   TeamWorkspaceBillingWarning,
   TeamWorkspaceBillingRecoveryActionSurface,
   TeamWorkspaceContextResponse,
@@ -108,6 +109,16 @@ function eventTone(severity: TeamWorkspaceBillingEventSeverity) {
     background: '#10192d',
     color: '#b7d4ff',
   };
+}
+
+function recoveryOutreachStatusLabel(status: TeamWorkspaceRecoveryOutreach['status']) {
+  if (status === 'pending') return '待执行';
+  if (status === 'handed_off') return '已移交外部跟进';
+  return '已收敛';
+}
+
+function recoveryOutreachAudienceLabel(audience: TeamWorkspaceRecoveryOutreach['audience']) {
+  return audience === 'owner' ? 'Owner 提示' : '运营跟进';
 }
 
 export function TeamWorkspacePanel() {
@@ -636,6 +647,118 @@ export function TeamWorkspacePanel() {
               </div>
             )}
           </div>
+
+          {workspace.role === 'owner' ? (
+            <div style={{ ...cardStyle, display: 'grid', gap: 12 }}>
+              <div style={{ fontSize: 16, fontWeight: 700 }}>最近恢复触达</div>
+              {workspace.recentRecoveryOutreach.length === 0 ? (
+                <div style={{ color: '#8a96b0', fontSize: 13 }}>
+                  当前还没有自动恢复触达记录。工作区进入需要恢复的账单状态后，系统会在这里记录 owner
+                  提示与后续收敛状态。
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gap: 10 }}>
+                  {workspace.recentRecoveryOutreach.map((event) => (
+                    <div
+                      key={event.id}
+                      style={{
+                        borderRadius: 12,
+                        border: '1px solid #23345a',
+                        background: '#0f1830',
+                        padding: '12px 14px',
+                        display: 'grid',
+                        gap: 6,
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          gap: 12,
+                          flexWrap: 'wrap',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <div style={{ fontWeight: 700 }}>{event.title}</div>
+                        <div style={{ color: '#9fb3ff', fontSize: 12 }}>
+                          {recoveryOutreachAudienceLabel(event.audience)} ·{' '}
+                          {recoveryOutreachStatusLabel(event.status)}
+                        </div>
+                      </div>
+                      <div style={{ color: '#d7deef', fontSize: 13, lineHeight: 1.7 }}>
+                        {event.detail}
+                      </div>
+                      <div style={{ color: '#8a96b0', fontSize: 12, lineHeight: 1.7 }}>
+                        第 {event.attemptCount} 次触达 · 最近一次{' '}
+                        {new Date(event.lastAttemptAt).toLocaleString('zh-CN')}
+                        {event.nextAttemptAt
+                          ? ` · 下次自动重试 ${new Date(event.nextAttemptAt).toLocaleString(
+                              'zh-CN',
+                            )}`
+                          : ''}
+                        {event.exportCount > 0
+                          ? ` · 已导出 ${event.exportCount} 次${
+                              event.lastExportedAt
+                                ? `（最近 ${new Date(event.lastExportedAt).toLocaleString('zh-CN')}）`
+                                : ''
+                            }`
+                          : ''}
+                        {event.webhookDeliveryCount > 0
+                          ? ` · webhook 已投递 ${event.webhookDeliveryCount} 次${
+                              event.lastWebhookDeliveredAt
+                                ? `（最近 ${new Date(event.lastWebhookDeliveredAt).toLocaleString(
+                                    'zh-CN',
+                                  )}）`
+                                : ''
+                            }`
+                          : event.lastSlackAlertedAt
+                            ? ` · Ops Slack 已告警${
+                                event.lastSlackAlertAttemptAt
+                                  ? `（最近 ${new Date(
+                                      event.lastSlackAlertAttemptAt,
+                                    ).toLocaleString('zh-CN')}）`
+                                  : ''
+                              }`
+                            : event.webhookExhaustedAt
+                              ? ` · webhook 已达到自动重试上限${
+                                  event.lastWebhookAttemptAt
+                                    ? `（最近 ${new Date(event.lastWebhookAttemptAt).toLocaleString(
+                                        'zh-CN',
+                                      )}）`
+                                    : ''
+                                }`
+                              : event.webhookAttemptCount > 0
+                                ? ` · webhook 已尝试 ${event.webhookAttemptCount} 次${
+                                    event.lastWebhookAttemptAt
+                                      ? `（最近 ${new Date(
+                                          event.lastWebhookAttemptAt,
+                                        ).toLocaleString('zh-CN')}）`
+                                      : ''
+                                  }${
+                                    event.nextWebhookAttemptAt
+                                      ? ` · 下次自动重试 ${new Date(
+                                          event.nextWebhookAttemptAt,
+                                        ).toLocaleString('zh-CN')}`
+                                      : ''
+                                  }`
+                                : event.lastWebhookError
+                                  ? ` · webhook 失败：${event.lastWebhookError}`
+                                  : ''}
+                        {event.lastSlackAlertError
+                          ? ` · Ops Slack 告警失败：${event.lastSlackAlertError}`
+                          : ''}
+                        <br />
+                        首次创建于 {new Date(event.createdAt).toLocaleString('zh-CN')}
+                        {event.resolvedAt
+                          ? ` · 已于 ${new Date(event.resolvedAt).toLocaleString('zh-CN')} 收敛`
+                          : ''}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : null}
 
           {workspace.canManageMembers ? (
             <div id="team-workspace-member-ops" style={{ ...cardStyle, display: 'grid', gap: 12 }}>

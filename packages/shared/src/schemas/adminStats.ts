@@ -5,6 +5,11 @@ import {
   teamWorkspaceBillingEventSchema,
   teamWorkspaceBillingRecoveryActionSchema,
   teamWorkspaceBillingRecoveryActionCodeSchema,
+  teamWorkspaceRecoveryOutreachAudienceSchema,
+  teamWorkspaceRecoveryOutreachChannelSchema,
+  teamWorkspaceRecoveryOutreachHandoffChannelSchema,
+  teamWorkspaceRecoveryOutreachSchema,
+  teamWorkspaceRecoveryOutreachStatusSchema,
   teamWorkspaceBillingWarningSchema,
 } from './teamWorkspace.js';
 
@@ -152,6 +157,14 @@ export const teamWorkspaceRecoveryStageSchema = z.enum([
   'recovered_followup',
 ]);
 
+export const teamWorkspaceFollowUpStateSchema = z.enum([
+  'needs_initial_touch',
+  'awaiting_owner',
+  'overdue',
+  'owner_engaged',
+  'recovered_followup',
+]);
+
 export const teamWorkspaceAdminMetricsSchema = z.object({
   totalWorkspaces: nonnegativeInteger,
   activeWorkspaces: nonnegativeInteger,
@@ -180,6 +193,35 @@ export const teamWorkspaceAdminMetricsSchema = z.object({
       count: nonnegativeInteger,
     }),
   ),
+  followUpStates: z.array(
+    z.object({
+      state: teamWorkspaceFollowUpStateSchema,
+      title: z.string(),
+      count: nonnegativeInteger,
+    }),
+  ),
+  recoveryOutreach: z.object({
+    pendingOwner: nonnegativeInteger,
+    pendingAdmin: nonnegativeInteger,
+    multiTouchPending: nonnegativeInteger,
+    pendingExport: nonnegativeInteger,
+    pendingWebhook: nonnegativeInteger,
+    retryingWebhook: nonnegativeInteger,
+    deadLetteredWebhook: nonnegativeInteger,
+    pendingSlackAlert: nonnegativeInteger,
+    alertedSlack: nonnegativeInteger,
+    failedSlackAlert: nonnegativeInteger,
+    deliveredWebhook: nonnegativeInteger,
+    failedWebhook: nonnegativeInteger,
+    handedOff: nonnegativeInteger,
+    resolved: nonnegativeInteger,
+    recent: z.array(
+      teamWorkspaceRecoveryOutreachSchema.extend({
+        workspaceId: z.string().uuid(),
+        workspaceName: z.string(),
+      }),
+    ),
+  }),
   recentBillingEvents: z.array(
     teamWorkspaceBillingEventSchema.extend({
       workspaceId: z.string().uuid(),
@@ -209,6 +251,33 @@ export const teamWorkspaceAdminMetricsSchema = z.object({
       lastCommercialEventType: billingFunnelEventTypeSchema.nullable(),
       lastCommercialEventSource: billingFunnelEventSourceSchema.nullable(),
       recoveryStage: teamWorkspaceRecoveryStageSchema,
+      followUpState: teamWorkspaceFollowUpStateSchema,
+      nextFollowUpAt: z.string().nullable(),
+      lastOutreachAt: z.string().nullable(),
+      lastOutreachTitle: z.string().nullable(),
+      lastOutreachAudience: teamWorkspaceRecoveryOutreachAudienceSchema.nullable(),
+      lastOutreachChannel: teamWorkspaceRecoveryOutreachChannelSchema.nullable(),
+      lastOutreachStatus: teamWorkspaceRecoveryOutreachStatusSchema.nullable(),
+      lastOutreachAttemptCount: nonnegativeInteger.nullable(),
+      nextOutreachAttemptAt: z.string().nullable(),
+      lastOutreachExportCount: nonnegativeInteger.nullable(),
+      lastOutreachExportedAt: z.string().nullable(),
+      lastOutreachWebhookAttemptCount: nonnegativeInteger.nullable(),
+      lastOutreachWebhookAttemptAt: z.string().nullable(),
+      nextOutreachWebhookAttemptAt: z.string().nullable(),
+      lastOutreachWebhookExhaustedAt: z.string().nullable(),
+      lastOutreachWebhookDeliveryCount: nonnegativeInteger.nullable(),
+      lastOutreachWebhookDeliveredAt: z.string().nullable(),
+      lastOutreachWebhookStatusCode: z.number().int().nullable(),
+      lastOutreachWebhookError: z.string().nullable(),
+      lastOutreachSlackAlertCount: nonnegativeInteger.nullable(),
+      lastOutreachSlackAlertAttemptAt: z.string().nullable(),
+      lastOutreachSlackAlertedAt: z.string().nullable(),
+      lastOutreachSlackAlertStatusCode: z.number().int().nullable(),
+      lastOutreachSlackAlertError: z.string().nullable(),
+      lastOutreachHandoffChannel: teamWorkspaceRecoveryOutreachHandoffChannelSchema.nullable(),
+      lastOutreachHandoffAt: z.string().nullable(),
+      lastOutreachHandoffNote: z.string().nullable(),
     }),
   ),
 });

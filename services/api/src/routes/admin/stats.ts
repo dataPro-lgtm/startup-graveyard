@@ -1,8 +1,12 @@
 import type { FastifyInstance } from 'fastify';
 import type { Pool } from 'pg';
+import { z } from 'zod';
 import { getPool } from '../../db/pool.js';
 import type { CommercialAdminMetrics } from '@sg/shared/schemas/adminStats';
 import { adminStatsResponseSchema } from '../../schemas/adminStats.js';
+import { handoffTeamWorkspaceRecoveryOutreachBodySchema } from '../../schemas/teamWorkspace.js';
+import { deliverRecoveryOutreachWebhook } from '../../recoveryOutreach/deliverRecoveryOutreachWebhook.js';
+import { deliverRecoveryOutreachSlackAlert } from '../../recoveryOutreach/deliverRecoveryOutreachSlackAlert.js';
 
 interface ContentStatsResult {
   totalPublished: number;
@@ -17,6 +21,20 @@ interface ContentStatsResult {
   pendingReviews: number;
   ingestionStats: { pending: number; running: number; failed: number; completed: number };
 }
+
+const recoveryWebhookDeliveryBodySchema = z.object({
+  retryIntervalHours: z
+    .number()
+    .int()
+    .min(0)
+    .max(24 * 14)
+    .optional(),
+  force: z.boolean().optional(),
+});
+
+const recoverySlackDeliveryBodySchema = z.object({
+  force: z.boolean().optional(),
+});
 
 export async function adminStatsRoutes(app: FastifyInstance) {
   app.get('/', async (_request, reply) => {
@@ -60,6 +78,119 @@ export async function adminStatsRoutes(app: FastifyInstance) {
       return reply.code(500).send({ error: 'stats_unavailable' });
     }
   });
+
+  app.get('/recovery-queue.csv', async (_request, reply) => {
+    try {
+      const commercialStats = await fetchCommercialStats(app);
+      const rows = commercialStats.teamWorkspaces.actionableWorkspaces;
+      const csv = renderRecoveryQueueCsv(rows);
+      reply.header('content-type', 'text/csv; charset=utf-8');
+      reply.header(
+        'content-disposition',
+        `attachment; filename="team-workspace-recovery-queue-${new Date().toISOString().slice(0, 10)}.csv"`,
+      );
+      return reply.send(csv);
+    } catch (err) {
+      app.log.error(err, 'Failed to export workspace recovery queue');
+      return reply.code(500).send({ error: 'recovery_queue_export_unavailable' });
+    }
+  });
+
+  app.post('/recovery-handoffs/export', async (_request, reply) => {
+    try {
+      const { exportedCount } = await app.teamWorkspacesRepo.exportHandedOffAdminRecoveryOutreach();
+      const commercialStats = await fetchCommercialStats(app);
+      const rows = commercialStats.teamWorkspaces.actionableWorkspaces.filter(
+        (item) => item.lastOutreachStatus === 'handed_off',
+      );
+      const csv = renderRecoveryHandoffCsv(rows);
+      reply.header('content-type', 'text/csv; charset=utf-8');
+      reply.header(
+        'content-disposition',
+        `attachment; filename="team-workspace-recovery-handoffs-${new Date().toISOString().slice(0, 10)}.csv"`,
+      );
+      reply.header('x-recovery-handoff-exported-count', String(exportedCount));
+      return reply.send(csv);
+    } catch (err) {
+      app.log.error(err, 'Failed to export recovery handoff CSV');
+      return reply.code(500).send({ error: 'recovery_handoff_export_unavailable' });
+    }
+  });
+
+  app.post('/recovery-handoffs/webhook', async (_request, reply) => {
+    try {
+      const parsed = recoveryWebhookDeliveryBodySchema.safeParse(_request.body ?? {});
+      if (!parsed.success) {
+        return reply.code(400).send({ error: 'invalid_recovery_webhook_delivery_body' });
+      }
+      const delivered = await deliverRecoveryOutreachWebhook(app.teamWorkspacesRepo, parsed.data);
+      if (!delivered.ok) {
+        return reply
+          .code(delivered.error === 'recovery_handoff_webhook_disabled' ? 503 : 502)
+          .send({
+            error: delivered.error,
+            detail: delivered.detail,
+            attemptedCount: delivered.attemptedCount,
+            deliveredCount: delivered.deliveredCount,
+            statusCode: delivered.statusCode,
+          });
+      }
+      return reply.send({
+        ok: true,
+        attemptedCount: delivered.attemptedCount,
+        deliveredCount: delivered.deliveredCount,
+        statusCode: delivered.statusCode,
+        skipped: delivered.skipped,
+      });
+    } catch (err) {
+      app.log.error(err, 'Failed to deliver recovery handoffs via webhook');
+      return reply.code(500).send({ error: 'recovery_handoff_webhook_unavailable' });
+    }
+  });
+
+  app.post('/recovery-handoffs/slack', async (_request, reply) => {
+    try {
+      const parsed = recoverySlackDeliveryBodySchema.safeParse(_request.body ?? {});
+      if (!parsed.success) {
+        return reply.code(400).send({ error: 'invalid_recovery_slack_delivery_body' });
+      }
+      const delivered = await deliverRecoveryOutreachSlackAlert(
+        app.teamWorkspacesRepo,
+        parsed.data,
+      );
+      if (!delivered.ok) {
+        return reply.code(delivered.error === 'recovery_slack_alert_disabled' ? 503 : 502).send({
+          error: delivered.error,
+          detail: delivered.detail,
+          attemptedCount: delivered.attemptedCount,
+          alertedCount: delivered.alertedCount,
+          statusCode: delivered.statusCode,
+        });
+      }
+      return reply.send({
+        ok: true,
+        attemptedCount: delivered.attemptedCount,
+        alertedCount: delivered.alertedCount,
+        statusCode: delivered.statusCode,
+        skipped: delivered.skipped,
+      });
+    } catch (err) {
+      app.log.error(err, 'Failed to deliver recovery handoffs to Slack');
+      return reply.code(500).send({ error: 'recovery_slack_alert_unavailable' });
+    }
+  });
+
+  app.post('/recovery-outreach/handoff', async (request, reply) => {
+    const parsed = handoffTeamWorkspaceRecoveryOutreachBodySchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'invalid_recovery_outreach_handoff_body' });
+    }
+    const result = await app.teamWorkspacesRepo.handoffAdminRecoveryOutreach(parsed.data);
+    if (result === 'workspace_not_found' || result === 'outreach_not_found') {
+      return reply.code(404).send({ error: result });
+    }
+    return reply.send({ ok: true });
+  });
 }
 
 function emptyContentStats(): ContentStatsResult {
@@ -96,6 +227,233 @@ function recoveryStageTitle(
   return '已恢复待收尾';
 }
 
+const RECOVERY_FOLLOW_UP_HOURS = 24;
+
+function nextFollowUpAt(
+  input: Pick<
+    CommercialAdminMetrics['teamWorkspaces']['actionableWorkspaces'][number],
+    'recoveryStage' | 'lastOutreachAt' | 'nextOutreachAttemptAt'
+  >,
+): string | null {
+  if (input.recoveryStage !== 'needs_outreach') return null;
+  if (input.nextOutreachAttemptAt) return input.nextOutreachAttemptAt;
+  if (!input.lastOutreachAt) return null;
+  return new Date(
+    new Date(input.lastOutreachAt).getTime() + RECOVERY_FOLLOW_UP_HOURS * 60 * 60 * 1000,
+  ).toISOString();
+}
+
+function followUpStateFromWorkspace(
+  input: Pick<
+    CommercialAdminMetrics['teamWorkspaces']['actionableWorkspaces'][number],
+    'recoveryStage' | 'lastOutreachAt' | 'nextOutreachAttemptAt'
+  >,
+): CommercialAdminMetrics['teamWorkspaces']['actionableWorkspaces'][number]['followUpState'] {
+  if (input.recoveryStage === 'owner_engaged') return 'owner_engaged';
+  if (input.recoveryStage === 'recovered_followup') return 'recovered_followup';
+  if (!input.lastOutreachAt) return 'needs_initial_touch';
+  const dueAt = nextFollowUpAt(input);
+  if (!dueAt) return 'awaiting_owner';
+  return new Date(dueAt).getTime() <= Date.now() ? 'overdue' : 'awaiting_owner';
+}
+
+function followUpStateTitle(
+  state: CommercialAdminMetrics['teamWorkspaces']['followUpStates'][number]['state'],
+) {
+  if (state === 'needs_initial_touch') return '待首次触达';
+  if (state === 'awaiting_owner') return '等待 Owner 响应';
+  if (state === 'overdue') return '已逾期待跟进';
+  if (state === 'owner_engaged') return 'Owner 已响应';
+  return '恢复待收尾';
+}
+
+function followUpStatePriority(
+  state: CommercialAdminMetrics['teamWorkspaces']['actionableWorkspaces'][number]['followUpState'],
+) {
+  if (state === 'overdue') return 0;
+  if (state === 'needs_initial_touch') return 1;
+  if (state === 'awaiting_owner') return 2;
+  if (state === 'owner_engaged') return 3;
+  return 4;
+}
+
+function csvCell(value: string | number | null): string {
+  if (value == null) return '';
+  const raw = String(value);
+  if (raw.includes(',') || raw.includes('"') || raw.includes('\n')) {
+    return `"${raw.replaceAll('"', '""')}"`;
+  }
+  return raw;
+}
+
+function renderRecoveryQueueCsv(
+  items: CommercialAdminMetrics['teamWorkspaces']['actionableWorkspaces'],
+): string {
+  const header = [
+    'workspace_name',
+    'owner_email',
+    'subscription',
+    'billing_status',
+    'recovery_stage',
+    'follow_up_state',
+    'next_follow_up_at',
+    'seat_limit',
+    'seats_used',
+    'reserved_seats',
+    'pending_invites',
+    'revoked_invites',
+    'fallback_members',
+    'warning_codes',
+    'recommended_actions',
+    'last_commercial_event_type',
+    'last_commercial_event_at',
+    'last_outreach_title',
+    'last_outreach_at',
+    'last_outreach_attempt_count',
+    'next_outreach_attempt_at',
+    'last_outreach_export_count',
+    'last_outreach_exported_at',
+    'last_outreach_webhook_attempt_count',
+    'last_outreach_webhook_attempt_at',
+    'next_outreach_webhook_attempt_at',
+    'last_outreach_webhook_exhausted_at',
+    'last_outreach_webhook_delivery_count',
+    'last_outreach_webhook_delivered_at',
+    'last_outreach_webhook_status_code',
+    'last_outreach_webhook_error',
+    'last_outreach_slack_alert_count',
+    'last_outreach_slack_alert_attempt_at',
+    'last_outreach_slack_alerted_at',
+    'last_outreach_slack_alert_status_code',
+    'last_outreach_slack_alert_error',
+    'last_outreach_handoff_channel',
+    'last_outreach_handoff_at',
+    'last_outreach_handoff_note',
+    'last_outreach_status',
+  ];
+  const lines = [header.join(',')];
+  for (const item of items) {
+    lines.push(
+      [
+        item.workspaceName,
+        item.ownerEmail,
+        item.subscription,
+        item.billingStatus,
+        item.recoveryStage,
+        item.followUpState,
+        item.nextFollowUpAt,
+        item.seatLimit,
+        item.seatsUsed,
+        item.reservedSeats,
+        item.pendingInvites,
+        item.revokedInvites,
+        item.fallbackMembers,
+        item.warningCodes.join(' | '),
+        item.recommendedActions.map((action) => action.title).join(' | '),
+        item.lastCommercialEventType,
+        item.lastCommercialEventAt,
+        item.lastOutreachTitle,
+        item.lastOutreachAt,
+        item.lastOutreachAttemptCount,
+        item.nextOutreachAttemptAt,
+        item.lastOutreachExportCount,
+        item.lastOutreachExportedAt,
+        item.lastOutreachWebhookAttemptCount,
+        item.lastOutreachWebhookAttemptAt,
+        item.nextOutreachWebhookAttemptAt,
+        item.lastOutreachWebhookExhaustedAt,
+        item.lastOutreachWebhookDeliveryCount,
+        item.lastOutreachWebhookDeliveredAt,
+        item.lastOutreachWebhookStatusCode,
+        item.lastOutreachWebhookError,
+        item.lastOutreachSlackAlertCount,
+        item.lastOutreachSlackAlertAttemptAt,
+        item.lastOutreachSlackAlertedAt,
+        item.lastOutreachSlackAlertStatusCode,
+        item.lastOutreachSlackAlertError,
+        item.lastOutreachHandoffChannel,
+        item.lastOutreachHandoffAt,
+        item.lastOutreachHandoffNote,
+        item.lastOutreachStatus,
+      ]
+        .map(csvCell)
+        .join(','),
+    );
+  }
+  return lines.join('\n');
+}
+
+function renderRecoveryHandoffCsv(
+  items: CommercialAdminMetrics['teamWorkspaces']['actionableWorkspaces'],
+): string {
+  const header = [
+    'workspace_name',
+    'owner_email',
+    'subscription',
+    'billing_status',
+    'recovery_stage',
+    'follow_up_state',
+    'warning_codes',
+    'recommended_actions',
+    'last_outreach_title',
+    'last_outreach_handoff_channel',
+    'last_outreach_handoff_note',
+    'last_outreach_handoff_at',
+    'last_outreach_export_count',
+    'last_outreach_exported_at',
+    'last_outreach_webhook_attempt_count',
+    'last_outreach_webhook_attempt_at',
+    'next_outreach_webhook_attempt_at',
+    'last_outreach_webhook_exhausted_at',
+    'last_outreach_webhook_delivery_count',
+    'last_outreach_webhook_delivered_at',
+    'last_outreach_webhook_status_code',
+    'last_outreach_webhook_error',
+    'last_outreach_slack_alert_count',
+    'last_outreach_slack_alert_attempt_at',
+    'last_outreach_slack_alerted_at',
+    'last_outreach_slack_alert_status_code',
+    'last_outreach_slack_alert_error',
+  ];
+  const lines = [header.join(',')];
+  for (const item of items) {
+    lines.push(
+      [
+        item.workspaceName,
+        item.ownerEmail,
+        item.subscription,
+        item.billingStatus,
+        item.recoveryStage,
+        item.followUpState,
+        item.warningCodes.join(' | '),
+        item.recommendedActions.map((action) => action.title).join(' | '),
+        item.lastOutreachTitle,
+        item.lastOutreachHandoffChannel,
+        item.lastOutreachHandoffNote,
+        item.lastOutreachHandoffAt,
+        item.lastOutreachExportCount,
+        item.lastOutreachExportedAt,
+        item.lastOutreachWebhookAttemptCount,
+        item.lastOutreachWebhookAttemptAt,
+        item.nextOutreachWebhookAttemptAt,
+        item.lastOutreachWebhookExhaustedAt,
+        item.lastOutreachWebhookDeliveryCount,
+        item.lastOutreachWebhookDeliveredAt,
+        item.lastOutreachWebhookStatusCode,
+        item.lastOutreachWebhookError,
+        item.lastOutreachSlackAlertCount,
+        item.lastOutreachSlackAlertAttemptAt,
+        item.lastOutreachSlackAlertedAt,
+        item.lastOutreachSlackAlertStatusCode,
+        item.lastOutreachSlackAlertError,
+      ]
+        .map(csvCell)
+        .join(','),
+    );
+  }
+  return lines.join('\n');
+}
+
 async function fetchCommercialStats(app: FastifyInstance): Promise<CommercialAdminMetrics> {
   const [
     subscriptionStats,
@@ -124,31 +482,64 @@ async function fetchCommercialStats(app: FastifyInstance): Promise<CommercialAdm
   const latestCommercialTouchByUserId = new Map(
     latestCommercialTouches.map((touch) => [touch.userId, touch]),
   );
-  const actionableWorkspaces = teamWorkspaceStats.actionableWorkspaces.map((workspace) => {
-    const latestCommercialTouch = latestCommercialTouchByUserId.get(workspace.ownerUserId);
-    return {
-      ...workspace,
-      lastCommercialEventAt: latestCommercialTouch?.createdAt ?? null,
-      lastCommercialEventType: latestCommercialTouch?.type ?? null,
-      lastCommercialEventSource: latestCommercialTouch?.source ?? null,
-      recoveryStage: recoveryStageFromCommercialTouch(latestCommercialTouch?.type ?? null),
-    };
-  });
+  const actionableWorkspaces = teamWorkspaceStats.actionableWorkspaces
+    .map((workspace) => {
+      const latestCommercialTouch = latestCommercialTouchByUserId.get(workspace.ownerUserId);
+      const nextWorkspace = {
+        ...workspace,
+        lastCommercialEventAt: latestCommercialTouch?.createdAt ?? null,
+        lastCommercialEventType: latestCommercialTouch?.type ?? null,
+        lastCommercialEventSource: latestCommercialTouch?.source ?? null,
+        recoveryStage: recoveryStageFromCommercialTouch(latestCommercialTouch?.type ?? null),
+      };
+      return {
+        ...nextWorkspace,
+        followUpState: followUpStateFromWorkspace(nextWorkspace),
+        nextFollowUpAt: nextFollowUpAt(nextWorkspace),
+      };
+    })
+    .sort((a, b) => {
+      const exhaustionDelta =
+        Number(Boolean(b.lastOutreachWebhookExhaustedAt)) -
+        Number(Boolean(a.lastOutreachWebhookExhaustedAt));
+      if (exhaustionDelta !== 0) return exhaustionDelta;
+      const priorityDelta =
+        followUpStatePriority(a.followUpState) - followUpStatePriority(b.followUpState);
+      if (priorityDelta !== 0) return priorityDelta;
+      return (
+        new Date(b.lastBillingEventAt ?? 0).getTime() -
+        new Date(a.lastBillingEventAt ?? 0).getTime()
+      );
+    });
   const recoveryStageCounts = new Map<
     CommercialAdminMetrics['teamWorkspaces']['recoveryStages'][number]['stage'],
     CommercialAdminMetrics['teamWorkspaces']['recoveryStages'][number]
+  >();
+  const followUpStateCounts = new Map<
+    CommercialAdminMetrics['teamWorkspaces']['followUpStates'][number]['state'],
+    CommercialAdminMetrics['teamWorkspaces']['followUpStates'][number]
   >();
   for (const workspace of actionableWorkspaces) {
     const existing = recoveryStageCounts.get(workspace.recoveryStage);
     if (existing) {
       existing.count += 1;
-      continue;
+    } else {
+      recoveryStageCounts.set(workspace.recoveryStage, {
+        stage: workspace.recoveryStage,
+        title: recoveryStageTitle(workspace.recoveryStage),
+        count: 1,
+      });
     }
-    recoveryStageCounts.set(workspace.recoveryStage, {
-      stage: workspace.recoveryStage,
-      title: recoveryStageTitle(workspace.recoveryStage),
-      count: 1,
-    });
+    const existingFollowUp = followUpStateCounts.get(workspace.followUpState);
+    if (existingFollowUp) {
+      existingFollowUp.count += 1;
+    } else {
+      followUpStateCounts.set(workspace.followUpState, {
+        state: workspace.followUpState,
+        title: followUpStateTitle(workspace.followUpState),
+        count: 1,
+      });
+    }
   }
 
   return {
@@ -177,6 +568,7 @@ async function fetchCommercialStats(app: FastifyInstance): Promise<CommercialAdm
     teamWorkspaces: {
       ...teamWorkspaceStats,
       recoveryStages: [...recoveryStageCounts.values()].sort((a, b) => b.count - a.count),
+      followUpStates: [...followUpStateCounts.values()].sort((a, b) => b.count - a.count),
       actionableWorkspaces,
     },
   };

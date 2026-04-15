@@ -31,6 +31,17 @@ export const teamWorkspaceBillingNoticeCodeSchema = z.enum([
   'invites_restored',
   'team_access_restored',
 ]);
+export const teamWorkspaceRecoveryOutreachAudienceSchema = z.enum(['owner', 'admin']);
+export const teamWorkspaceRecoveryOutreachChannelSchema = z.enum(['owner_banner', 'admin_queue']);
+export const teamWorkspaceRecoveryOutreachStatusSchema = z.enum([
+  'pending',
+  'handed_off',
+  'resolved',
+]);
+export const teamWorkspaceRecoveryOutreachHandoffChannelSchema = z.enum([
+  'crm',
+  'manual_follow_up',
+]);
 export const teamWorkspaceBillingEventTypeSchema = z.enum([
   'workspace_plan_inactive',
   'workspace_plan_restored',
@@ -95,6 +106,39 @@ export const teamWorkspaceBillingNoticeSchema = z.object({
   actionCode: teamWorkspaceBillingRecoveryActionCodeSchema.nullable(),
 });
 
+export const teamWorkspaceRecoveryOutreachSchema = z.object({
+  id: z.string().uuid(),
+  audience: teamWorkspaceRecoveryOutreachAudienceSchema,
+  channel: teamWorkspaceRecoveryOutreachChannelSchema,
+  status: teamWorkspaceRecoveryOutreachStatusSchema,
+  title: z.string(),
+  detail: z.string(),
+  actionCode: teamWorkspaceBillingRecoveryActionCodeSchema.nullable(),
+  attemptCount: z.number().int().nonnegative(),
+  createdAt: z.string(),
+  lastAttemptAt: z.string(),
+  nextAttemptAt: z.string().nullable(),
+  exportCount: z.number().int().nonnegative(),
+  lastExportedAt: z.string().nullable(),
+  webhookAttemptCount: z.number().int().nonnegative(),
+  lastWebhookAttemptAt: z.string().nullable(),
+  nextWebhookAttemptAt: z.string().nullable(),
+  webhookExhaustedAt: z.string().nullable(),
+  webhookDeliveryCount: z.number().int().nonnegative(),
+  lastWebhookDeliveredAt: z.string().nullable(),
+  lastWebhookStatusCode: z.number().int().nullable(),
+  lastWebhookError: z.string().nullable(),
+  slackAlertCount: z.number().int().nonnegative(),
+  lastSlackAlertAttemptAt: z.string().nullable(),
+  lastSlackAlertedAt: z.string().nullable(),
+  lastSlackAlertStatusCode: z.number().int().nullable(),
+  lastSlackAlertError: z.string().nullable(),
+  handoffChannel: teamWorkspaceRecoveryOutreachHandoffChannelSchema.nullable(),
+  handoffNote: z.string().nullable(),
+  handoffAt: z.string().nullable(),
+  resolvedAt: z.string().nullable(),
+});
+
 export const teamWorkspaceBillingSchema = z.object({
   ownerUserId: z.string().uuid(),
   ownerDisplayName: z.string().nullable(),
@@ -136,6 +180,7 @@ export const teamWorkspaceSchema = z.object({
   createdAt: z.string(),
   billing: teamWorkspaceBillingSchema,
   recentBillingEvents: z.array(teamWorkspaceBillingEventSchema),
+  recentRecoveryOutreach: z.array(teamWorkspaceRecoveryOutreachSchema),
   members: z.array(teamWorkspaceMemberSchema),
   invites: z.array(teamWorkspaceInviteSchema),
   sharedSavedViews: z.array(teamWorkspaceSharedSavedViewSchema),
@@ -176,6 +221,18 @@ export const teamWorkspaceContextMutationResponseSchema = z.object({
   workspace: teamWorkspaceSchema,
 });
 
+export const handoffTeamWorkspaceRecoveryOutreachBodySchema = z.object({
+  workspaceId: z.string().uuid(),
+  channel: teamWorkspaceRecoveryOutreachHandoffChannelSchema.default('crm'),
+  snoozeHours: z
+    .number()
+    .int()
+    .min(0)
+    .max(24 * 14)
+    .default(48),
+  note: z.string().trim().max(500).optional(),
+});
+
 export type TeamWorkspaceRole = z.infer<typeof teamWorkspaceRoleSchema>;
 export type TeamWorkspaceInviteStatus = z.infer<typeof teamWorkspaceInviteStatusSchema>;
 export type TeamWorkspaceBillingWarning = z.infer<typeof teamWorkspaceBillingWarningSchema>;
@@ -186,6 +243,18 @@ export type TeamWorkspaceBillingRecoveryActionSurface = z.infer<
   typeof teamWorkspaceBillingRecoveryActionSurfaceSchema
 >;
 export type TeamWorkspaceBillingNoticeCode = z.infer<typeof teamWorkspaceBillingNoticeCodeSchema>;
+export type TeamWorkspaceRecoveryOutreachAudience = z.infer<
+  typeof teamWorkspaceRecoveryOutreachAudienceSchema
+>;
+export type TeamWorkspaceRecoveryOutreachChannel = z.infer<
+  typeof teamWorkspaceRecoveryOutreachChannelSchema
+>;
+export type TeamWorkspaceRecoveryOutreachStatus = z.infer<
+  typeof teamWorkspaceRecoveryOutreachStatusSchema
+>;
+export type TeamWorkspaceRecoveryOutreachHandoffChannel = z.infer<
+  typeof teamWorkspaceRecoveryOutreachHandoffChannelSchema
+>;
 export type TeamWorkspaceBillingEventType = z.infer<typeof teamWorkspaceBillingEventTypeSchema>;
 export type TeamWorkspaceBillingEventSeverity = z.infer<
   typeof teamWorkspaceBillingEventSeveritySchema
@@ -198,5 +267,6 @@ export type TeamWorkspaceBilling = z.infer<typeof teamWorkspaceBillingSchema>;
 export type TeamWorkspaceBillingRecoveryAction = TeamWorkspaceBilling['recommendedActions'][number];
 export type TeamWorkspaceBillingNotice = TeamWorkspaceBilling['recoveryNotices'][number];
 export type TeamWorkspaceBillingEvent = z.infer<typeof teamWorkspaceBillingEventSchema>;
+export type TeamWorkspaceRecoveryOutreach = z.infer<typeof teamWorkspaceRecoveryOutreachSchema>;
 export type TeamWorkspace = z.infer<typeof teamWorkspaceSchema>;
 export type TeamWorkspaceContextResponse = z.infer<typeof teamWorkspaceContextResponseSchema>;

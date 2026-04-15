@@ -54,7 +54,28 @@ export const config = {
       teamPriceId: process.env.STRIPE_TEAM_PRICE_ID ?? '',
     };
   },
+  get recoveryOutreach() {
+    return {
+      webhookUrl: process.env.TEAM_WORKSPACE_RECOVERY_WEBHOOK_URL ?? '',
+      webhookBearerToken: process.env.TEAM_WORKSPACE_RECOVERY_WEBHOOK_BEARER_TOKEN ?? '',
+      webhookTimeoutMs: Number(process.env.TEAM_WORKSPACE_RECOVERY_WEBHOOK_TIMEOUT_MS ?? 10000),
+      slackWebhookUrl: process.env.TEAM_WORKSPACE_RECOVERY_SLACK_WEBHOOK_URL ?? '',
+      slackWebhookTimeoutMs: Number(
+        process.env.TEAM_WORKSPACE_RECOVERY_SLACK_WEBHOOK_TIMEOUT_MS ?? 10000,
+      ),
+      webhookMaxAttempts: Math.max(
+        1,
+        Math.trunc(Number(process.env.TEAM_WORKSPACE_RECOVERY_WEBHOOK_MAX_ATTEMPTS ?? 3)) || 3,
+      ),
+    };
+  },
   get hasStripe(): boolean {
     return (process.env.STRIPE_SECRET_KEY?.trim() ?? '').startsWith('sk_');
+  },
+  get hasRecoveryOutreachWebhook(): boolean {
+    return (process.env.TEAM_WORKSPACE_RECOVERY_WEBHOOK_URL?.trim() ?? '').length > 0;
+  },
+  get hasRecoveryOutreachSlackWebhook(): boolean {
+    return (process.env.TEAM_WORKSPACE_RECOVERY_SLACK_WEBHOOK_URL?.trim() ?? '').length > 0;
   },
 };
