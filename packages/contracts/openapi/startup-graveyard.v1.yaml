@@ -2119,6 +2119,206 @@ components:
           $ref: '#/components/schemas/ResearchUsageAdminMetrics'
         teamWorkspaces:
           $ref: '#/components/schemas/TeamWorkspaceAdminMetrics'
+    PlatformRuntimeFeatureFlags:
+      type: object
+      required: [dbConfigured, adminEnabled, aiProvider, stripeEnabled, mockMode]
+      properties:
+        dbConfigured: { type: boolean }
+        adminEnabled: { type: boolean }
+        aiProvider:
+          type: string
+          enum: [anthropic, openai, none]
+        stripeEnabled: { type: boolean }
+        mockMode: { type: boolean }
+    PlatformRecentFailedIngestionJob:
+      type: object
+      required: [id, sourceName, triggerType, errorMessage, createdAt, startedAt, finishedAt]
+      properties:
+        id: { type: string, format: uuid }
+        sourceName: { type: string }
+        triggerType: { type: string }
+        errorMessage: { type: string, nullable: true }
+        createdAt: { type: string }
+        startedAt: { type: string, nullable: true }
+        finishedAt: { type: string, nullable: true }
+    PlatformRecentStaleIngestionJob:
+      type: object
+      required: [id, sourceName, triggerType, createdAt, startedAt, runningMinutes]
+      properties:
+        id: { type: string, format: uuid }
+        sourceName: { type: string }
+        triggerType: { type: string }
+        createdAt: { type: string }
+        startedAt: { type: string }
+        runningMinutes: { type: integer, minimum: 0 }
+    PlatformRecentSucceededIngestionJob:
+      type: object
+      required: [id, sourceName, triggerType, createdAt, finishedAt]
+      properties:
+        id: { type: string, format: uuid }
+        sourceName: { type: string }
+        triggerType: { type: string }
+        createdAt: { type: string }
+        finishedAt: { type: string }
+    PlatformWorkerMonitor:
+      type: object
+      required:
+        [
+          enabled,
+          status,
+          startDelayMs,
+          pollIntervalMs,
+          maxJobsPerTick,
+          startedAt,
+          lastTickStartedAt,
+          lastTickCompletedAt,
+          lastProcessedAt,
+          lastProcessedJobId,
+          lastProcessedSourceName,
+          lastProcessedJobStatus,
+          processedJobs,
+          consecutiveErrors,
+          lastError,
+          lastStopAt,
+          recentTicks,
+        ]
+      properties:
+        enabled: { type: boolean }
+        status:
+          type: string
+          enum: [disabled, idle, processing, error, stopped]
+        startDelayMs: { type: integer, minimum: 0 }
+        pollIntervalMs: { type: integer, minimum: 0 }
+        maxJobsPerTick: { type: integer, minimum: 0 }
+        startedAt: { type: string, nullable: true }
+        lastTickStartedAt: { type: string, nullable: true }
+        lastTickCompletedAt: { type: string, nullable: true }
+        lastProcessedAt: { type: string, nullable: true }
+        lastProcessedJobId: { type: string, format: uuid, nullable: true }
+        lastProcessedSourceName: { type: string, nullable: true }
+        lastProcessedJobStatus: { type: string, nullable: true }
+        processedJobs: { type: integer, minimum: 0 }
+        consecutiveErrors: { type: integer, minimum: 0 }
+        lastError: { type: string, nullable: true }
+        lastStopAt: { type: string, nullable: true }
+        recentTicks:
+          type: array
+          items:
+            type: object
+            required:
+              [
+                startedAt,
+                completedAt,
+                outcome,
+                processedCount,
+                lastJobSourceName,
+                lastJobStatus,
+                error,
+              ]
+            properties:
+              startedAt: { type: string }
+              completedAt: { type: string }
+              outcome:
+                type: string
+                enum: [processed, empty_queue, error]
+              processedCount: { type: integer, minimum: 0 }
+              lastJobSourceName: { type: string, nullable: true }
+              lastJobStatus: { type: string, nullable: true }
+              error: { type: string, nullable: true }
+    PlatformAlert:
+      type: object
+      required: [severity, code, title, detail, href]
+      properties:
+        severity:
+          type: string
+          enum: [info, warning, critical]
+        code:
+          type: string
+          enum:
+            [
+              mock_mode_active,
+              ai_provider_unconfigured,
+              stripe_disabled,
+              failed_ingestion_jobs,
+              stale_running_jobs,
+              ingestion_queue_backlog,
+              ingestion_worker_inactive,
+              ingestion_worker_stalled,
+              ingestion_worker_erroring,
+              recovery_dead_letters,
+              recovery_delivery_failures,
+              recovery_playbook_failed,
+            ]
+        title: { type: string }
+        detail: { type: string }
+        href: { type: string, nullable: true }
+    PlatformAdminMetrics:
+      type: object
+      required: [runtime, worker, ingestion, alertSummary, alerts]
+      properties:
+        runtime:
+          type: object
+          required: [service, env, nodeVersion, generatedAt, uptimeSeconds, features]
+          properties:
+            service: { type: string }
+            env: { type: string }
+            nodeVersion: { type: string }
+            generatedAt: { type: string }
+            uptimeSeconds: { type: integer, minimum: 0 }
+            features:
+              $ref: '#/components/schemas/PlatformRuntimeFeatureFlags'
+        worker:
+          $ref: '#/components/schemas/PlatformWorkerMonitor'
+        ingestion:
+          type: object
+          required:
+            [
+              queuedCount,
+              oldestQueuedAgeMinutes,
+              oldestQueuedSourceName,
+              oldestQueuedTriggerType,
+              completedLastHour,
+              runningCount,
+              staleRunningCount,
+              staleThresholdMinutes,
+              recentFailedCount,
+              recentFailed,
+              recentSucceeded,
+              recentStale,
+            ]
+          properties:
+            queuedCount: { type: integer, minimum: 0 }
+            oldestQueuedAgeMinutes: { type: integer, minimum: 0, nullable: true }
+            oldestQueuedSourceName: { type: string, nullable: true }
+            oldestQueuedTriggerType: { type: string, nullable: true }
+            completedLastHour: { type: integer, minimum: 0 }
+            runningCount: { type: integer, minimum: 0 }
+            staleRunningCount: { type: integer, minimum: 0 }
+            staleThresholdMinutes: { type: integer, minimum: 0 }
+            recentFailedCount: { type: integer, minimum: 0 }
+            recentFailed:
+              type: array
+              items:
+                $ref: '#/components/schemas/PlatformRecentFailedIngestionJob'
+            recentSucceeded:
+              type: array
+              items:
+                $ref: '#/components/schemas/PlatformRecentSucceededIngestionJob'
+            recentStale:
+              type: array
+              items:
+                $ref: '#/components/schemas/PlatformRecentStaleIngestionJob'
+        alertSummary:
+          type: object
+          required: [critical, warning, info]
+          properties:
+            critical: { type: integer, minimum: 0 }
+            warning: { type: integer, minimum: 0 }
+            info: { type: integer, minimum: 0 }
+        alerts:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlatformAlert'
     AdminStatsResponse:
       type: object
       required:
@@ -2133,6 +2333,7 @@ components:
         - recentlyAdded
         - pendingReviews
         - ingestionStats
+        - platform
         - commercial
         - copilot
       properties:
@@ -2192,6 +2393,8 @@ components:
             running: { type: integer, minimum: 0 }
             failed: { type: integer, minimum: 0 }
             completed: { type: integer, minimum: 0 }
+        platform:
+          $ref: '#/components/schemas/PlatformAdminMetrics'
         commercial:
           $ref: '#/components/schemas/CommercialAdminMetrics'
         copilot:

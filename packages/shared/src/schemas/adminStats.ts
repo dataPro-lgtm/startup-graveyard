@@ -152,6 +152,106 @@ export const billingFunnelEventSchema = z.object({
   createdAt: z.string(),
 });
 
+export const platformRuntimeFeatureFlagsSchema = z.object({
+  dbConfigured: z.boolean(),
+  adminEnabled: z.boolean(),
+  aiProvider: z.enum(['anthropic', 'openai', 'none']),
+  stripeEnabled: z.boolean(),
+  mockMode: z.boolean(),
+});
+
+export const platformRecentFailedIngestionJobSchema = z.object({
+  id: z.string().uuid(),
+  sourceName: z.string(),
+  triggerType: z.string(),
+  errorMessage: z.string().nullable(),
+  createdAt: z.string(),
+  startedAt: z.string().nullable(),
+  finishedAt: z.string().nullable(),
+});
+
+export const platformRecentStaleIngestionJobSchema = z.object({
+  id: z.string().uuid(),
+  sourceName: z.string(),
+  triggerType: z.string(),
+  createdAt: z.string(),
+  startedAt: z.string(),
+  runningMinutes: nonnegativeInteger,
+});
+
+export const platformRecentSucceededIngestionJobSchema = z.object({
+  id: z.string().uuid(),
+  sourceName: z.string(),
+  triggerType: z.string(),
+  createdAt: z.string(),
+  finishedAt: z.string(),
+});
+
+export const platformWorkerStatusSchema = z.enum([
+  'disabled',
+  'idle',
+  'processing',
+  'error',
+  'stopped',
+]);
+
+export const platformWorkerTickOutcomeSchema = z.enum(['processed', 'empty_queue', 'error']);
+
+export const platformWorkerRecentTickSchema = z.object({
+  startedAt: z.string(),
+  completedAt: z.string(),
+  outcome: platformWorkerTickOutcomeSchema,
+  processedCount: nonnegativeInteger,
+  lastJobSourceName: z.string().nullable(),
+  lastJobStatus: z.string().nullable(),
+  error: z.string().nullable(),
+});
+
+export const platformWorkerMonitorSchema = z.object({
+  enabled: z.boolean(),
+  status: platformWorkerStatusSchema,
+  startDelayMs: nonnegativeInteger,
+  pollIntervalMs: nonnegativeInteger,
+  maxJobsPerTick: nonnegativeInteger,
+  startedAt: z.string().nullable(),
+  lastTickStartedAt: z.string().nullable(),
+  lastTickCompletedAt: z.string().nullable(),
+  lastProcessedAt: z.string().nullable(),
+  lastProcessedJobId: z.string().uuid().nullable(),
+  lastProcessedSourceName: z.string().nullable(),
+  lastProcessedJobStatus: z.string().nullable(),
+  processedJobs: nonnegativeInteger,
+  consecutiveErrors: nonnegativeInteger,
+  lastError: z.string().nullable(),
+  lastStopAt: z.string().nullable(),
+  recentTicks: z.array(platformWorkerRecentTickSchema),
+});
+
+export const platformAlertSeveritySchema = z.enum(['info', 'warning', 'critical']);
+
+export const platformAlertCodeSchema = z.enum([
+  'mock_mode_active',
+  'ai_provider_unconfigured',
+  'stripe_disabled',
+  'failed_ingestion_jobs',
+  'stale_running_jobs',
+  'ingestion_queue_backlog',
+  'ingestion_worker_inactive',
+  'ingestion_worker_stalled',
+  'ingestion_worker_erroring',
+  'recovery_dead_letters',
+  'recovery_delivery_failures',
+  'recovery_playbook_failed',
+]);
+
+export const platformAlertSchema = z.object({
+  severity: platformAlertSeveritySchema,
+  code: platformAlertCodeSchema,
+  title: z.string(),
+  detail: z.string(),
+  href: z.string().nullable(),
+});
+
 export const teamWorkspaceRecoveryStageSchema = z.enum([
   'needs_outreach',
   'owner_engaged',
@@ -371,6 +471,38 @@ export const commercialAdminMetricsSchema = z.object({
   teamWorkspaces: teamWorkspaceAdminMetricsSchema,
 });
 
+export const platformAdminMetricsSchema = z.object({
+  runtime: z.object({
+    service: z.string(),
+    env: z.string(),
+    nodeVersion: z.string(),
+    generatedAt: z.string(),
+    uptimeSeconds: nonnegativeInteger,
+    features: platformRuntimeFeatureFlagsSchema,
+  }),
+  worker: platformWorkerMonitorSchema,
+  ingestion: z.object({
+    queuedCount: nonnegativeInteger,
+    oldestQueuedAgeMinutes: nonnegativeInteger.nullable(),
+    oldestQueuedSourceName: z.string().nullable(),
+    oldestQueuedTriggerType: z.string().nullable(),
+    completedLastHour: nonnegativeInteger,
+    runningCount: nonnegativeInteger,
+    staleRunningCount: nonnegativeInteger,
+    staleThresholdMinutes: nonnegativeInteger,
+    recentFailedCount: nonnegativeInteger,
+    recentFailed: z.array(platformRecentFailedIngestionJobSchema),
+    recentSucceeded: z.array(platformRecentSucceededIngestionJobSchema),
+    recentStale: z.array(platformRecentStaleIngestionJobSchema),
+  }),
+  alertSummary: z.object({
+    critical: nonnegativeInteger,
+    warning: nonnegativeInteger,
+    info: nonnegativeInteger,
+  }),
+  alerts: z.array(platformAlertSchema),
+});
+
 export const adminStatsResponseSchema = z.object({
   totalPublished: nonnegativeInteger,
   totalFundingUsd: nonnegativeNumber,
@@ -416,6 +548,7 @@ export const adminStatsResponseSchema = z.object({
     failed: nonnegativeInteger,
     completed: nonnegativeInteger,
   }),
+  platform: platformAdminMetricsSchema,
   commercial: commercialAdminMetricsSchema,
   copilot: copilotAdminMetricsSchema,
 });
@@ -434,6 +567,21 @@ export type CopilotAdminMetrics = z.infer<typeof copilotAdminMetricsSchema>;
 export type BillingFunnelEventType = z.infer<typeof billingFunnelEventTypeSchema>;
 export type BillingFunnelEventSource = z.infer<typeof billingFunnelEventSourceSchema>;
 export type BillingFunnelEvent = z.infer<typeof billingFunnelEventSchema>;
+export type PlatformRuntimeFeatureFlags = z.infer<typeof platformRuntimeFeatureFlagsSchema>;
+export type PlatformRecentFailedIngestionJob = z.infer<
+  typeof platformRecentFailedIngestionJobSchema
+>;
+export type PlatformRecentStaleIngestionJob = z.infer<typeof platformRecentStaleIngestionJobSchema>;
+export type PlatformRecentSucceededIngestionJob = z.infer<
+  typeof platformRecentSucceededIngestionJobSchema
+>;
+export type PlatformWorkerStatus = z.infer<typeof platformWorkerStatusSchema>;
+export type PlatformWorkerRecentTick = z.infer<typeof platformWorkerRecentTickSchema>;
+export type PlatformWorkerMonitor = z.infer<typeof platformWorkerMonitorSchema>;
+export type PlatformAlertSeverity = z.infer<typeof platformAlertSeveritySchema>;
+export type PlatformAlertCode = z.infer<typeof platformAlertCodeSchema>;
+export type PlatformAlert = z.infer<typeof platformAlertSchema>;
+export type PlatformAdminMetrics = z.infer<typeof platformAdminMetricsSchema>;
 export type BillingFunnelAdminMetrics = z.infer<typeof billingFunnelAdminMetricsSchema>;
 export type TeamWorkspaceAdminMetrics = z.infer<typeof teamWorkspaceAdminMetricsSchema>;
 export type SubscriptionAdminMetrics = z.infer<typeof subscriptionAdminMetricsSchema>;

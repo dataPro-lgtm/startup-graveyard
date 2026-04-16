@@ -31,6 +31,8 @@ export default async function DashboardPage({
   const recoveryWebhookError = pickSearchParam(raw.recoveryWebhookError);
   const recoverySlack = pickSearchParam(raw.recoverySlack);
   const recoverySlackError = pickSearchParam(raw.recoverySlackError);
+  const reclaimStale = pickSearchParam(raw.reclaimStale);
+  const reclaimStaleError = pickSearchParam(raw.reclaimStaleError);
   const stats = await fetchAdminStats(adminKey);
   void headers(); // ensure dynamic rendering when no admin key
 
@@ -153,6 +155,22 @@ export default async function DashboardPage({
             }}
           >
             通知 Ops Slack
+          </button>
+        </form>
+        <form action="/admin/ingestion-jobs/reclaim-stale" method="post" style={{ margin: 0 }}>
+          <input type="hidden" name="maxRunningMinutes" value="30" />
+          <button
+            type="submit"
+            style={{
+              border: '1px solid #7f1d1d',
+              background: '#2b1414',
+              color: '#fecaca',
+              borderRadius: 8,
+              padding: '6px 10px',
+              cursor: 'pointer',
+            }}
+          >
+            回收 Stale Jobs
           </button>
         </form>
       </div>
@@ -397,6 +415,38 @@ export default async function DashboardPage({
           Ops Slack 告警失败：{recoverySlackError}
         </div>
       ) : null}
+      {reclaimStale ? (
+        <div
+          style={{
+            marginBottom: 18,
+            padding: '12px 14px',
+            borderRadius: 12,
+            border: '1px solid #7f1d1d',
+            background: '#2b1414',
+            color: '#fecaca',
+            fontSize: 13,
+          }}
+        >
+          {reclaimStale === '0'
+            ? '当前没有超过阈值的 stale running jobs。'
+            : `已回收 ${reclaimStale} 条 stale running jobs。`}
+        </div>
+      ) : null}
+      {reclaimStaleError ? (
+        <div
+          style={{
+            marginBottom: 18,
+            padding: '12px 14px',
+            borderRadius: 12,
+            border: '1px solid #4b2430',
+            background: '#23131a',
+            color: '#fecdd3',
+            fontSize: 13,
+          }}
+        >
+          回收 stale running jobs 失败：{reclaimStaleError}
+        </div>
+      ) : null}
 
       {!stats ? (
         <p style={{ color: '#f87171' }}>数据加载失败，请检查 API 连接和管理员密钥。</p>
@@ -422,6 +472,38 @@ function formatCompactUsd(value: number | null): string {
 function formatDateTime(value: string | null): string {
   if (!value) return '暂无';
   return new Date(value).toLocaleString('zh-CN');
+}
+
+function platformAlertSeverityLabel(
+  severity: AdminStats['platform']['alerts'][number]['severity'],
+): string {
+  if (severity === 'critical') return 'Critical';
+  if (severity === 'warning') return 'Warning';
+  return 'Info';
+}
+
+function platformAlertSeverityColor(
+  severity: AdminStats['platform']['alerts'][number]['severity'],
+): string {
+  if (severity === 'critical') return '#fb7185';
+  if (severity === 'warning') return '#f59e0b';
+  return '#38bdf8';
+}
+
+function workerStatusLabel(status: AdminStats['platform']['worker']['status']): string {
+  if (status === 'disabled') return 'Disabled';
+  if (status === 'idle') return 'Idle';
+  if (status === 'processing') return 'Processing';
+  if (status === 'error') return 'Error';
+  return 'Stopped';
+}
+
+function workerTickOutcomeLabel(
+  outcome: AdminStats['platform']['worker']['recentTicks'][number]['outcome'],
+): string {
+  if (outcome === 'processed') return 'Processed';
+  if (outcome === 'empty_queue') return 'Empty Queue';
+  return 'Error';
 }
 
 function commercialEventLabel(
@@ -493,6 +575,7 @@ function playbookFailedSteps(
 }
 
 function DashboardContent({ stats }: { stats: AdminStats }) {
+  const platformStats = stats.platform;
   const subscriptionStats = stats.commercial.subscriptions;
   const billingFunnelStats = stats.commercial.billingFunnel;
   const researchStats = stats.commercial.researchUsage;
@@ -575,6 +658,12 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
     playbookStats.failedRuns,
     playbookStats.scheduledRuns,
     playbookStats.manualRuns,
+    1,
+  );
+  const maxPlatformAlertMetric = Math.max(
+    platformStats.alertSummary.critical,
+    platformStats.alertSummary.warning,
+    platformStats.alertSummary.info,
     1,
   );
   const maxBillingFunnelMetric = Math.max(
@@ -762,7 +851,457 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
           }
           color="#14b8a6"
         />
+        <KpiCard
+          label="平台告警"
+          value={String(platformStats.alerts.length)}
+          sub={`严重 ${platformStats.alertSummary.critical} / 警告 ${platformStats.alertSummary.warning}`}
+          color="#fb7185"
+        />
+        <KpiCard
+          label="失败任务"
+          value={String(platformStats.ingestion.recentFailedCount)}
+          sub={
+            platformStats.ingestion.recentFailed[0]
+              ? `最新 ${platformStats.ingestion.recentFailed[0].sourceName}`
+              : '近期待处理失败任务为 0'
+          }
+          color="#f97316"
+        />
+        <KpiCard
+          label="Stale Running"
+          value={String(platformStats.ingestion.staleRunningCount)}
+          sub={`${platformStats.ingestion.runningCount} running · 阈值 ${platformStats.ingestion.staleThresholdMinutes}m`}
+          color="#ef4444"
+        />
+        <KpiCard
+          label="Queue Backlog"
+          value={
+            platformStats.ingestion.oldestQueuedAgeMinutes != null
+              ? `${platformStats.ingestion.oldestQueuedAgeMinutes}m`
+              : 'Healthy'
+          }
+          sub={`${platformStats.ingestion.queuedCount} queued · 1h 完成 ${platformStats.ingestion.completedLastHour}`}
+          color={
+            platformStats.ingestion.oldestQueuedAgeMinutes != null &&
+            platformStats.ingestion.oldestQueuedAgeMinutes >= 60
+              ? '#fb7185'
+              : platformStats.ingestion.oldestQueuedAgeMinutes != null &&
+                  platformStats.ingestion.oldestQueuedAgeMinutes >= 15
+                ? '#f59e0b'
+                : '#22c55e'
+          }
+        />
+        <KpiCard
+          label="Worker"
+          value={workerStatusLabel(platformStats.worker.status)}
+          sub={
+            platformStats.worker.lastProcessedAt
+              ? `最近处理 ${formatDateTime(platformStats.worker.lastProcessedAt)}`
+              : '尚未处理队列'
+          }
+          color={
+            platformStats.worker.status === 'error' || platformStats.worker.consecutiveErrors > 0
+              ? '#fb7185'
+              : platformStats.worker.status === 'processing'
+                ? '#f59e0b'
+                : '#22c55e'
+          }
+        />
+        <KpiCard
+          label="Runtime"
+          value={platformStats.runtime.features.mockMode ? 'Mock' : 'Live'}
+          sub={`${platformStats.runtime.env} · ${platformStats.runtime.features.aiProvider}`}
+          color="#6366f1"
+        />
       </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1.2fr', gap: 20 }}>
+        <ChartCard title="Platform Runtime">
+          <div style={{ display: 'grid', gap: 12 }}>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+                gap: 10,
+              }}
+            >
+              {[
+                ['Service', platformStats.runtime.service],
+                ['Env', platformStats.runtime.env],
+                ['Node', platformStats.runtime.nodeVersion],
+                ['Uptime', `${Math.floor(platformStats.runtime.uptimeSeconds / 60)} min`],
+                ['Generated At', formatDateTime(platformStats.runtime.generatedAt)],
+              ].map(([label, value]) => (
+                <div
+                  key={label}
+                  style={{
+                    border: '1px solid #24314f',
+                    borderRadius: 12,
+                    background: '#0d1426',
+                    padding: '12px 14px',
+                    display: 'grid',
+                    gap: 4,
+                  }}
+                >
+                  <div style={{ color: '#8a96b0', fontSize: 12 }}>{label}</div>
+                  <div style={{ color: '#eef2ff', fontWeight: 700, fontSize: 13 }}>{value}</div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: 'grid', gap: 10 }}>
+              {[
+                [
+                  'Database',
+                  platformStats.runtime.features.dbConfigured ? 'Configured' : 'Missing',
+                  platformStats.runtime.features.dbConfigured ? '#22c55e' : '#fb7185',
+                ],
+                [
+                  'Admin API',
+                  platformStats.runtime.features.adminEnabled ? 'Enabled' : 'Disabled',
+                  platformStats.runtime.features.adminEnabled ? '#22c55e' : '#fb7185',
+                ],
+                [
+                  'Stripe',
+                  platformStats.runtime.features.stripeEnabled ? 'Enabled' : 'Disabled',
+                  platformStats.runtime.features.stripeEnabled ? '#22c55e' : '#f59e0b',
+                ],
+                [
+                  'AI Provider',
+                  platformStats.runtime.features.aiProvider,
+                  platformStats.runtime.features.aiProvider === 'none' ? '#f59e0b' : '#38bdf8',
+                ],
+                [
+                  'Mode',
+                  platformStats.runtime.features.mockMode ? 'Mock repositories' : 'PostgreSQL',
+                  platformStats.runtime.features.mockMode ? '#f59e0b' : '#22c55e',
+                ],
+                [
+                  'Worker',
+                  workerStatusLabel(platformStats.worker.status),
+                  platformStats.worker.status === 'error' ||
+                  platformStats.worker.consecutiveErrors > 0
+                    ? '#fb7185'
+                    : platformStats.worker.status === 'processing'
+                      ? '#f59e0b'
+                      : '#22c55e',
+                ],
+              ].map(([label, value, color]) => (
+                <div
+                  key={label}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    border: '1px solid #24314f',
+                    borderRadius: 12,
+                    background: '#0d1426',
+                    padding: '10px 14px',
+                    fontSize: 13,
+                  }}
+                >
+                  <span style={{ color: '#8a96b0' }}>{label}</span>
+                  <span style={{ color, fontWeight: 700 }}>{value}</span>
+                </div>
+              ))}
+            </div>
+            <div
+              style={{
+                border: '1px solid #24314f',
+                borderRadius: 12,
+                background: '#0d1426',
+                padding: '12px 14px',
+                display: 'grid',
+                gap: 6,
+              }}
+            >
+              <div style={{ fontWeight: 700, fontSize: 13 }}>Ingestion Worker Health</div>
+              <div style={{ color: '#d7deef', fontSize: 13 }}>
+                已处理 {platformStats.worker.processedJobs} 条任务
+                {platformStats.worker.lastProcessedSourceName
+                  ? ` · 最近 ${platformStats.worker.lastProcessedSourceName}`
+                  : ''}
+                {platformStats.worker.lastProcessedJobStatus
+                  ? ` (${platformStats.worker.lastProcessedJobStatus})`
+                  : ''}
+              </div>
+              <div style={{ color: '#8a96b0', fontSize: 12 }}>
+                启动 {formatDateTime(platformStats.worker.startedAt)} · 最近 tick 开始{' '}
+                {formatDateTime(platformStats.worker.lastTickStartedAt)} · 最近 tick 完成{' '}
+                {formatDateTime(platformStats.worker.lastTickCompletedAt)}
+              </div>
+              <div style={{ color: '#8a96b0', fontSize: 12 }}>
+                poll {Math.floor(platformStats.worker.pollIntervalMs / 1000)}s · start delay{' '}
+                {Math.floor(platformStats.worker.startDelayMs / 1000)}s · max jobs/tick{' '}
+                {platformStats.worker.maxJobsPerTick}
+                {platformStats.worker.consecutiveErrors > 0
+                  ? ` · consecutive errors ${platformStats.worker.consecutiveErrors}`
+                  : ''}
+              </div>
+              {platformStats.worker.lastError ? (
+                <div style={{ color: '#fecaca', fontSize: 12 }}>
+                  最近错误：{platformStats.worker.lastError}
+                </div>
+              ) : null}
+            </div>
+            <div
+              style={{
+                border: '1px solid #24314f',
+                borderRadius: 12,
+                background: '#0d1426',
+                padding: '12px 14px',
+                display: 'grid',
+                gap: 8,
+              }}
+            >
+              <div style={{ fontWeight: 700, fontSize: 13 }}>Recent Worker Heartbeats</div>
+              {platformStats.worker.recentTicks.length === 0 ? (
+                <div style={{ color: '#8a96b0', fontSize: 12 }}>
+                  当前还没有 heartbeat 历史，说明 worker 尚未真正跑过一个 tick。
+                </div>
+              ) : (
+                platformStats.worker.recentTicks.map((tick) => (
+                  <div
+                    key={`${tick.startedAt}-${tick.completedAt}-${tick.outcome}`}
+                    style={{
+                      border: '1px solid #24314f',
+                      borderRadius: 10,
+                      background: '#10192e',
+                      padding: '10px 12px',
+                      display: 'grid',
+                      gap: 4,
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                      <span style={{ color: '#eef2ff', fontWeight: 700, fontSize: 12 }}>
+                        {workerTickOutcomeLabel(tick.outcome)}
+                      </span>
+                      <span
+                        style={{
+                          color: tick.outcome === 'error' ? '#fb7185' : '#8a96b0',
+                          fontSize: 12,
+                        }}
+                      >
+                        {tick.processedCount} jobs
+                      </span>
+                    </div>
+                    <div style={{ color: '#8a96b0', fontSize: 12 }}>
+                      开始 {formatDateTime(tick.startedAt)} · 完成{' '}
+                      {formatDateTime(tick.completedAt)}
+                    </div>
+                    <div style={{ color: '#d7deef', fontSize: 12 }}>
+                      {tick.lastJobSourceName
+                        ? `${tick.lastJobSourceName}${tick.lastJobStatus ? ` (${tick.lastJobStatus})` : ''}`
+                        : '本次 tick 没有处理具体 job'}
+                    </div>
+                    {tick.error ? (
+                      <div style={{ color: '#fecaca', fontSize: 12 }}>错误：{tick.error}</div>
+                    ) : null}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </ChartCard>
+
+        <ChartCard title="Platform Alerts">
+          {platformStats.alerts.length === 0 ? (
+            <EmptyState text="当前没有平台级告警，运行态和恢复链看起来是健康的。" compact />
+          ) : (
+            <div style={{ display: 'grid', gap: 12 }}>
+              <BarRow
+                label="Critical"
+                value={platformStats.alertSummary.critical}
+                max={maxPlatformAlertMetric}
+                color="#fb7185"
+                sub="需要立即处理的基础设施/恢复链问题"
+              />
+              <BarRow
+                label="Warning"
+                value={platformStats.alertSummary.warning}
+                max={maxPlatformAlertMetric}
+                color="#f59e0b"
+                sub="功能可运行，但当前环境或链路存在明显风险"
+              />
+              <BarRow
+                label="Info"
+                value={platformStats.alertSummary.info}
+                max={maxPlatformAlertMetric}
+                color="#38bdf8"
+                sub="提示性状态，暂不阻断主链"
+              />
+              {platformStats.alerts.map((alert) => (
+                <div
+                  key={`${alert.code}-${alert.title}`}
+                  style={{
+                    border: `1px solid ${platformAlertSeverityColor(alert.severity)}`,
+                    borderRadius: 12,
+                    background: '#0d1426',
+                    padding: '12px 14px',
+                    display: 'grid',
+                    gap: 6,
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                    <div style={{ fontWeight: 700 }}>{alert.title}</div>
+                    <div
+                      style={{
+                        color: platformAlertSeverityColor(alert.severity),
+                        fontSize: 12,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {platformAlertSeverityLabel(alert.severity)}
+                    </div>
+                  </div>
+                  <div style={{ color: '#d7deef', fontSize: 13 }}>{alert.detail}</div>
+                  <div style={{ color: '#8a96b0', fontSize: 12 }}>
+                    code: {alert.code}
+                    {alert.href ? ` · 建议入口 ${alert.href}` : ''}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </ChartCard>
+      </div>
+
+      <ChartCard title="Recent Failed Ingestion Jobs">
+        {platformStats.ingestion.recentFailed.length === 0 ? (
+          <EmptyState text="近期没有失败的 ingestion jobs。" compact />
+        ) : (
+          <div style={{ display: 'grid', gap: 12 }}>
+            {platformStats.ingestion.recentFailed.map((job) => (
+              <div
+                key={job.id}
+                style={{
+                  border: '1px solid #24314f',
+                  borderRadius: 12,
+                  background: '#0d1426',
+                  padding: '12px 14px',
+                  display: 'grid',
+                  gap: 6,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                  <div style={{ fontWeight: 700 }}>
+                    {job.sourceName} · {job.triggerType}
+                  </div>
+                  <div style={{ color: '#fb7185', fontSize: 12, fontWeight: 700 }}>failed</div>
+                </div>
+                <div style={{ color: '#d7deef', fontSize: 13 }}>
+                  {job.errorMessage ?? '任务失败，但没有记录错误消息。'}
+                </div>
+                <div style={{ color: '#8a96b0', fontSize: 12 }}>
+                  创建 {formatDateTime(job.createdAt)}
+                  {job.startedAt ? ` · 开始 ${formatDateTime(job.startedAt)}` : ''}
+                  {job.finishedAt ? ` · 结束 ${formatDateTime(job.finishedAt)}` : ''}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </ChartCard>
+
+      <ChartCard title="Stale Running Ingestion Jobs">
+        {platformStats.ingestion.recentStale.length === 0 ? (
+          <EmptyState
+            text={`当前没有超过 ${platformStats.ingestion.staleThresholdMinutes} 分钟的 running tasks。`}
+            compact
+          />
+        ) : (
+          <div style={{ display: 'grid', gap: 12 }}>
+            {platformStats.ingestion.recentStale.map((job) => (
+              <div
+                key={job.id}
+                style={{
+                  border: '1px solid #4b2430',
+                  borderRadius: 12,
+                  background: '#0d1426',
+                  padding: '12px 14px',
+                  display: 'grid',
+                  gap: 6,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                  <div style={{ fontWeight: 700 }}>
+                    {job.sourceName} · {job.triggerType}
+                  </div>
+                  <div style={{ color: '#fb7185', fontSize: 12, fontWeight: 700 }}>
+                    {job.runningMinutes} min
+                  </div>
+                </div>
+                <div style={{ color: '#d7deef', fontSize: 13 }}>
+                  任务已连续运行 {job.runningMinutes} 分钟，超过自动诊断阈值，建议先 reclaim 再检查
+                  worker / 外部依赖。
+                </div>
+                <div style={{ color: '#8a96b0', fontSize: 12 }}>
+                  创建 {formatDateTime(job.createdAt)} · 开始 {formatDateTime(job.startedAt)}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </ChartCard>
+
+      <ChartCard title="Queued Backlog & Throughput">
+        <div style={{ display: 'grid', gap: 12 }}>
+          <div
+            style={{
+              border: '1px solid #24314f',
+              borderRadius: 12,
+              background: '#0d1426',
+              padding: '12px 14px',
+              display: 'grid',
+              gap: 6,
+            }}
+          >
+            <div style={{ fontWeight: 700, fontSize: 13 }}>Queue Snapshot</div>
+            <div style={{ color: '#d7deef', fontSize: 13 }}>
+              当前 queued {platformStats.ingestion.queuedCount} 条 · 最近 1 小时完成{' '}
+              {platformStats.ingestion.completedLastHour} 条
+            </div>
+            <div style={{ color: '#8a96b0', fontSize: 12 }}>
+              {platformStats.ingestion.oldestQueuedAgeMinutes != null
+                ? `最老 queued 任务 ${platformStats.ingestion.oldestQueuedSourceName ?? 'unknown'} / ${platformStats.ingestion.oldestQueuedTriggerType ?? 'unknown'} 已等待 ${platformStats.ingestion.oldestQueuedAgeMinutes} 分钟`
+                : '当前没有 queued backlog。'}
+            </div>
+          </div>
+
+          {platformStats.ingestion.recentSucceeded.length === 0 ? (
+            <EmptyState
+              text="最近没有成功完成的 ingestion jobs，可结合 backlog 一起判断 worker 是否真正消费队列。"
+              compact
+            />
+          ) : (
+            <div style={{ display: 'grid', gap: 12 }}>
+              {platformStats.ingestion.recentSucceeded.map((job) => (
+                <div
+                  key={job.id}
+                  style={{
+                    border: '1px solid #24314f',
+                    borderRadius: 12,
+                    background: '#0d1426',
+                    padding: '12px 14px',
+                    display: 'grid',
+                    gap: 6,
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                    <div style={{ fontWeight: 700 }}>
+                      {job.sourceName} · {job.triggerType}
+                    </div>
+                    <div style={{ color: '#22c55e', fontSize: 12, fontWeight: 700 }}>succeeded</div>
+                  </div>
+                  <div style={{ color: '#8a96b0', fontSize: 12 }}>
+                    创建 {formatDateTime(job.createdAt)} · 完成 {formatDateTime(job.finishedAt)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </ChartCard>
 
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20 }}>
         <ChartCard title="订阅转化结构">

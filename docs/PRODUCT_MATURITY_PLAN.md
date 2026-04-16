@@ -100,6 +100,15 @@
 - 视检索压力引入 OpenSearch；视工作流复杂度升级到 Temporal。
 - 建立 nightly regression、数据质量报表、检索评测。
 
+已完成 M4 第一段（platform diagnostics baseline）：
+
+- `/v1/admin/stats` 现在会统一返回 `platform` 诊断层，包含 runtime feature flags、Node/env/uptime、最近失败的 ingestion jobs，以及派生出来的 operational alerts。
+- Admin Dashboard 已新增 Platform Runtime、Platform Alerts 和 Recent Failed Ingestion Jobs 面板，不再需要运营自己去猜当前环境是不是 mock mode、最近是否有 ingestion 挂掉、恢复链是不是已经开始出现 dead-letter / playbook failure。
+- 这一步先解决“后台可见性几乎为空”的问题，把后续 OTel、metrics、worker / queue 基建接入前最需要的运行态和失败态暴露出来。
+- 这条诊断链现在还会额外识别超过阈值的 `stale running` ingestion jobs，并允许运营直接从 Dashboard 触发 reclaim，不用再切回 reviews 才能处理卡住的 worker 任务。
+- 平台诊断层现在还会暴露 ingestion worker 的运行状态、最近 heartbeat 历史、最近一次 tick、最近处理的 job，以及 stalled / erroring worker 告警，方便判断问题是“队列本身卡住”还是“worker 已经不再消费队列”。
+- 诊断层现在还会额外给出 queued backlog 年龄、最老 queued job 和最近一小时吞吐，帮助区分“worker 死掉了”和“worker 还活着，但 ingest 已经开始积压”。
+
 ## 4. 当前执行顺序
 
 按“先把底盘打稳，再扩产品面”的原则，优先级如下：

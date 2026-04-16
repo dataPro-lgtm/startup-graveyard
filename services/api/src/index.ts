@@ -17,10 +17,14 @@ if (pool) {
     info: (msg) => server.log.info(msg),
     error: (msg, err) => server.log.error(err, msg),
   });
-  const stopWorker = startIngestionWorker(server.ingestionJobsRepo, {
-    info: (msg) => server.log.info(msg),
-    error: (msg, err) => server.log.error(err, msg),
-  });
+  const stopWorker = startIngestionWorker(
+    server.ingestionJobsRepo,
+    {
+      info: (msg) => server.log.info(msg),
+      error: (msg, err) => server.log.error(err, msg),
+    },
+    server.ingestionWorkerMonitor,
+  );
 
   // Graceful shutdown
   const stop = async () => {

@@ -21,6 +21,7 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    delete process.env.DATABASE_URL;
     delete process.env.TEAM_WORKSPACE_RECOVERY_CRM_API_URL;
     delete process.env.TEAM_WORKSPACE_RECOVERY_CRM_API_BEARER_TOKEN;
     delete process.env.TEAM_WORKSPACE_RECOVERY_CRM_API_TIMEOUT_MS;
@@ -237,6 +238,28 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body)).toMatchObject({
+      platform: {
+        runtime: {
+          service: 'startup-graveyard-api',
+          features: {
+            adminEnabled: true,
+            mockMode: true,
+            dbConfigured: false,
+          },
+        },
+        ingestion: {
+          recentFailedCount: 0,
+          recentFailed: [],
+        },
+        alertSummary: expect.objectContaining({
+          warning: expect.any(Number),
+        }),
+        alerts: expect.arrayContaining([
+          expect.objectContaining({
+            code: 'mock_mode_active',
+          }),
+        ]),
+      },
       commercial: {
         subscriptions: {
           totalUsers: 1,
@@ -370,6 +393,322 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
             fallbackReason: 'provider_unavailable',
           }),
         ],
+      },
+    });
+  });
+
+  it('GET /v1/admin/stats surfaces platform diagnostics for failed ingestion jobs', async () => {
+    const queued = await app.ingestionJobsRepo.enqueue({
+      sourceName: 'fetch_title',
+      triggerType: 'platform_diagnostics_test',
+      payload: {},
+    });
+    expect(queued.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+
+    const processed = await app.ingestionJobsRepo.processNext();
+    expect(processed.ok).toBe(true);
+    if (processed.ok) {
+      expect(processed.job.status).toBe('failed');
+      expect(processed.job.sourceName).toBe('fetch_title');
+      expect(processed.job.triggerType).toBe('platform_diagnostics_test');
+      expect(processed.job.errorMessage).toContain('需要 payload.url');
+    }
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/stats',
+      headers: { 'x-admin-key': key },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      platform: {
+        ingestion: {
+          recentFailedCount: expect.any(Number),
+          recentFailed: expect.arrayContaining([
+            expect.objectContaining({
+              sourceName: 'fetch_title',
+              triggerType: 'platform_diagnostics_test',
+              errorMessage: expect.stringContaining('需要 payload.url'),
+            }),
+          ]),
+        },
+        alerts: expect.arrayContaining([
+          expect.objectContaining({
+            code: 'failed_ingestion_jobs',
+          }),
+        ]),
+      },
+    });
+  });
+
+  it('GET /v1/admin/stats detects stale running jobs and reclaim-stale resets them', async () => {
+    const queued = await app.ingestionJobsRepo.enqueue({
+      sourceName: 'pipeline_url_draft',
+      triggerType: 'stale_running_test',
+      payload: { url: 'https://example.com/stale-running' },
+    });
+    const mockRepo = app.ingestionJobsRepo as unknown as {
+      jobs: Array<{
+        id: string;
+        status: string;
+        startedAt: string | null;
+        finishedAt: string | null;
+        errorMessage: string | null;
+      }>;
+    };
+    const staleStartedAt = new Date(Date.now() - 45 * 60_000).toISOString();
+    const staleIndex = mockRepo.jobs.findIndex((job) => job.id === queued.id);
+    expect(staleIndex).toBeGreaterThanOrEqual(0);
+    mockRepo.jobs[staleIndex] = {
+      ...mockRepo.jobs[staleIndex]!,
+      status: 'running',
+      startedAt: staleStartedAt,
+      finishedAt: null,
+      errorMessage: null,
+    };
+
+    const beforeRes = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/stats',
+      headers: { 'x-admin-key': key },
+    });
+    expect(beforeRes.statusCode).toBe(200);
+    expect(JSON.parse(beforeRes.body)).toMatchObject({
+      platform: {
+        ingestion: {
+          runningCount: expect.any(Number),
+          staleRunningCount: 1,
+          staleThresholdMinutes: 30,
+          recentStale: expect.arrayContaining([
+            expect.objectContaining({
+              sourceName: 'pipeline_url_draft',
+              triggerType: 'stale_running_test',
+            }),
+          ]),
+        },
+        alerts: expect.arrayContaining([
+          expect.objectContaining({
+            code: 'stale_running_jobs',
+          }),
+        ]),
+      },
+    });
+
+    const reclaimRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/ingestion-jobs/reclaim-stale?maxRunningMinutes=30',
+      headers: { 'x-admin-key': key },
+    });
+    expect(reclaimRes.statusCode).toBe(200);
+    expect(JSON.parse(reclaimRes.body)).toMatchObject({
+      reclaimed: 1,
+      jobIds: [queued.id],
+    });
+
+    const afterRes = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/stats',
+      headers: { 'x-admin-key': key },
+    });
+    expect(afterRes.statusCode).toBe(200);
+    expect(JSON.parse(afterRes.body)).toMatchObject({
+      platform: {
+        ingestion: {
+          staleRunningCount: 0,
+          recentStale: [],
+        },
+      },
+    });
+  });
+
+  it('GET /v1/admin/stats surfaces ingestion queue backlog and recent throughput', async () => {
+    const completed = await app.ingestionJobsRepo.enqueue({
+      sourceName: 'echo',
+      triggerType: 'queue_backlog_completed_test',
+      payload: { message: 'completed ok' },
+    });
+    const backlog = await app.ingestionJobsRepo.enqueue({
+      sourceName: 'echo',
+      triggerType: 'queue_backlog_pending_test',
+      payload: { message: 'pending backlog' },
+    });
+    const mockRepo = app.ingestionJobsRepo as unknown as {
+      jobs: Array<{
+        id: string;
+        status: string;
+        createdAt: string;
+        finishedAt: string | null;
+        startedAt: string | null;
+        errorMessage: string | null;
+      }>;
+    };
+    const backlogIndex = mockRepo.jobs.findIndex((job) => job.id === backlog.id);
+    expect(backlogIndex).toBeGreaterThanOrEqual(0);
+    mockRepo.jobs[backlogIndex] = {
+      ...mockRepo.jobs[backlogIndex]!,
+      status: 'queued',
+      createdAt: new Date(Date.now() - 20 * 60_000).toISOString(),
+    };
+    const completedIndex = mockRepo.jobs.findIndex((job) => job.id === completed.id);
+    expect(completedIndex).toBeGreaterThanOrEqual(0);
+    mockRepo.jobs[completedIndex] = {
+      ...mockRepo.jobs[completedIndex]!,
+      status: 'succeeded',
+      startedAt: new Date(Date.now() - 12 * 60_000).toISOString(),
+      finishedAt: new Date(Date.now() - 10 * 60_000).toISOString(),
+      errorMessage: null,
+    };
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/stats',
+      headers: { 'x-admin-key': key },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body) as {
+      platform: {
+        ingestion: {
+          queuedCount: number;
+          oldestQueuedAgeMinutes: number | null;
+          oldestQueuedSourceName: string | null;
+          oldestQueuedTriggerType: string | null;
+          completedLastHour: number;
+          recentSucceeded: Array<{ sourceName: string; triggerType: string }>;
+        };
+        alerts: Array<{ code: string }>;
+      };
+    };
+    expect(body.platform.ingestion.queuedCount).toBeGreaterThanOrEqual(1);
+    expect(body.platform.ingestion.oldestQueuedAgeMinutes).not.toBeNull();
+    expect(body.platform.ingestion.oldestQueuedAgeMinutes!).toBeGreaterThanOrEqual(19);
+    expect(body.platform.ingestion.oldestQueuedSourceName).toBe('echo');
+    expect(body.platform.ingestion.oldestQueuedTriggerType).toBe('queue_backlog_pending_test');
+    expect(body.platform.ingestion.completedLastHour).toBeGreaterThanOrEqual(0);
+    expect(body.platform.ingestion.recentSucceeded).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceName: 'echo',
+          triggerType: 'queue_backlog_completed_test',
+        }),
+      ]),
+    );
+    expect(body.platform.alerts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'ingestion_queue_backlog',
+        }),
+      ]),
+    );
+  });
+
+  it('GET /v1/admin/stats surfaces ingestion worker health and stalled alerts', async () => {
+    process.env.DATABASE_URL = 'postgres://worker-health-test';
+    app.ingestionWorkerMonitor.enabled = true;
+    app.ingestionWorkerMonitor.status = 'idle';
+    app.ingestionWorkerMonitor.startDelayMs = 5_000;
+    app.ingestionWorkerMonitor.pollIntervalMs = 5_000;
+    app.ingestionWorkerMonitor.maxJobsPerTick = 8;
+    app.ingestionWorkerMonitor.startedAt = new Date(Date.now() - 10 * 60_000).toISOString();
+    app.ingestionWorkerMonitor.lastTickStartedAt = new Date(Date.now() - 70_000).toISOString();
+    app.ingestionWorkerMonitor.lastTickCompletedAt = new Date(Date.now() - 60_000).toISOString();
+    app.ingestionWorkerMonitor.lastProcessedAt = new Date(Date.now() - 15_000).toISOString();
+    app.ingestionWorkerMonitor.lastProcessedSourceName = 'run_team_workspace_recovery_playbook';
+    app.ingestionWorkerMonitor.lastProcessedJobStatus = 'succeeded';
+    app.ingestionWorkerMonitor.processedJobs = 12;
+    app.ingestionWorkerMonitor.consecutiveErrors = 0;
+    app.ingestionWorkerMonitor.lastError = null;
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/stats',
+      headers: { 'x-admin-key': key },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      platform: {
+        worker: {
+          enabled: true,
+          status: 'idle',
+          lastProcessedSourceName: 'run_team_workspace_recovery_playbook',
+          lastProcessedJobStatus: 'succeeded',
+          processedJobs: 12,
+        },
+        alerts: expect.arrayContaining([
+          expect.objectContaining({
+            code: 'ingestion_worker_stalled',
+          }),
+        ]),
+      },
+    });
+  });
+
+  it('GET /v1/admin/stats surfaces ingestion worker heartbeat history and error alerts', async () => {
+    process.env.DATABASE_URL = 'postgres://worker-error-test';
+    app.ingestionWorkerMonitor.enabled = true;
+    app.ingestionWorkerMonitor.status = 'error';
+    app.ingestionWorkerMonitor.startDelayMs = 5_000;
+    app.ingestionWorkerMonitor.pollIntervalMs = 5_000;
+    app.ingestionWorkerMonitor.maxJobsPerTick = 8;
+    app.ingestionWorkerMonitor.startedAt = new Date(Date.now() - 20 * 60_000).toISOString();
+    app.ingestionWorkerMonitor.lastTickStartedAt = new Date(Date.now() - 8_000).toISOString();
+    app.ingestionWorkerMonitor.lastTickCompletedAt = new Date(Date.now() - 3_000).toISOString();
+    app.ingestionWorkerMonitor.lastProcessedAt = new Date(Date.now() - 70_000).toISOString();
+    app.ingestionWorkerMonitor.lastProcessedSourceName = 'extract_case_signals';
+    app.ingestionWorkerMonitor.lastProcessedJobStatus = 'failed';
+    app.ingestionWorkerMonitor.processedJobs = 24;
+    app.ingestionWorkerMonitor.consecutiveErrors = 2;
+    app.ingestionWorkerMonitor.lastError = 'worker timed out waiting for queue lock';
+    app.ingestionWorkerMonitor.recentTicks = [
+      {
+        startedAt: new Date(Date.now() - 8_000).toISOString(),
+        completedAt: new Date(Date.now() - 3_000).toISOString(),
+        outcome: 'error',
+        processedCount: 1,
+        lastJobSourceName: 'extract_case_signals',
+        lastJobStatus: 'failed',
+        error: 'worker timed out waiting for queue lock',
+      },
+      {
+        startedAt: new Date(Date.now() - 20_000).toISOString(),
+        completedAt: new Date(Date.now() - 17_000).toISOString(),
+        outcome: 'processed',
+        processedCount: 2,
+        lastJobSourceName: 'run_team_workspace_recovery_playbook',
+        lastJobStatus: 'succeeded',
+        error: null,
+      },
+    ];
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/stats',
+      headers: { 'x-admin-key': key },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body)).toMatchObject({
+      platform: {
+        worker: {
+          status: 'error',
+          consecutiveErrors: 2,
+          lastError: 'worker timed out waiting for queue lock',
+          recentTicks: [
+            {
+              outcome: 'error',
+              processedCount: 1,
+              lastJobSourceName: 'extract_case_signals',
+            },
+            {
+              outcome: 'processed',
+              processedCount: 2,
+              lastJobSourceName: 'run_team_workspace_recovery_playbook',
+            },
+          ],
+        },
+        alerts: expect.arrayContaining([
+          expect.objectContaining({
+            code: 'ingestion_worker_erroring',
+          }),
+        ]),
       },
     });
   });

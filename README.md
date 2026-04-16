@@ -117,6 +117,10 @@ What is true today:
 - The seed dataset includes 40+ published cases
 - Saved views, briefs, PDF exports, Team Workspaces, billing foundations, and recovery operations already exist
 - The system includes structured ingestion, indexing, eval, and operational instrumentation
+- Admin Dashboard now exposes platform diagnostics for runtime state, recent failed ingestion jobs, and derived operational alerts
+- The diagnostics layer also flags stale running ingestion jobs and gives operators a direct reclaim path from the dashboard
+- The platform layer now also exposes ingestion worker health, recent heartbeat history, last tick / last processed job, and stalled or erroring worker alerts
+- The dashboard now also shows ingestion queue backlog age and recent throughput, so operators can tell whether the worker is healthy but the queue is still accumulating
 
 What is not true today:
 
@@ -267,6 +271,7 @@ The current roadmap is staged around four layers:
 - `M2`: research product loop
 - `M3`: commercial product loop
 - `M4`: platform hardening and operational maturity
+  - runtime diagnostics, failed-job visibility, alerting, tracing, runbooks, and production safety rails
 
 See the detailed plan in [`docs/PRODUCT_MATURITY_PLAN.md`](./docs/PRODUCT_MATURITY_PLAN.md).
 

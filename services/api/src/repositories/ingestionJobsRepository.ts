@@ -13,6 +13,7 @@ import { withTransaction } from '../db/withTransaction.js';
 export type ListIngestionJobsParams = {
   limit: number;
   status?: 'queued' | 'running' | 'succeeded' | 'failed';
+  order?: 'asc' | 'desc';
 };
 
 export type IngestionJobItem = {
@@ -95,10 +96,14 @@ export class MockIngestionJobsRepository implements IngestionJobsRepository {
   ) {}
 
   async listRecent(params: ListIngestionJobsParams): Promise<IngestionJobItem[]> {
-    let rows = this.jobs;
+    let rows = [...this.jobs];
     if (params.status) {
       rows = rows.filter((j) => j.status === params.status);
     }
+    rows.sort((a, b) => {
+      const delta = Date.parse(b.createdAt) - Date.parse(a.createdAt);
+      return params.order === 'asc' ? -delta : delta;
+    });
     return rows.slice(0, params.limit);
   }
 
@@ -240,7 +245,7 @@ export class PgIngestionJobsRepository implements IngestionJobsRepository {
              started_at, finished_at, error_message, created_at
       FROM ingestion_jobs
       WHERE ($2::text IS NULL OR status = $2::text)
-      ORDER BY created_at DESC
+      ORDER BY created_at ${params.order === 'asc' ? 'ASC' : 'DESC'}
       LIMIT $1
       `,
       [params.limit, params.status ?? null],

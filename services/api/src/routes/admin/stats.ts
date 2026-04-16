@@ -2,13 +2,14 @@ import type { FastifyInstance } from 'fastify';
 import type { Pool } from 'pg';
 import { z } from 'zod';
 import { getPool } from '../../db/pool.js';
-import type { CommercialAdminMetrics } from '@sg/shared/schemas/adminStats';
+import type { CommercialAdminMetrics, PlatformAdminMetrics } from '@sg/shared/schemas/adminStats';
 import type {
   TeamWorkspaceRecoveryPlaybookRun,
   TeamWorkspaceRecoveryPlaybookStepName,
 } from '@sg/shared/schemas/teamWorkspace';
 import { adminStatsResponseSchema } from '../../schemas/adminStats.js';
 import { handoffTeamWorkspaceRecoveryOutreachBodySchema } from '../../schemas/teamWorkspace.js';
+import { getRuntimeFeatureFlags } from '../../env/runtime.js';
 import { deliverRecoveryOutreachCrmSync } from '../../recoveryOutreach/deliverRecoveryOutreachCrmSync.js';
 import { deliverRecoveryFallbackMemberEmail } from '../../recoveryOutreach/deliverRecoveryFallbackMemberEmail.js';
 import { deliverRecoveryOutreachOwnerEmail } from '../../recoveryOutreach/deliverRecoveryOutreachOwnerEmail.js';
@@ -29,6 +30,8 @@ interface ContentStatsResult {
   pendingReviews: number;
   ingestionStats: { pending: number; running: number; failed: number; completed: number };
 }
+
+const STALE_RUNNING_THRESHOLD_MINUTES = 30;
 
 const recoveryWebhookDeliveryBodySchema = z.object({
   retryIntervalHours: z
@@ -72,14 +75,20 @@ export async function adminStatsRoutes(app: FastifyInstance) {
   app.get('/', async (_request, reply) => {
     const pool = getPool();
     if (!pool) {
+      const contentStats = emptyContentStats();
       const [copilotRunStats, copilotEvalStats, commercialStats] = await Promise.all([
         app.copilotSessionsRepo.getAdminMetrics(),
         app.copilotEvalsRepo.getAdminMetrics(),
         fetchCommercialStats(app),
       ]);
+      const platformStats = await fetchPlatformStats(app, {
+        contentStats,
+        commercialStats,
+      });
       return reply.send(
         adminStatsResponseSchema.parse({
-          ...emptyContentStats(),
+          ...contentStats,
+          platform: platformStats,
           commercial: commercialStats,
           copilot: {
             ...copilotRunStats,
@@ -95,9 +104,14 @@ export async function adminStatsRoutes(app: FastifyInstance) {
         app.copilotEvalsRepo.getAdminMetrics(),
         fetchCommercialStats(app),
       ]);
+      const platformStats = await fetchPlatformStats(app, {
+        contentStats,
+        commercialStats,
+      });
       return reply.send(
         adminStatsResponseSchema.parse({
           ...contentStats,
+          platform: platformStats,
           commercial: commercialStats,
           copilot: {
             ...copilotRunStats,
@@ -404,6 +418,292 @@ function emptyContentStats(): ContentStatsResult {
     recentlyAdded: [],
     pendingReviews: 0,
     ingestionStats: { pending: 0, running: 0, failed: 0, completed: 0 },
+  };
+}
+
+async function fetchPlatformStats(
+  app: FastifyInstance,
+  input: {
+    contentStats: Pick<ContentStatsResult, 'ingestionStats'>;
+    commercialStats: CommercialAdminMetrics;
+  },
+): Promise<PlatformAdminMetrics> {
+  const features = getRuntimeFeatureFlags();
+  const generatedAt = new Date().toISOString();
+  const queueStats = input.contentStats.ingestionStats;
+  const worker = app.ingestionWorkerMonitor;
+  const [recentFailedJobs, runningJobs, queuedJobs, oldestQueuedJobs, recentSucceededJobs] =
+    await Promise.all([
+      app.ingestionJobsRepo.listRecent({
+        limit: 25,
+        status: 'failed',
+      }),
+      app.ingestionJobsRepo.listRecent({
+        limit: 50,
+        status: 'running',
+      }),
+      app.ingestionJobsRepo.listRecent({
+        limit: 50,
+        status: 'queued',
+      }),
+      app.ingestionJobsRepo.listRecent({
+        limit: 1,
+        status: 'queued',
+        order: 'asc',
+      }),
+      app.ingestionJobsRepo.listRecent({
+        limit: 50,
+        status: 'succeeded',
+      }),
+    ]);
+  const oldestQueuedJob = oldestQueuedJobs[0] ?? null;
+  const oldestQueuedAgeMinutes = oldestQueuedJob
+    ? Math.max(0, Math.floor((Date.now() - new Date(oldestQueuedJob.createdAt).getTime()) / 60_000))
+    : null;
+  const completedLastHour = recentSucceededJobs.filter((job) => {
+    const completedAt = job.finishedAt ?? job.createdAt;
+    return Date.now() - new Date(completedAt).getTime() <= 60 * 60_000;
+  }).length;
+  const queuedCount = Math.max(queueStats.pending, queuedJobs.length);
+  const failedIngestionCount = Math.max(recentFailedJobs.length, queueStats.failed);
+  const recentStaleJobs = runningJobs
+    .filter((job) => job.startedAt)
+    .map((job) => ({
+      job,
+      runningMinutes: Math.max(
+        0,
+        Math.floor((Date.now() - new Date(job.startedAt as string).getTime()) / 60_000),
+      ),
+    }))
+    .filter((item) => item.runningMinutes >= STALE_RUNNING_THRESHOLD_MINUTES)
+    .sort((a, b) => b.runningMinutes - a.runningMinutes);
+  const staleRunningCount = recentStaleJobs.length;
+  const workerStallThresholdMs = Math.max(
+    worker.pollIntervalMs * 3,
+    worker.startDelayMs + worker.pollIntervalMs,
+  );
+  const lastWorkerTouchAt = worker.lastTickCompletedAt ?? worker.lastTickStartedAt;
+  const workerIsStalled =
+    worker.enabled &&
+    worker.status !== 'stopped' &&
+    !!lastWorkerTouchAt &&
+    Date.now() - new Date(lastWorkerTouchAt).getTime() > workerStallThresholdMs;
+  const workerIsErroring =
+    worker.enabled && (worker.status === 'error' || worker.consecutiveErrors > 0);
+  const recoveryOutreach = input.commercialStats.teamWorkspaces.recoveryOutreach;
+  const deliveryFailures =
+    recoveryOutreach.failedEmail +
+    recoveryOutreach.failedMemberEmail +
+    recoveryOutreach.failedCrmSync +
+    recoveryOutreach.failedWebhook +
+    recoveryOutreach.failedSlackAlert;
+  const alerts: PlatformAdminMetrics['alerts'] = [];
+
+  if (features.mockMode) {
+    alerts.push({
+      severity: 'warning',
+      code: 'mock_mode_active',
+      title: 'API 仍在 mock mode',
+      detail: 'DATABASE_URL 未配置，当前后台诊断与公开数据不代表真实生产库状态。',
+      href: null,
+    });
+  }
+
+  if (features.aiProvider === 'none') {
+    alerts.push({
+      severity: 'warning',
+      code: 'ai_provider_unconfigured',
+      title: 'Copilot 未配置 LLM provider',
+      detail: '当前回答会回退到规则模式，研究体验和回放评测都不完整。',
+      href: null,
+    });
+  }
+
+  if (!features.stripeEnabled) {
+    alerts.push({
+      severity: 'warning',
+      code: 'stripe_disabled',
+      title: 'Stripe 未配置',
+      detail: '商业化 checkout / portal 入口会被关闭，付费恢复链无法在本环境完整验证。',
+      href: null,
+    });
+  }
+
+  if (failedIngestionCount > 0) {
+    const latestFailedJob = recentFailedJobs[0]!;
+    alerts.push({
+      severity: failedIngestionCount >= 3 ? 'critical' : 'warning',
+      code: 'failed_ingestion_jobs',
+      title: '近期存在失败的 ingestion jobs',
+      detail: latestFailedJob
+        ? `当前累计失败任务约 ${failedIngestionCount} 条，最新一条是 ${latestFailedJob.sourceName} / ${latestFailedJob.triggerType}。`
+        : `当前累计失败任务约 ${failedIngestionCount} 条，但最近失败详情暂时不可用。`,
+      href: '/admin/reviews',
+    });
+  }
+
+  if (staleRunningCount > 0) {
+    const stalestJob = recentStaleJobs[0]!;
+    alerts.push({
+      severity: staleRunningCount >= 3 ? 'critical' : 'warning',
+      code: 'stale_running_jobs',
+      title: '存在卡住的 running ingestion jobs',
+      detail: `最近检测到 ${staleRunningCount} 条 running 任务超过 ${STALE_RUNNING_THRESHOLD_MINUTES} 分钟未结束，最久的是 ${stalestJob.job.sourceName} / ${stalestJob.job.triggerType}（${stalestJob.runningMinutes} 分钟）。`,
+      href: '/admin/dashboard',
+    });
+  }
+
+  if (queuedCount > 0 && oldestQueuedAgeMinutes != null && oldestQueuedAgeMinutes >= 15) {
+    alerts.push({
+      severity: oldestQueuedAgeMinutes >= 60 || queuedCount >= 20 ? 'critical' : 'warning',
+      code: 'ingestion_queue_backlog',
+      title: 'Ingestion queue 已出现积压',
+      detail: oldestQueuedJob
+        ? `当前 queued 任务 ${queuedCount} 条，最早一条 ${oldestQueuedJob.sourceName} / ${oldestQueuedJob.triggerType} 已等待 ${oldestQueuedAgeMinutes} 分钟。`
+        : `当前 queued 任务 ${queuedCount} 条，最老任务已等待 ${oldestQueuedAgeMinutes} 分钟。`,
+      href: '/admin/dashboard',
+    });
+  }
+
+  if (features.dbConfigured && !worker.enabled) {
+    alerts.push({
+      severity: 'critical',
+      code: 'ingestion_worker_inactive',
+      title: 'Ingestion worker 未启动',
+      detail:
+        '当前数据库已启用，但 API 进程没有挂载 ingestion worker，队列只能依赖人工 process-next。',
+      href: '/admin/dashboard',
+    });
+  }
+
+  if (features.dbConfigured && workerIsStalled) {
+    alerts.push({
+      severity: 'warning',
+      code: 'ingestion_worker_stalled',
+      title: 'Ingestion worker 可能已卡住',
+      detail: `最近一次 worker tick 停留在 ${lastWorkerTouchAt}，已经超过 ${Math.round(workerStallThresholdMs / 60_000)} 分钟未更新。`,
+      href: '/admin/dashboard',
+    });
+  }
+
+  if (features.dbConfigured && workerIsErroring) {
+    alerts.push({
+      severity: worker.consecutiveErrors >= 3 ? 'critical' : 'warning',
+      code: 'ingestion_worker_erroring',
+      title: 'Ingestion worker 正在连续报错',
+      detail: worker.lastError
+        ? `当前 worker 已连续报错 ${worker.consecutiveErrors} 次，最近错误是：${worker.lastError}`
+        : `当前 worker 状态为 error，且最近已累计连续报错 ${worker.consecutiveErrors} 次。`,
+      href: '/admin/dashboard',
+    });
+  }
+
+  if (recoveryOutreach.deadLetteredWebhook > 0) {
+    alerts.push({
+      severity: 'critical',
+      code: 'recovery_dead_letters',
+      title: '存在 recovery webhook dead-letter',
+      detail: `${recoveryOutreach.deadLetteredWebhook} 条恢复交接已耗尽自动重试，需要人工接管或修复外部通道。`,
+      href: '/admin/dashboard',
+    });
+  }
+
+  if (deliveryFailures > 0) {
+    alerts.push({
+      severity: deliveryFailures >= 3 ? 'critical' : 'warning',
+      code: 'recovery_delivery_failures',
+      title: '恢复触达链存在失败通道',
+      detail: `owner/member 邮件、CRM、webhook 或 Slack 告警最近共有 ${deliveryFailures} 条失败，恢复闭环目前不稳定。`,
+      href: '/admin/dashboard',
+    });
+  }
+
+  if (
+    input.commercialStats.teamWorkspaces.recoveryPlaybook.lastRunOk === false &&
+    input.commercialStats.teamWorkspaces.recoveryPlaybook.lastRunAt
+  ) {
+    alerts.push({
+      severity: 'warning',
+      code: 'recovery_playbook_failed',
+      title: '最近一次 recovery playbook 失败',
+      detail: `最近一次 playbook 运行时间是 ${input.commercialStats.teamWorkspaces.recoveryPlaybook.lastRunAt}，建议先补跑失败步骤再继续处理风险 workspace。`,
+      href: '/admin/dashboard',
+    });
+  }
+
+  const alertSummary = alerts.reduce(
+    (summary, alert) => {
+      summary[alert.severity] += 1;
+      return summary;
+    },
+    { critical: 0, warning: 0, info: 0 } as PlatformAdminMetrics['alertSummary'],
+  );
+
+  return {
+    runtime: {
+      service: 'startup-graveyard-api',
+      env: process.env.NODE_ENV ?? 'development',
+      nodeVersion: process.version,
+      generatedAt,
+      uptimeSeconds: Math.max(0, Math.round(process.uptime())),
+      features,
+    },
+    worker: {
+      enabled: worker.enabled,
+      status: worker.status,
+      startDelayMs: worker.startDelayMs,
+      pollIntervalMs: worker.pollIntervalMs,
+      maxJobsPerTick: worker.maxJobsPerTick,
+      startedAt: worker.startedAt,
+      lastTickStartedAt: worker.lastTickStartedAt,
+      lastTickCompletedAt: worker.lastTickCompletedAt,
+      lastProcessedAt: worker.lastProcessedAt,
+      lastProcessedJobId: worker.lastProcessedJobId,
+      lastProcessedSourceName: worker.lastProcessedSourceName,
+      lastProcessedJobStatus: worker.lastProcessedJobStatus,
+      processedJobs: worker.processedJobs,
+      consecutiveErrors: worker.consecutiveErrors,
+      lastError: worker.lastError,
+      lastStopAt: worker.lastStopAt,
+      recentTicks: worker.recentTicks,
+    },
+    ingestion: {
+      queuedCount,
+      oldestQueuedAgeMinutes,
+      oldestQueuedSourceName: oldestQueuedJob?.sourceName ?? null,
+      oldestQueuedTriggerType: oldestQueuedJob?.triggerType ?? null,
+      completedLastHour,
+      runningCount: Math.max(queueStats.running, runningJobs.length),
+      staleRunningCount,
+      staleThresholdMinutes: STALE_RUNNING_THRESHOLD_MINUTES,
+      recentFailedCount: failedIngestionCount,
+      recentFailed: recentFailedJobs.slice(0, 5).map((job) => ({
+        id: job.id,
+        sourceName: job.sourceName,
+        triggerType: job.triggerType,
+        errorMessage: job.errorMessage,
+        createdAt: job.createdAt,
+        startedAt: job.startedAt,
+        finishedAt: job.finishedAt,
+      })),
+      recentStale: recentStaleJobs.slice(0, 5).map(({ job, runningMinutes }) => ({
+        id: job.id,
+        sourceName: job.sourceName,
+        triggerType: job.triggerType,
+        createdAt: job.createdAt,
+        startedAt: job.startedAt as string,
+        runningMinutes,
+      })),
+      recentSucceeded: recentSucceededJobs.slice(0, 5).map((job) => ({
+        id: job.id,
+        sourceName: job.sourceName,
+        triggerType: job.triggerType,
+        createdAt: job.createdAt,
+        finishedAt: job.finishedAt ?? job.createdAt,
+      })),
+    },
+    alertSummary,
+    alerts,
   };
 }
 

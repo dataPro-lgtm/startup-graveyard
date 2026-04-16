@@ -80,6 +80,7 @@ import {
   PgReviewsRepository,
 } from './repositories/reviewsRepository.js';
 import { registerAdminRoutes } from './plugins/adminRoutes.js';
+import { createIngestionWorkerMonitor } from './ingestion/workerMonitor.js';
 import { healthRoutes } from './routes/health.js';
 import { authRoutes } from './routes/public/auth.js';
 import { caseRoutes } from './routes/public/cases.js';
@@ -116,6 +117,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
   let reportSharesRepo: ReportSharesRepository;
   let teamWorkspacesRepo: TeamWorkspacesRepository;
   let billingFunnelRepo: BillingFunnelRepository;
+  const ingestionWorkerMonitor = createIngestionWorkerMonitor();
   const queueApprovedCaseIndex = async (caseId: string) => {
     await ingestionJobsRepo.enqueue({
       sourceName: 'rebuild_case_search_index',
@@ -187,6 +189,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
   server.decorate('adminWriteRepo', adminWriteRepo as AdminWriteRepository);
   server.decorate('adminAttachmentsRepo', adminAttachmentsRepo as AdminCaseAttachmentsRepository);
   server.decorate('ingestionJobsRepo', ingestionJobsRepo as IngestionJobsRepository);
+  server.decorate('ingestionWorkerMonitor', ingestionWorkerMonitor);
   server.decorate('sourceSnapshotsRepo', sourceSnapshotsRepo as SourceSnapshotsRepository);
   server.decorate('copilotSessionsRepo', copilotSessionsRepo as CopilotSessionsRepository);
   server.decorate('copilotEvalsRepo', copilotEvalsRepo as CopilotEvalsRepository);
