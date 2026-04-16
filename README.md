@@ -57,16 +57,7 @@ This repository is not a slide deck or static mock. It is a runnable alpha produ
 
 ## How it works
 
-```mermaid
-flowchart LR
-  A["Source URL or Manual Draft"] --> B["Source Snapshot"]
-  B --> C["Draft Case + Evidence"]
-  C --> D["Signal Extraction + Normalization"]
-  D --> E["Review Workflow"]
-  E --> F["Published Case"]
-  F --> G["Search Index + Embeddings"]
-  G --> H["Cases UI / Research Hub / Failure Copilot / Reports"]
-```
+![Startup Graveyard case lifecycle](./docs/assets/readme-case-lifecycle.png)
 
 The product already supports a real content production loop:
 
