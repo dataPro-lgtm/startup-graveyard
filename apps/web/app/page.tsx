@@ -24,7 +24,7 @@ function buildSuggestedViewName(params: SavedViewFilters): string {
   if (params.primaryFailureReasonKey) {
     parts.push(params.primaryFailureReasonKey.replaceAll('_', ' '));
   }
-  return parts.length > 0 ? parts.slice(0, 3).join(' · ') : '全部案例';
+  return parts.length > 0 ? parts.slice(0, 3).join(' · ') : 'All Cases';
 }
 
 export default async function HomePage({
@@ -71,8 +71,8 @@ export default async function HomePage({
     a.localeCompare(b),
   );
   const countryEntries = Object.entries(taxonomy.countries).sort(([a], [b]) => a.localeCompare(b));
-  const industryKeySet = new Set(industryEntries.map(([k]) => k));
-  const countryKeySet = new Set(countryEntries.map(([k]) => k));
+  const industryKeySet = new Set(industryEntries.map(([key]) => key));
+  const countryKeySet = new Set(countryEntries.map(([key]) => key));
   const industryOrphan =
     params.industry && !industryKeySet.has(params.industry) ? params.industry : null;
   const countryOrphan =
@@ -83,8 +83,8 @@ export default async function HomePage({
   const primaryFrEntries = Object.entries(taxonomy.primaryFailureReasons).sort(([a], [b]) =>
     a.localeCompare(b),
   );
-  const businessModelKeySet = new Set(businessModelEntries.map(([k]) => k.toLowerCase()));
-  const primaryFrKeySet = new Set(primaryFrEntries.map(([k]) => k.toLowerCase()));
+  const businessModelKeySet = new Set(businessModelEntries.map(([key]) => key.toLowerCase()));
+  const primaryFrKeySet = new Set(primaryFrEntries.map(([key]) => key.toLowerCase()));
   const bmNorm = params.businessModelKey?.toLowerCase();
   const pfrNorm = params.primaryFailureReasonKey?.toLowerCase();
   const businessModelOrphan =
@@ -106,10 +106,10 @@ export default async function HomePage({
   const totalCases = homeSummary?.totalCases ?? data?.total ?? 0;
   const totalFundingUsd =
     homeSummary?.totalFundingUsd ??
-    (data?.items ?? []).reduce((sum, it) => sum + (it.totalFundingUsd ?? 0), 0);
+    (data?.items ?? []).reduce((sum, item) => sum + (item.totalFundingUsd ?? 0), 0);
   const failurePatterns =
     homeSummary?.failurePatterns ??
-    new Set((data?.items ?? []).map((it) => it.primaryFailureReasonKey).filter(Boolean)).size;
+    new Set((data?.items ?? []).map((item) => item.primaryFailureReasonKey).filter(Boolean)).size;
   const featuredResearchPresets = RESEARCH_PRESETS.slice(0, 3);
   const savedViewFilters: SavedViewFilters = {
     q: params.q,
@@ -124,35 +124,75 @@ export default async function HomePage({
 
   return (
     <main style={{ maxWidth: 1120, margin: '0 auto', padding: '48px 24px 80px' }}>
-      <section style={{ marginBottom: 36 }}>
+      <section
+        style={{
+          marginBottom: 32,
+          padding: '30px 30px 28px',
+          borderRadius: 24,
+          border: '1px solid #1d2746',
+          background:
+            'radial-gradient(circle at top left, rgba(91,124,255,0.18), transparent 34%), linear-gradient(145deg, rgba(16,23,43,0.98), rgba(10,14,28,0.98) 55%, rgba(14,25,48,0.98))',
+        }}
+      >
         <p
           style={{
             color: '#9fb3ff',
             fontSize: 12,
-            letterSpacing: 1.6,
+            letterSpacing: 1.8,
             textTransform: 'uppercase',
-            margin: '0 0 10px',
+            margin: '0 0 12px',
           }}
         >
           Failure Intelligence
         </p>
         <h1
           style={{
-            fontSize: 'clamp(32px, 5vw, 48px)',
-            lineHeight: 1.12,
+            fontSize: 'clamp(34px, 5.8vw, 56px)',
+            lineHeight: 1.05,
             margin: '0 0 14px',
             fontWeight: 800,
+            maxWidth: 820,
+            letterSpacing: '-0.03em',
           }}
         >
-          Startup Graveyard
+          Learn from startup failure like it is a dataset, not a story archive.
         </h1>
-        <p style={{ maxWidth: 680, color: '#c8d0e5', lineHeight: 1.75, margin: 0, fontSize: 16 }}>
-          结构化的创业失败档案库——每一个案例都是可检索、可对比、可深度问答的决策参考。
-          不只看热闹，更看懂规律。
+        <p
+          style={{
+            maxWidth: 760,
+            color: '#dbe4ff',
+            lineHeight: 1.75,
+            margin: '0 0 10px',
+            fontSize: 17,
+          }}
+        >
+          Startup Graveyard turns startup postmortems into structured cases, comparable failure
+          patterns, and grounded research outputs. Explore the archive, open the Research Hub, or
+          ask Failure Copilot across the dataset.
         </p>
+        <p style={{ maxWidth: 760, color: '#8fa0c9', lineHeight: 1.7, margin: '0 0 20px' }}>
+          把创业失败从“故事阅读”升级成“结构化研究资产”，用于比较、推理、复盘和团队协作。
+        </p>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 22 }}>
+          {['Open-source alpha', 'Runnable product', '40+ published seed cases'].map((label) => (
+            <span key={label} style={heroBadgeStyle}>
+              {label}
+            </span>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          <Link href="#case-explorer" style={primaryButtonStyle}>
+            Explore Cases
+          </Link>
+          <Link href="/research" style={secondaryButtonStyle}>
+            Open Research Hub
+          </Link>
+          <Link href="/copilot" style={ghostButtonStyle}>
+            Ask Failure Copilot
+          </Link>
+        </div>
       </section>
 
-      {/* 统计横幅 */}
       {!hasFilters && (
         <section
           style={{
@@ -163,21 +203,25 @@ export default async function HomePage({
           }}
         >
           {[
-            { label: '收录案例', value: `${totalCases} 个`, sub: '结构化失败档案' },
             {
-              label: '总融资蒸发',
+              label: 'Published Cases',
+              value: `${totalCases}+`,
+              sub: 'Structured failure records',
+            },
+            {
+              label: 'Capital Destroyed',
               value: formatUsd(totalFundingUsd),
-              sub: '现金已烧完',
+              sub: 'Tracked funding loss',
             },
             {
-              label: '失败模式',
-              value: `${failurePatterns} 种`,
-              sub: '主要归因类别',
+              label: 'Failure Patterns',
+              value: `${failurePatterns}`,
+              sub: 'Primary failure categories',
             },
             {
-              label: 'AI Copilot',
-              value: '已上线',
-              sub: '跨案例深度问答',
+              label: 'Failure Copilot',
+              value: 'Live',
+              sub: 'Grounded cross-case Q&A',
               href: '/copilot',
             },
           ].map((stat) => (
@@ -249,24 +293,16 @@ export default async function HomePage({
               <p style={{ margin: '0 0 6px', color: '#9fb3ff', fontSize: 12, letterSpacing: 1 }}>
                 RESEARCH HUB
               </p>
-              <h2 style={{ margin: '0 0 8px', fontSize: 26 }}>不要只刷案例，直接切进研究视角。</h2>
+              <h2 style={{ margin: '0 0 8px', fontSize: 26 }}>
+                Start from a research question, not a random failure story.
+              </h2>
               <p style={{ margin: 0, maxWidth: 720, color: '#c8d0e5', lineHeight: 1.7 }}>
-                用预设专题和趋势入口，快速切入“过早扩张”“监管击穿”“平台模式失速”这类高复用研究问题。
+                Jump into repeatable themes like overexpansion, regulation shock, marketplace
+                breakdown, or business-model fragility through curated research presets.
               </p>
             </div>
-            <Link
-              href="/research"
-              style={{
-                padding: '10px 16px',
-                borderRadius: 10,
-                background: '#5b7cff',
-                color: '#fff',
-                textDecoration: 'none',
-                fontWeight: 700,
-                whiteSpace: 'nowrap',
-              }}
-            >
-              打开 Research Hub
+            <Link href="/research" style={primaryButtonStyle}>
+              Open Research Hub
             </Link>
           </div>
           <div
@@ -310,6 +346,7 @@ export default async function HomePage({
       )}
 
       <section
+        id="case-explorer"
         style={{
           marginBottom: 28,
           padding: 20,
@@ -318,6 +355,24 @@ export default async function HomePage({
           background: '#10172b',
         }}
       >
+        <div style={{ marginBottom: 18 }}>
+          <p
+            style={{
+              margin: '0 0 6px',
+              color: '#9fb3ff',
+              fontSize: 12,
+              letterSpacing: 1,
+              textTransform: 'uppercase',
+            }}
+          >
+            Case Explorer
+          </p>
+          <h2 style={{ margin: '0 0 8px', fontSize: 24 }}>Query the failure dataset directly.</h2>
+          <p style={{ margin: 0, color: '#c8d0e5', lineHeight: 1.7, maxWidth: 720 }}>
+            Filter by industry, geography, business model, failure pattern, or closure year. Save
+            the resulting research view and reuse it in exports, brief shares, or team workflows.
+          </p>
+        </div>
         <form method="get" action="/" style={{ display: 'grid', gap: 14 }}>
           <div
             style={{
@@ -327,37 +382,21 @@ export default async function HomePage({
               alignItems: 'end',
             }}
           >
-            <label
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 6,
-                fontSize: 13,
-                color: '#9fb3ff',
-              }}
-            >
-              关键词
+            <label style={fieldLabelStyle}>
+              Query
               <input
                 name="q"
                 defaultValue={params.q ?? ''}
-                placeholder="公司名 / 摘要"
+                placeholder="Company, failure pattern, summary"
                 style={inputStyle}
               />
             </label>
-            <label
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 6,
-                fontSize: 13,
-                color: '#9fb3ff',
-              }}
-            >
-              行业
+            <label style={fieldLabelStyle}>
+              Industry
               <select name="industry" defaultValue={params.industry ?? ''} style={inputStyle}>
-                <option value="">全部</option>
+                <option value="">All</option>
                 {industryOrphan ? (
-                  <option value={industryOrphan}>{industryOrphan}（当前 URL）</option>
+                  <option value={industryOrphan}>{industryOrphan} (from current URL)</option>
                 ) : null}
                 {industryEntries.map(([key, label]) => (
                   <option key={key} value={key}>
@@ -366,20 +405,12 @@ export default async function HomePage({
                 ))}
               </select>
             </label>
-            <label
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 6,
-                fontSize: 13,
-                color: '#9fb3ff',
-              }}
-            >
-              国家
+            <label style={fieldLabelStyle}>
+              Country
               <select name="country" defaultValue={params.country ?? ''} style={inputStyle}>
-                <option value="">全部</option>
+                <option value="">All</option>
                 {countryOrphan ? (
-                  <option value={countryOrphan}>{countryOrphan}（当前 URL）</option>
+                  <option value={countryOrphan}>{countryOrphan} (from current URL)</option>
                 ) : null}
                 {countryEntries.map(([code, label]) => (
                   <option key={code} value={code}>
@@ -388,16 +419,8 @@ export default async function HomePage({
                 ))}
               </select>
             </label>
-            <label
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 6,
-                fontSize: 13,
-                color: '#9fb3ff',
-              }}
-            >
-              关闭年
+            <label style={fieldLabelStyle}>
+              Closed Year
               <input
                 name="closedYear"
                 type="number"
@@ -408,24 +431,18 @@ export default async function HomePage({
                 style={inputStyle}
               />
             </label>
-            <label
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 6,
-                fontSize: 13,
-                color: '#9fb3ff',
-              }}
-            >
-              商业模式
+            <label style={fieldLabelStyle}>
+              Business Model
               <select
                 name="businessModelKey"
                 defaultValue={params.businessModelKey ?? ''}
                 style={inputStyle}
               >
-                <option value="">全部</option>
+                <option value="">All</option>
                 {businessModelOrphan ? (
-                  <option value={businessModelOrphan}>{businessModelOrphan}（当前 URL）</option>
+                  <option value={businessModelOrphan}>
+                    {businessModelOrphan} (from current URL)
+                  </option>
                 ) : null}
                 {businessModelEntries.map(([key, label]) => (
                   <option key={key} value={key}>
@@ -434,24 +451,16 @@ export default async function HomePage({
                 ))}
               </select>
             </label>
-            <label
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 6,
-                fontSize: 13,
-                color: '#9fb3ff',
-              }}
-            >
-              主失败原因
+            <label style={fieldLabelStyle}>
+              Primary Failure Reason
               <select
                 name="primaryFailureReasonKey"
                 defaultValue={params.primaryFailureReasonKey ?? ''}
                 style={inputStyle}
               >
-                <option value="">全部</option>
+                <option value="">All</option>
                 {primaryFrOrphan ? (
-                  <option value={primaryFrOrphan}>{primaryFrOrphan}（当前 URL）</option>
+                  <option value={primaryFrOrphan}>{primaryFrOrphan} (from current URL)</option>
                 ) : null}
                 {primaryFrEntries.map(([key, label]) => (
                   <option key={key} value={key}>
@@ -460,73 +469,54 @@ export default async function HomePage({
                 ))}
               </select>
             </label>
-            <label
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 6,
-                fontSize: 13,
-                color: '#9fb3ff',
-              }}
-            >
-              每页
+            <label style={fieldLabelStyle}>
+              Per Page
               <select name="limit" defaultValue={params.limit ?? '20'} style={inputStyle}>
-                {[10, 20, 50].map((n) => (
-                  <option key={n} value={n}>
-                    {n}
+                {[10, 20, 50].map((count) => (
+                  <option key={count} value={count}>
+                    {count}
                   </option>
                 ))}
               </select>
             </label>
-            <label
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 6,
-                fontSize: 13,
-                color: '#9fb3ff',
-              }}
-            >
-              排序
+            <label style={fieldLabelStyle}>
+              Sort
               <select name="sort" defaultValue={sortFormDefault} style={inputStyle}>
-                <option value="relevance">相关度（有关键词时）</option>
-                <option value="updated_at">更新时间</option>
+                <option value="relevance">Relevance (when query is present)</option>
+                <option value="updated_at">Recently updated</option>
               </select>
             </label>
           </div>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-            <button
-              type="submit"
-              style={{
-                padding: '10px 20px',
-                borderRadius: 10,
-                border: 'none',
-                background: '#5b7cff',
-                color: '#fff',
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
-            >
-              筛选
+            <button type="submit" style={primaryActionButtonStyle}>
+              Apply Filters
             </button>
-            <Link
-              href="/"
-              style={{
-                padding: '10px 16px',
-                borderRadius: 10,
-                border: '1px solid #2a3658',
-                color: '#c8d0e5',
-                textDecoration: 'none',
-                alignSelf: 'center',
-              }}
-            >
-              清除
+            <Link href="/" style={clearButtonStyle}>
+              Reset
             </Link>
           </div>
         </form>
       </section>
 
       <section style={{ marginBottom: 28 }}>
+        <div style={{ marginBottom: 14 }}>
+          <p
+            style={{
+              margin: '0 0 6px',
+              color: '#9fb3ff',
+              fontSize: 12,
+              letterSpacing: 1,
+              textTransform: 'uppercase',
+            }}
+          >
+            Research Asset
+          </p>
+          <h2 style={{ margin: '0 0 8px', fontSize: 24 }}>Save this research view for reuse.</h2>
+          <p style={{ margin: 0, color: '#c8d0e5', lineHeight: 1.7, maxWidth: 720 }}>
+            Persist the current filter set so the same research angle can feed exports, public brief
+            shares, and team collaboration later.
+          </p>
+        </div>
         <SavedViewsManager
           mode="compact"
           currentFilters={savedViewFilters}
@@ -536,12 +526,37 @@ export default async function HomePage({
 
       {loadError ? (
         <p style={{ color: '#ff8a8a', marginBottom: 24 }}>
-          无法连接案例接口（请确认 API 已启动且 API_BASE_URL 正确）。
+          Could not reach the cases API. Confirm the API is running and `API_BASE_URL` is correct.
         </p>
       ) : null}
 
       {!loadError && items.length === 0 ? (
-        <p style={{ color: '#c8d0e5', marginBottom: 24 }}>没有匹配的案例，试试放宽筛选条件。</p>
+        <p style={{ color: '#c8d0e5', marginBottom: 24 }}>
+          No cases matched this filter set. Try broadening the query.
+        </p>
+      ) : null}
+
+      {!loadError && items.length > 0 ? (
+        <section style={{ marginBottom: 16 }}>
+          <p
+            style={{
+              margin: '0 0 6px',
+              color: '#9fb3ff',
+              fontSize: 12,
+              letterSpacing: 1,
+              textTransform: 'uppercase',
+            }}
+          >
+            Published Dataset
+          </p>
+          <h2 style={{ margin: '0 0 8px', fontSize: 24 }}>
+            {hasFilters ? 'Filtered results' : 'Published failure cases'}
+          </h2>
+          <p style={{ margin: 0, color: '#c8d0e5', lineHeight: 1.7 }}>
+            Each case stays grounded in evidence, normalized taxonomy, and reusable research
+            structure.
+          </p>
+        </section>
       ) : null}
 
       <section style={{ display: 'grid', gap: 12 }}>
@@ -556,7 +571,6 @@ export default async function HomePage({
               transition: 'border-color 0.15s',
             }}
           >
-            {/* top row: name + meta badges */}
             <div
               style={{
                 display: 'flex',
@@ -575,20 +589,18 @@ export default async function HomePage({
                   {item.companyName}
                 </Link>
               </h2>
-              {/* right-side chips */}
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                {item.totalFundingUsd != null && item.totalFundingUsd > 0 && (
+                {item.totalFundingUsd != null && item.totalFundingUsd > 0 ? (
                   <span style={chipStyle('#1a2c1e', '#34d399')}>
                     {formatUsd(item.totalFundingUsd)}
                   </span>
-                )}
-                {item.closedYear != null && (
-                  <span style={chipStyle('#1d1a2e', '#9fb3ff')}>†{item.closedYear}</span>
-                )}
+                ) : null}
+                {item.closedYear != null ? (
+                  <span style={chipStyle('#1d1a2e', '#9fb3ff')}>{item.closedYear}</span>
+                ) : null}
               </div>
             </div>
 
-            {/* summary */}
             <p
               style={{
                 margin: '0 0 10px',
@@ -600,22 +612,21 @@ export default async function HomePage({
               {item.summary}
             </p>
 
-            {/* bottom tag row */}
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              {item.industry && <span style={tagStyle}>{industryLabel(item.industry)}</span>}
-              {item.country && <span style={tagStyle}>{countryLabel(item.country)}</span>}
-              {item.primaryFailureReasonKey && (
+              {item.industry ? <span style={tagStyle}>{industryLabel(item.industry)}</span> : null}
+              {item.country ? <span style={tagStyle}>{countryLabel(item.country)}</span> : null}
+              {item.primaryFailureReasonKey ? (
                 <span style={chipStyle('#2a1a1a', '#f87171')}>
                   {taxonomy.primaryFailureReasons[item.primaryFailureReasonKey.toLowerCase()] ??
                     item.primaryFailureReasonKey}
                 </span>
-              )}
-              {item.businessModelKey && (
+              ) : null}
+              {item.businessModelKey ? (
                 <span style={tagStyle}>
                   {taxonomy.businessModels[item.businessModelKey.toLowerCase()] ??
                     item.businessModelKey}
                 </span>
-              )}
+              ) : null}
             </div>
           </article>
         ))}
@@ -634,27 +645,35 @@ export default async function HomePage({
           }}
         >
           <span>
-            第 {page} / {totalPages} 页，共 {total} 条
+            Page {page} of {totalPages}, {total} cases total
           </span>
           {page > 1 ? (
             <Link href={casesListPath(withPage(page - 1))} style={pagerLinkStyle}>
-              上一页
+              Previous Page
             </Link>
           ) : (
-            <span style={{ opacity: 0.4 }}>上一页</span>
+            <span style={{ opacity: 0.4 }}>Previous Page</span>
           )}
           {page < totalPages ? (
             <Link href={casesListPath(withPage(page + 1))} style={pagerLinkStyle}>
-              下一页
+              Next Page
             </Link>
           ) : (
-            <span style={{ opacity: 0.4 }}>下一页</span>
+            <span style={{ opacity: 0.4 }}>Next Page</span>
           )}
         </nav>
       ) : null}
     </main>
   );
 }
+
+const fieldLabelStyle: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
+  fontSize: 13,
+  color: '#9fb3ff',
+};
 
 const inputStyle: CSSProperties = {
   padding: '10px 12px',
@@ -671,6 +690,67 @@ const pagerLinkStyle: CSSProperties = {
   padding: '6px 12px',
   borderRadius: 8,
   border: '1px solid #2a3658',
+};
+
+const heroBadgeStyle: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  padding: '6px 11px',
+  borderRadius: 999,
+  border: '1px solid #25345a',
+  background: 'rgba(13, 20, 38, 0.88)',
+  color: '#c8d0e5',
+  fontSize: 12,
+  letterSpacing: 0.2,
+};
+
+const primaryButtonStyle: CSSProperties = {
+  padding: '11px 16px',
+  borderRadius: 10,
+  background: '#5b7cff',
+  color: '#fff',
+  textDecoration: 'none',
+  fontWeight: 700,
+  whiteSpace: 'nowrap',
+};
+
+const secondaryButtonStyle: CSSProperties = {
+  padding: '11px 16px',
+  borderRadius: 10,
+  border: '1px solid #354b7f',
+  color: '#dbe4ff',
+  textDecoration: 'none',
+  fontWeight: 600,
+  whiteSpace: 'nowrap',
+};
+
+const ghostButtonStyle: CSSProperties = {
+  padding: '11px 16px',
+  borderRadius: 10,
+  border: '1px solid #2a3658',
+  color: '#c8d0e5',
+  textDecoration: 'none',
+  fontWeight: 600,
+  whiteSpace: 'nowrap',
+};
+
+const primaryActionButtonStyle: CSSProperties = {
+  padding: '10px 20px',
+  borderRadius: 10,
+  border: 'none',
+  background: '#5b7cff',
+  color: '#fff',
+  fontWeight: 600,
+  cursor: 'pointer',
+};
+
+const clearButtonStyle: CSSProperties = {
+  padding: '10px 16px',
+  borderRadius: 10,
+  border: '1px solid #2a3658',
+  color: '#c8d0e5',
+  textDecoration: 'none',
+  alignSelf: 'center',
 };
 
 function chipStyle(bg: string, color: string): CSSProperties {

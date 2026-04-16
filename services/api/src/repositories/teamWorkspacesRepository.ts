@@ -19,6 +19,9 @@ import type {
   TeamWorkspaceRecoveryOutreachAudience,
   TeamWorkspaceRecoveryOutreachChannel,
   TeamWorkspaceRecoveryOutreachHandoffChannel,
+  TeamWorkspaceRecoveryPlaybookRun,
+  TeamWorkspaceRecoveryPlaybookStepName,
+  TeamWorkspaceRecoveryPlaybookSteps,
   TeamWorkspaceRecoveryOutreachStatus,
   TeamWorkspaceBillingWarning,
   TeamWorkspace,
@@ -186,6 +189,7 @@ type AdminBillingEvent = TeamWorkspaceAdminMetrics['recentBillingEvents'][number
 type AdminRecoveryAction = TeamWorkspaceAdminMetrics['recoveryActions'][number];
 type AdminActionableWorkspace = TeamWorkspaceAdminMetrics['actionableWorkspaces'][number];
 type AdminRecoveryOutreach = TeamWorkspaceAdminMetrics['recoveryOutreach']['recent'][number];
+type AdminRecoveryPlaybookRun = TeamWorkspaceAdminMetrics['recoveryPlaybook']['recent'][number];
 type WorkspaceReconcileResult = {
   revokedInviteCount: number;
   restoredInviteCount: number;
@@ -270,6 +274,19 @@ type PgWorkspaceMemberRecoveryNotificationRow = {
   resolved_at: Date | string | null;
 };
 
+type PgWorkspaceRecoveryPlaybookRunRow = {
+  id: string;
+  trigger_type: string;
+  retry_interval_hours: number;
+  force_run: boolean;
+  requested_steps: string[] | null;
+  rerun_of_run_id: string | null;
+  ok: boolean;
+  summary: string;
+  steps: unknown;
+  created_at: Date | string;
+};
+
 export type PendingMemberRecoveryNotificationTarget = {
   notificationId: string;
   workspaceId: string;
@@ -318,6 +335,14 @@ const COMPENSATION_REASONS: ReadonlySet<WorkspaceInviteRevocationReason> = new S
   'seat_limit_reduced',
 ]);
 const DEFAULT_RECOVERY_OUTREACH_RETRY_HOURS = 24;
+const ALL_RECOVERY_PLAYBOOK_STEP_NAMES: readonly TeamWorkspaceRecoveryPlaybookStepName[] = [
+  'outreach',
+  'ownerEmail',
+  'memberEmail',
+  'crmSync',
+  'webhook',
+  'slack',
+];
 
 function toIso(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
@@ -636,6 +661,80 @@ function rowToRecoveryOutreach(row: PgWorkspaceRecoveryOutreachRow): AdminRecove
     handoffNote: row.handoff_note,
     handoffAt: row.handoff_at ? toIso(row.handoff_at) : null,
     resolvedAt: row.resolved_at ? toIso(row.resolved_at) : null,
+  };
+}
+
+function rowToRecoveryPlaybookRun(
+  row: PgWorkspaceRecoveryPlaybookRunRow,
+): AdminRecoveryPlaybookRun {
+  const asRecord = (input: unknown): Record<string, unknown> =>
+    input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
+  const asStringOrNull = (input: unknown): string | null =>
+    typeof input === 'string' ? input : null;
+  const asNumberOrZero = (input: unknown): number =>
+    typeof input === 'number' && Number.isFinite(input) ? input : 0;
+  const asNumberOrNull = (input: unknown): number | null =>
+    typeof input === 'number' && Number.isFinite(input) ? input : null;
+  const normalizeDeliveryStatus = (
+    input: unknown,
+  ): TeamWorkspaceRecoveryPlaybookSteps['ownerEmail']['status'] =>
+    input === 'completed' || input === 'skipped' || input === 'disabled' || input === 'failed'
+      ? input
+      : 'skipped';
+  const normalizeOutreachStatus = (
+    input: unknown,
+  ): TeamWorkspaceRecoveryPlaybookSteps['outreach']['status'] =>
+    input === 'completed' || input === 'skipped' || input === 'failed' ? input : 'completed';
+  const rawSteps =
+    typeof row.steps === 'string' ? (JSON.parse(row.steps) as Record<string, unknown>) : row.steps;
+  const stepsRecord = asRecord(rawSteps);
+  const normalizeDeliveryStep = (input: unknown) => {
+    const step = asRecord(input);
+    return {
+      status: normalizeDeliveryStatus(step.status),
+      attemptedCount: asNumberOrZero(step.attemptedCount),
+      successCount: asNumberOrZero(step.successCount),
+      failedCount: asNumberOrZero(step.failedCount),
+      skippedReason: asStringOrNull(step.skippedReason),
+      error: asStringOrNull(step.error),
+      detail: asStringOrNull(step.detail),
+      statusCode: asNumberOrNull(step.statusCode),
+    };
+  };
+  const outreachStep = asRecord(stepsRecord.outreach);
+  const normalizedSteps: TeamWorkspaceRecoveryPlaybookSteps = {
+    outreach: {
+      status: normalizeOutreachStatus(outreachStep.status),
+      workspaceCount: asNumberOrZero(outreachStep.workspaceCount),
+      ownerOutreachCreated: asNumberOrZero(outreachStep.ownerOutreachCreated),
+      adminOutreachCreated: asNumberOrZero(outreachStep.adminOutreachCreated),
+      retriedOutreachCount: asNumberOrZero(outreachStep.retriedOutreachCount),
+      resolvedOutreachCount: asNumberOrZero(outreachStep.resolvedOutreachCount),
+      skippedReason: asStringOrNull(outreachStep.skippedReason),
+      detail: asStringOrNull(outreachStep.detail),
+    },
+    ownerEmail: normalizeDeliveryStep(stepsRecord.ownerEmail),
+    memberEmail: normalizeDeliveryStep(stepsRecord.memberEmail),
+    crmSync: normalizeDeliveryStep(stepsRecord.crmSync),
+    webhook: normalizeDeliveryStep(stepsRecord.webhook),
+    slack: normalizeDeliveryStep(stepsRecord.slack),
+  };
+  const requestedSteps = Array.isArray(row.requested_steps)
+    ? row.requested_steps.filter((step): step is TeamWorkspaceRecoveryPlaybookStepName =>
+        ALL_RECOVERY_PLAYBOOK_STEP_NAMES.includes(step as TeamWorkspaceRecoveryPlaybookStepName),
+      )
+    : ALL_RECOVERY_PLAYBOOK_STEP_NAMES.slice();
+  return {
+    id: row.id,
+    triggerType: row.trigger_type,
+    retryIntervalHours: row.retry_interval_hours,
+    force: row.force_run,
+    requestedSteps,
+    rerunOfRunId: row.rerun_of_run_id,
+    ok: row.ok,
+    summary: row.summary,
+    steps: normalizedSteps,
+    createdAt: toIso(row.created_at),
   };
 }
 
@@ -1263,6 +1362,19 @@ export interface TeamWorkspacesRepository {
   resolveEffectiveUserProfile(user: UserProfile): Promise<UserProfile>;
   getContextForUser(user: UserProfile): Promise<TeamWorkspaceContextResponse>;
   getAdminMetrics(): Promise<TeamWorkspaceAdminMetrics>;
+  listRecentRecoveryPlaybookRuns(limit: number): Promise<TeamWorkspaceRecoveryPlaybookRun[]>;
+  getRecoveryPlaybookRunById(runId: string): Promise<TeamWorkspaceRecoveryPlaybookRun | null>;
+  recordRecoveryPlaybookRun(input: {
+    triggerType: string;
+    retryIntervalHours: number;
+    force: boolean;
+    requestedSteps: TeamWorkspaceRecoveryPlaybookStepName[];
+    rerunOfRunId?: string | null;
+    ok: boolean;
+    summary: string;
+    steps: TeamWorkspaceRecoveryPlaybookSteps;
+    createdAt?: string;
+  }): Promise<TeamWorkspaceRecoveryPlaybookRun>;
   handoffAdminRecoveryOutreach(input: {
     workspaceId: string;
     channel: TeamWorkspaceRecoveryOutreachHandoffChannel;
@@ -1383,6 +1495,7 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
   >();
   private readonly billingEvents: AdminBillingEvent[] = [];
   private readonly recoveryOutreach: AdminRecoveryOutreach[] = [];
+  private readonly recoveryPlaybookRuns: TeamWorkspaceRecoveryPlaybookRun[] = [];
   private readonly memberRecoveryNotifications: Array<
     TeamWorkspaceMemberRecoveryNotification & { workspaceId: string; workspaceName: string }
   > = [];
@@ -1782,6 +1895,18 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
         resolved: resolvedOutreach,
         recent: this.recoveryOutreach.slice(0, 8),
       },
+      recoveryPlaybook: {
+        totalRuns: this.recoveryPlaybookRuns.length,
+        successfulRuns: this.recoveryPlaybookRuns.filter((run) => run.ok).length,
+        failedRuns: this.recoveryPlaybookRuns.filter((run) => !run.ok).length,
+        scheduledRuns: this.recoveryPlaybookRuns.filter((run) => run.triggerType === 'scheduled')
+          .length,
+        manualRuns: this.recoveryPlaybookRuns.filter((run) => run.triggerType !== 'scheduled')
+          .length,
+        lastRunAt: this.recoveryPlaybookRuns[0]?.createdAt ?? null,
+        lastRunOk: this.recoveryPlaybookRuns[0]?.ok ?? null,
+        recent: this.recoveryPlaybookRuns.slice(0, 8),
+      },
       recentBillingEvents: this.billingEvents.slice(0, 8),
       actionableWorkspaces: actionableWorkspaces.sort((a, b) => {
         const warningDelta = b.warningCodes.length - a.warningCodes.length;
@@ -1792,6 +1917,44 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
         );
       }),
     };
+  }
+
+  async listRecentRecoveryPlaybookRuns(limit: number): Promise<TeamWorkspaceRecoveryPlaybookRun[]> {
+    return this.recoveryPlaybookRuns.slice(0, limit);
+  }
+
+  async getRecoveryPlaybookRunById(
+    runId: string,
+  ): Promise<TeamWorkspaceRecoveryPlaybookRun | null> {
+    return this.recoveryPlaybookRuns.find((run) => run.id === runId) ?? null;
+  }
+
+  async recordRecoveryPlaybookRun(input: {
+    triggerType: string;
+    retryIntervalHours: number;
+    force: boolean;
+    requestedSteps: TeamWorkspaceRecoveryPlaybookStepName[];
+    rerunOfRunId?: string | null;
+    ok: boolean;
+    summary: string;
+    steps: TeamWorkspaceRecoveryPlaybookSteps;
+    createdAt?: string;
+  }): Promise<TeamWorkspaceRecoveryPlaybookRun> {
+    const createdAt = input.createdAt ?? new Date().toISOString();
+    const run: TeamWorkspaceRecoveryPlaybookRun = {
+      id: randomUUID(),
+      triggerType: input.triggerType,
+      retryIntervalHours: input.retryIntervalHours,
+      force: input.force,
+      requestedSteps: [...input.requestedSteps],
+      rerunOfRunId: input.rerunOfRunId ?? null,
+      ok: input.ok,
+      summary: input.summary,
+      steps: input.steps,
+      createdAt,
+    };
+    this.recoveryPlaybookRuns.unshift(run);
+    return run;
   }
 
   async handoffAdminRecoveryOutreach(input: {
@@ -3442,6 +3605,44 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
       else if (row.email_bucket === 'delivered_member_email') deliveredMemberEmail += count;
       else if (row.email_bucket === 'failed_member_email') failedMemberEmail += count;
     }
+    const recoveryPlaybookSummaryRes = await this.pool.query<{
+      total_runs: string;
+      successful_runs: string;
+      failed_runs: string;
+      scheduled_runs: string;
+      manual_runs: string;
+      last_run_at: Date | string | null;
+      last_run_ok: boolean | null;
+    }>(
+      `SELECT
+         COUNT(*)::text AS total_runs,
+         COUNT(*) FILTER (WHERE ok = TRUE)::text AS successful_runs,
+         COUNT(*) FILTER (WHERE ok = FALSE)::text AS failed_runs,
+         COUNT(*) FILTER (WHERE trigger_type = 'scheduled')::text AS scheduled_runs,
+         COUNT(*) FILTER (WHERE trigger_type <> 'scheduled')::text AS manual_runs,
+         MAX(created_at) AS last_run_at,
+         (
+           ARRAY_AGG(ok ORDER BY created_at DESC)
+         )[1] AS last_run_ok
+       FROM team_workspace_recovery_playbook_runs`,
+    );
+    const recoveryPlaybookRunsRes = await this.pool.query<PgWorkspaceRecoveryPlaybookRunRow>(
+      `SELECT
+         id,
+         trigger_type,
+         retry_interval_hours,
+         force_run,
+         requested_steps,
+         rerun_of_run_id,
+         ok,
+         summary,
+         steps,
+         created_at
+       FROM team_workspace_recovery_playbook_runs
+       ORDER BY created_at DESC
+       LIMIT 8`,
+    );
+    const recoveryPlaybookSummary = recoveryPlaybookSummaryRes.rows[0];
 
     let activeWorkspaces = 0;
     let atRiskWorkspaces = 0;
@@ -3599,6 +3800,18 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
         resolved: resolvedOutreach,
         recent: recoveryOutreachRecent,
       },
+      recoveryPlaybook: {
+        totalRuns: Number(recoveryPlaybookSummary?.total_runs ?? 0),
+        successfulRuns: Number(recoveryPlaybookSummary?.successful_runs ?? 0),
+        failedRuns: Number(recoveryPlaybookSummary?.failed_runs ?? 0),
+        scheduledRuns: Number(recoveryPlaybookSummary?.scheduled_runs ?? 0),
+        manualRuns: Number(recoveryPlaybookSummary?.manual_runs ?? 0),
+        lastRunAt: recoveryPlaybookSummary?.last_run_at
+          ? toIso(recoveryPlaybookSummary.last_run_at)
+          : null,
+        lastRunOk: recoveryPlaybookSummary?.last_run_ok ?? null,
+        recent: recoveryPlaybookRunsRes.rows.map(rowToRecoveryPlaybookRun),
+      },
       recentBillingEvents: await this.getRecentBillingEvents(),
       actionableWorkspaces: actionableWorkspaces.sort((a, b) => {
         const warningDelta = b.warningCodes.length - a.warningCodes.length;
@@ -3609,6 +3822,102 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
         );
       }),
     };
+  }
+
+  async listRecentRecoveryPlaybookRuns(limit: number): Promise<TeamWorkspaceRecoveryPlaybookRun[]> {
+    const safeLimit = Math.max(1, Math.min(limit, 100));
+    const { rows } = await this.pool.query<PgWorkspaceRecoveryPlaybookRunRow>(
+      `SELECT
+         id,
+         trigger_type,
+         retry_interval_hours,
+         force_run,
+         requested_steps,
+         rerun_of_run_id,
+         ok,
+         summary,
+         steps,
+         created_at
+       FROM team_workspace_recovery_playbook_runs
+       ORDER BY created_at DESC
+       LIMIT $1`,
+      [safeLimit],
+    );
+    return rows.map(rowToRecoveryPlaybookRun);
+  }
+
+  async getRecoveryPlaybookRunById(
+    runId: string,
+  ): Promise<TeamWorkspaceRecoveryPlaybookRun | null> {
+    const { rows } = await this.pool.query<PgWorkspaceRecoveryPlaybookRunRow>(
+      `SELECT
+         id,
+         trigger_type,
+         retry_interval_hours,
+         force_run,
+         requested_steps,
+         rerun_of_run_id,
+         ok,
+         summary,
+         steps,
+         created_at
+       FROM team_workspace_recovery_playbook_runs
+       WHERE id = $1
+       LIMIT 1`,
+      [runId],
+    );
+    return rows[0] ? rowToRecoveryPlaybookRun(rows[0]) : null;
+  }
+
+  async recordRecoveryPlaybookRun(input: {
+    triggerType: string;
+    retryIntervalHours: number;
+    force: boolean;
+    requestedSteps: TeamWorkspaceRecoveryPlaybookStepName[];
+    rerunOfRunId?: string | null;
+    ok: boolean;
+    summary: string;
+    steps: TeamWorkspaceRecoveryPlaybookSteps;
+    createdAt?: string;
+  }): Promise<TeamWorkspaceRecoveryPlaybookRun> {
+    const createdAt = input.createdAt ?? new Date().toISOString();
+    const { rows } = await this.pool.query<PgWorkspaceRecoveryPlaybookRunRow>(
+      `INSERT INTO team_workspace_recovery_playbook_runs (
+         trigger_type,
+         retry_interval_hours,
+         force_run,
+         requested_steps,
+         rerun_of_run_id,
+         ok,
+         summary,
+         steps,
+         created_at
+       )
+       VALUES ($1, $2, $3, $4::text[], $5::uuid, $6, $7, $8::jsonb, $9::timestamptz)
+       RETURNING
+         id,
+         trigger_type,
+         retry_interval_hours,
+         force_run,
+         requested_steps,
+         rerun_of_run_id,
+         ok,
+         summary,
+         steps,
+         created_at`,
+      [
+        input.triggerType,
+        input.retryIntervalHours,
+        input.force,
+        input.requestedSteps,
+        input.rerunOfRunId ?? null,
+        input.ok,
+        input.summary,
+        JSON.stringify(input.steps),
+        createdAt,
+      ],
+    );
+    return rowToRecoveryPlaybookRun(rows[0]!);
   }
 
   async handoffAdminRecoveryOutreach(input: {

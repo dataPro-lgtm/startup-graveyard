@@ -19,6 +19,8 @@ export default async function DashboardPage({
   const raw = await searchParams;
   const recoveryPlaybook = pickSearchParam(raw.recoveryPlaybook);
   const recoveryPlaybookError = pickSearchParam(raw.recoveryPlaybookError);
+  const recoveryPlaybookRerun = pickSearchParam(raw.recoveryPlaybookRerun);
+  const recoveryPlaybookRerunError = pickSearchParam(raw.recoveryPlaybookRerunError);
   const recoveryEmail = pickSearchParam(raw.recoveryEmail);
   const recoveryEmailError = pickSearchParam(raw.recoveryEmailError);
   const recoveryMemberEmail = pickSearchParam(raw.recoveryMemberEmail);
@@ -185,6 +187,36 @@ export default async function DashboardPage({
           }}
         >
           Recovery playbook 执行失败：{recoveryPlaybookError}
+        </div>
+      ) : null}
+      {recoveryPlaybookRerun ? (
+        <div
+          style={{
+            marginBottom: 18,
+            padding: '12px 14px',
+            borderRadius: 12,
+            border: '1px solid #0f766e',
+            background: '#0d2322',
+            color: '#99f6e4',
+            fontSize: 13,
+          }}
+        >
+          已补跑失败步骤：{recoveryPlaybookRerun}
+        </div>
+      ) : null}
+      {recoveryPlaybookRerunError ? (
+        <div
+          style={{
+            marginBottom: 18,
+            padding: '12px 14px',
+            borderRadius: 12,
+            border: '1px solid #4b2430',
+            background: '#23131a',
+            color: '#fecdd3',
+            fontSize: 13,
+          }}
+        >
+          Recovery playbook 失败步骤补跑失败：{recoveryPlaybookRerunError}
         </div>
       ) : null}
       {recoveryEmail ? (
@@ -429,11 +461,43 @@ function outreachStatusLabel(
   return '暂无';
 }
 
+function playbookStepLabel(
+  step: AdminStats['commercial']['teamWorkspaces']['recoveryPlaybook']['recent'][number]['requestedSteps'][number],
+): string {
+  if (step === 'outreach') return 'outreach';
+  if (step === 'ownerEmail') return 'owner email';
+  if (step === 'memberEmail') return 'member email';
+  if (step === 'crmSync') return 'crm';
+  if (step === 'webhook') return 'webhook';
+  return 'slack';
+}
+
+function playbookTriggerLabel(triggerType: string): string {
+  if (triggerType === 'scheduled') return '定时执行';
+  if (triggerType === 'manual') return '手动执行';
+  if (triggerType === 'manual_rerun') return '失败步骤补跑';
+  return triggerType;
+}
+
+function playbookRunStatusLabel(ok: boolean): string {
+  return ok ? '成功' : '失败';
+}
+
+function playbookFailedSteps(
+  run: AdminStats['commercial']['teamWorkspaces']['recoveryPlaybook']['recent'][number],
+): string {
+  return run.requestedSteps
+    .filter((key) => run.steps[key].status === 'failed')
+    .map((key) => playbookStepLabel(key))
+    .join(' / ');
+}
+
 function DashboardContent({ stats }: { stats: AdminStats }) {
   const subscriptionStats = stats.commercial.subscriptions;
   const billingFunnelStats = stats.commercial.billingFunnel;
   const researchStats = stats.commercial.researchUsage;
   const teamStats = stats.commercial.teamWorkspaces;
+  const playbookStats = teamStats.recoveryPlaybook;
   const maxIndustry = Math.max(...stats.byIndustry.map((r) => r.count), 1);
   const maxYear = Math.max(...stats.byYear.map((r) => r.count), 1);
   const maxReason = Math.max(...stats.byFailureReason.map((r) => r.count), 1);
@@ -503,6 +567,14 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
     teamStats.recoveryOutreach.failedWebhook,
     teamStats.recoveryOutreach.handedOff,
     teamStats.recoveryOutreach.resolved,
+    1,
+  );
+  const maxRecoveryPlaybookMetric = Math.max(
+    playbookStats.totalRuns,
+    playbookStats.successfulRuns,
+    playbookStats.failedRuns,
+    playbookStats.scheduledRuns,
+    playbookStats.manualRuns,
     1,
   );
   const maxBillingFunnelMetric = Math.max(
@@ -639,6 +711,16 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
           value={String(teamStats.workspacesRequiringAction)}
           sub={`${teamStats.recoveryActions.length} 类账单恢复动作`}
           color="#fb7185"
+        />
+        <KpiCard
+          label="Playbook Runs"
+          value={String(playbookStats.totalRuns)}
+          sub={
+            playbookStats.lastRunAt
+              ? `失败 ${playbookStats.failedRuns} · 最近 ${formatDateTime(playbookStats.lastRunAt)}`
+              : `失败 ${playbookStats.failedRuns} 次`
+          }
+          color="#c084fc"
         />
         <KpiCard
           label="Copilot 运行数"
@@ -1113,6 +1195,119 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+        </ChartCard>
+
+        <ChartCard title="Recovery Playbook 运行记录">
+          {playbookStats.totalRuns === 0 ? (
+            <EmptyState
+              text="当前还没有 playbook 执行记录。定时任务或手动运行后，这里会出现最近编排结果。"
+              compact
+            />
+          ) : (
+            <div style={{ display: 'grid', gap: 12 }}>
+              <BarRow
+                label="总执行次数"
+                value={playbookStats.totalRuns}
+                max={maxRecoveryPlaybookMetric}
+                color="#c084fc"
+                sub={`最近 ${formatDateTime(playbookStats.lastRunAt)}`}
+              />
+              <BarRow
+                label="成功执行"
+                value={playbookStats.successfulRuns}
+                max={maxRecoveryPlaybookMetric}
+                color="#22c55e"
+                sub={playbookStats.lastRunOk === true ? '最近一次执行成功' : '历史成功 run'}
+              />
+              <BarRow
+                label="失败执行"
+                value={playbookStats.failedRuns}
+                max={maxRecoveryPlaybookMetric}
+                color="#ef4444"
+                sub={playbookStats.lastRunOk === false ? '最近一次执行失败' : '待排查失败 run'}
+              />
+              <BarRow
+                label="定时执行"
+                value={playbookStats.scheduledRuns}
+                max={maxRecoveryPlaybookMetric}
+                color="#60a5fa"
+                sub="scheduler 自动运行"
+              />
+              <BarRow
+                label="手动执行"
+                value={playbookStats.manualRuns}
+                max={maxRecoveryPlaybookMetric}
+                color="#f59e0b"
+                sub="运营台手动触发"
+              />
+              <div style={{ display: 'grid', gap: 10, marginTop: 4 }}>
+                {playbookStats.recent.map((run) => {
+                  const failedSteps = playbookFailedSteps(run);
+                  return (
+                    <div
+                      key={run.id}
+                      style={{
+                        border: `1px solid ${run.ok ? '#1f4d38' : '#4b2430'}`,
+                        borderRadius: 12,
+                        background: run.ok ? '#10251b' : '#23131a',
+                        padding: '12px 14px',
+                        display: 'grid',
+                        gap: 6,
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          gap: 12,
+                          flexWrap: 'wrap',
+                          fontSize: 12,
+                          color: run.ok ? '#a7f3d0' : '#fecdd3',
+                        }}
+                      >
+                        <strong>{playbookRunStatusLabel(run.ok)}</strong>
+                        <span>{playbookTriggerLabel(run.triggerType)}</span>
+                        <span>{formatDateTime(run.createdAt)}</span>
+                      </div>
+                      <div style={{ color: '#e5eefb', fontSize: 13 }}>{run.summary}</div>
+                      <div style={{ color: '#8aa0c8', fontSize: 12 }}>
+                        {failedSteps
+                          ? `失败步骤：${failedSteps}`
+                          : `retry=${run.retryIntervalHours}h · force=${run.force ? 'true' : 'false'}`}
+                        {run.requestedSteps.length > 0
+                          ? ` · 本次步骤：${run.requestedSteps.map((step) => playbookStepLabel(step)).join(' / ')}`
+                          : ''}
+                        {run.rerunOfRunId ? ` · 补跑自 ${run.rerunOfRunId.slice(0, 8)}` : ''}
+                      </div>
+                      {!run.ok && failedSteps ? (
+                        <form
+                          action="/admin/recovery-playbook/rerun"
+                          method="post"
+                          style={{ margin: 0, display: 'flex', justifyContent: 'flex-start' }}
+                        >
+                          <input type="hidden" name="runId" value={run.id} />
+                          <button
+                            type="submit"
+                            style={{
+                              border: '1px solid #7c3aed',
+                              background: '#20123d',
+                              color: '#ddd6fe',
+                              borderRadius: 8,
+                              padding: '6px 10px',
+                              cursor: 'pointer',
+                              fontSize: 12,
+                            }}
+                          >
+                            仅补跑失败步骤
+                          </button>
+                        </form>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </ChartCard>

@@ -2,10 +2,10 @@ import type { Metadata, Viewport } from 'next';
 import { AuthProvider } from './components/AuthProvider';
 import { UserNav } from './components/UserNav';
 
-const SITE_NAME = 'Startup Graveyard · 创业坟场';
+const SITE_NAME = 'Startup Graveyard';
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://startup-graveyard.io';
 const DEFAULT_DESCRIPTION =
-  '失败案例情报库——收录数百家知名创业公司的失败复盘、融资数据与核心教训，帮助创始人和投资人避开已知雷区。';
+  'Open-source failure intelligence for founders, investors, and researchers. Explore structured startup postmortems, grounded analysis, and reusable research workflows.';
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -17,7 +17,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: 'website',
     siteName: SITE_NAME,
-    locale: 'zh_CN',
+    locale: 'en_US',
     url: SITE_URL,
     title: SITE_NAME,
     description: DEFAULT_DESCRIPTION,
@@ -40,7 +40,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="zh-CN">
+    <html lang="en">
       <body
         suppressHydrationWarning
         style={{
@@ -73,25 +73,25 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 letterSpacing: '-0.01em',
               }}
             >
-              ⚰️ 创业坟场
+              Startup Graveyard
             </a>
             <a href="/" style={{ color: '#9fb3ff', textDecoration: 'none' }}>
-              案例库
+              Explore Cases
             </a>
             <a href="/research" style={{ color: '#9fb3ff', textDecoration: 'none' }}>
-              研究入口
+              Research Hub
             </a>
             <a
               href="/copilot"
               style={{ color: '#5b7cff', textDecoration: 'none', fontWeight: 600 }}
             >
-              AI Copilot
+              Failure Copilot
             </a>
             <a href="/admin/dashboard" style={{ color: '#9fb3ff', textDecoration: 'none' }}>
-              Dashboard
+              Ops Dashboard
             </a>
             <a href="/admin/reviews" style={{ color: '#9fb3ff', textDecoration: 'none' }}>
-              运营台
+              Review Queue
             </a>
             <UserNav />
           </header>

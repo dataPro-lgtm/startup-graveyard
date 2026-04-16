@@ -38,6 +38,25 @@ export const teamWorkspaceRecoveryOutreachStatusSchema = z.enum([
   'handed_off',
   'resolved',
 ]);
+export const teamWorkspaceRecoveryPlaybookDeliveryStatusSchema = z.enum([
+  'completed',
+  'skipped',
+  'disabled',
+  'failed',
+]);
+export const teamWorkspaceRecoveryPlaybookOutreachStatusSchema = z.enum([
+  'completed',
+  'skipped',
+  'failed',
+]);
+export const teamWorkspaceRecoveryPlaybookStepNameSchema = z.enum([
+  'outreach',
+  'ownerEmail',
+  'memberEmail',
+  'crmSync',
+  'webhook',
+  'slack',
+]);
 export const teamWorkspaceRecoveryOutreachHandoffChannelSchema = z.enum([
   'crm',
   'manual_follow_up',
@@ -151,6 +170,50 @@ export const teamWorkspaceRecoveryOutreachSchema = z.object({
   handoffNote: z.string().nullable(),
   handoffAt: z.string().nullable(),
   resolvedAt: z.string().nullable(),
+});
+
+export const teamWorkspaceRecoveryPlaybookDeliveryStepSchema = z.object({
+  status: teamWorkspaceRecoveryPlaybookDeliveryStatusSchema,
+  attemptedCount: z.number().int().nonnegative(),
+  successCount: z.number().int().nonnegative(),
+  failedCount: z.number().int().nonnegative(),
+  skippedReason: z.string().nullable(),
+  error: z.string().nullable(),
+  detail: z.string().nullable(),
+  statusCode: z.number().int().nullable(),
+});
+
+export const teamWorkspaceRecoveryPlaybookOutreachStepSchema = z.object({
+  status: teamWorkspaceRecoveryPlaybookOutreachStatusSchema,
+  workspaceCount: z.number().int().nonnegative(),
+  ownerOutreachCreated: z.number().int().nonnegative(),
+  adminOutreachCreated: z.number().int().nonnegative(),
+  retriedOutreachCount: z.number().int().nonnegative(),
+  resolvedOutreachCount: z.number().int().nonnegative(),
+  skippedReason: z.string().nullable(),
+  detail: z.string().nullable(),
+});
+
+export const teamWorkspaceRecoveryPlaybookStepsSchema = z.object({
+  outreach: teamWorkspaceRecoveryPlaybookOutreachStepSchema,
+  ownerEmail: teamWorkspaceRecoveryPlaybookDeliveryStepSchema,
+  memberEmail: teamWorkspaceRecoveryPlaybookDeliveryStepSchema,
+  crmSync: teamWorkspaceRecoveryPlaybookDeliveryStepSchema,
+  webhook: teamWorkspaceRecoveryPlaybookDeliveryStepSchema,
+  slack: teamWorkspaceRecoveryPlaybookDeliveryStepSchema,
+});
+
+export const teamWorkspaceRecoveryPlaybookRunSchema = z.object({
+  id: z.string().uuid(),
+  triggerType: z.string(),
+  retryIntervalHours: z.number().int().nonnegative(),
+  force: z.boolean(),
+  requestedSteps: z.array(teamWorkspaceRecoveryPlaybookStepNameSchema),
+  rerunOfRunId: z.string().uuid().nullable(),
+  ok: z.boolean(),
+  summary: z.string(),
+  steps: teamWorkspaceRecoveryPlaybookStepsSchema,
+  createdAt: z.string(),
 });
 
 export const teamWorkspaceMemberRecoveryNotificationSchema = z.object({
@@ -285,6 +348,15 @@ export type TeamWorkspaceRecoveryOutreachChannel = z.infer<
 export type TeamWorkspaceRecoveryOutreachStatus = z.infer<
   typeof teamWorkspaceRecoveryOutreachStatusSchema
 >;
+export type TeamWorkspaceRecoveryPlaybookDeliveryStatus = z.infer<
+  typeof teamWorkspaceRecoveryPlaybookDeliveryStatusSchema
+>;
+export type TeamWorkspaceRecoveryPlaybookOutreachStatus = z.infer<
+  typeof teamWorkspaceRecoveryPlaybookOutreachStatusSchema
+>;
+export type TeamWorkspaceRecoveryPlaybookStepName = z.infer<
+  typeof teamWorkspaceRecoveryPlaybookStepNameSchema
+>;
 export type TeamWorkspaceRecoveryOutreachHandoffChannel = z.infer<
   typeof teamWorkspaceRecoveryOutreachHandoffChannelSchema
 >;
@@ -304,6 +376,18 @@ export type TeamWorkspaceBillingRecoveryAction = TeamWorkspaceBilling['recommend
 export type TeamWorkspaceBillingNotice = TeamWorkspaceBilling['recoveryNotices'][number];
 export type TeamWorkspaceBillingEvent = z.infer<typeof teamWorkspaceBillingEventSchema>;
 export type TeamWorkspaceRecoveryOutreach = z.infer<typeof teamWorkspaceRecoveryOutreachSchema>;
+export type TeamWorkspaceRecoveryPlaybookDeliveryStep = z.infer<
+  typeof teamWorkspaceRecoveryPlaybookDeliveryStepSchema
+>;
+export type TeamWorkspaceRecoveryPlaybookOutreachStep = z.infer<
+  typeof teamWorkspaceRecoveryPlaybookOutreachStepSchema
+>;
+export type TeamWorkspaceRecoveryPlaybookSteps = z.infer<
+  typeof teamWorkspaceRecoveryPlaybookStepsSchema
+>;
+export type TeamWorkspaceRecoveryPlaybookRun = z.infer<
+  typeof teamWorkspaceRecoveryPlaybookRunSchema
+>;
 export type TeamWorkspaceMemberRecoveryNotification = z.infer<
   typeof teamWorkspaceMemberRecoveryNotificationSchema
 >;

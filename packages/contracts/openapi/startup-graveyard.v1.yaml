@@ -1020,6 +1020,97 @@ components:
         handoffNote: { type: string, nullable: true }
         handoffAt: { type: string, nullable: true }
         resolvedAt: { type: string, nullable: true }
+    TeamWorkspaceRecoveryPlaybookDeliveryStep:
+      type: object
+      required:
+        [
+          status,
+          attemptedCount,
+          successCount,
+          failedCount,
+          skippedReason,
+          error,
+          detail,
+          statusCode,
+        ]
+      properties:
+        status: { type: string, enum: [completed, skipped, disabled, failed] }
+        attemptedCount: { type: integer, minimum: 0 }
+        successCount: { type: integer, minimum: 0 }
+        failedCount: { type: integer, minimum: 0 }
+        skippedReason: { type: string, nullable: true }
+        error: { type: string, nullable: true }
+        detail: { type: string, nullable: true }
+        statusCode: { type: integer, nullable: true }
+    TeamWorkspaceRecoveryPlaybookOutreachStep:
+      type: object
+      required:
+        [
+          status,
+          workspaceCount,
+          ownerOutreachCreated,
+          adminOutreachCreated,
+          retriedOutreachCount,
+          resolvedOutreachCount,
+          skippedReason,
+          detail,
+        ]
+      properties:
+        status: { type: string, enum: [completed, skipped, failed] }
+        workspaceCount: { type: integer, minimum: 0 }
+        ownerOutreachCreated: { type: integer, minimum: 0 }
+        adminOutreachCreated: { type: integer, minimum: 0 }
+        retriedOutreachCount: { type: integer, minimum: 0 }
+        resolvedOutreachCount: { type: integer, minimum: 0 }
+        skippedReason: { type: string, nullable: true }
+        detail: { type: string, nullable: true }
+    TeamWorkspaceRecoveryPlaybookSteps:
+      type: object
+      required: [outreach, ownerEmail, memberEmail, crmSync, webhook, slack]
+      properties:
+        outreach:
+          $ref: '#/components/schemas/TeamWorkspaceRecoveryPlaybookOutreachStep'
+        ownerEmail:
+          $ref: '#/components/schemas/TeamWorkspaceRecoveryPlaybookDeliveryStep'
+        memberEmail:
+          $ref: '#/components/schemas/TeamWorkspaceRecoveryPlaybookDeliveryStep'
+        crmSync:
+          $ref: '#/components/schemas/TeamWorkspaceRecoveryPlaybookDeliveryStep'
+        webhook:
+          $ref: '#/components/schemas/TeamWorkspaceRecoveryPlaybookDeliveryStep'
+        slack:
+          $ref: '#/components/schemas/TeamWorkspaceRecoveryPlaybookDeliveryStep'
+    TeamWorkspaceRecoveryPlaybookRun:
+      type: object
+      required:
+        [
+          id,
+          triggerType,
+          retryIntervalHours,
+          force,
+          requestedSteps,
+          rerunOfRunId,
+          ok,
+          summary,
+          steps,
+          createdAt,
+        ]
+      properties:
+        id: { type: string, format: uuid }
+        triggerType: { type: string }
+        retryIntervalHours: { type: integer, minimum: 0 }
+        force: { type: boolean }
+        requestedSteps:
+          type: array
+          items:
+            type: string
+            enum: [outreach, ownerEmail, memberEmail, crmSync, webhook, slack]
+        rerunOfRunId: { type: string, format: uuid, nullable: true }
+        ok: { type: boolean }
+        summary: { type: string }
+        steps:
+          $ref: '#/components/schemas/TeamWorkspaceRecoveryPlaybookSteps'
+        createdAt: { type: string }
     TeamWorkspaceMemberRecoveryNotification:
       type: object
       required:
@@ -1768,6 +1859,7 @@ components:
           recoveryStages,
           followUpStates,
           recoveryOutreach,
+          recoveryPlaybook,
           recentBillingEvents,
           actionableWorkspaces,
         ]
@@ -1884,6 +1976,31 @@ components:
                     properties:
                       workspaceId: { type: string, format: uuid }
                       workspaceName: { type: string }
+        recoveryPlaybook:
+          type: object
+          required:
+            [
+              totalRuns,
+              successfulRuns,
+              failedRuns,
+              scheduledRuns,
+              manualRuns,
+              lastRunAt,
+              lastRunOk,
+              recent,
+            ]
+          properties:
+            totalRuns: { type: integer, minimum: 0 }
+            successfulRuns: { type: integer, minimum: 0 }
+            failedRuns: { type: integer, minimum: 0 }
+            scheduledRuns: { type: integer, minimum: 0 }
+            manualRuns: { type: integer, minimum: 0 }
+            lastRunAt: { type: string, nullable: true }
+            lastRunOk: { type: boolean, nullable: true }
+            recent:
+              type: array
+              items:
+                $ref: '#/components/schemas/TeamWorkspaceRecoveryPlaybookRun'
         recentBillingEvents:
           type: array
           items:
@@ -3637,6 +3754,43 @@ paths:
           description: Unauthorized
         '502':
           description: Recovery playbook finished with at least one failed outbound channel
+        '503':
+          description: Admin API disabled
+  /v1/admin/stats/recovery-playbook/rerun-failed:
+    post:
+      summary: Rerun only the failed steps from a previous Team Workspace recovery playbook run
+      security:
+        - AdminKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [runId]
+              properties:
+                runId:
+                  type: string
+                  format: uuid
+                retryIntervalHours:
+                  type: integer
+                  minimum: 0
+                  maximum: 336
+                force:
+                  type: boolean
+      responses:
+        '200':
+          description: Failed steps rerun and recorded as a new playbook run
+        '400':
+          description: Invalid rerun request body
+        '401':
+          description: Unauthorized
+        '404':
+          description: Playbook run not found
+        '409':
+          description: Previous run has no failed steps to rerun
+        '502':
+          description: Rerun finished with at least one failed outbound channel
         '503':
           description: Admin API disabled
   /v1/admin/stats/recovery-handoffs/crm:

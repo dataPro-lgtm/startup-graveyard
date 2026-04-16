@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from './buildApp.js';
 import * as memberRecoveryEmailClient from './recoveryOutreach/sendRecoveryFallbackMemberEmail.js';
+import * as recoveryCrmClient from './recoveryOutreach/deliverRecoveryOutreachCrmSync.js';
 import * as recoveryEmailClient from './recoveryOutreach/sendRecoveryOutreachEmail.js';
 
 describe('admin API (mock DB + ADMIN_API_KEY)', () => {
@@ -1311,6 +1312,17 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
     const stats = await app.teamWorkspacesRepo.getAdminMetrics();
     expect(stats.recoveryOutreach.deliveredMemberEmail).toBeGreaterThanOrEqual(1);
     expect(stats.recoveryOutreach.syncedCrm).toBeGreaterThanOrEqual(1);
+    expect(stats.recoveryPlaybook.totalRuns).toBeGreaterThanOrEqual(1);
+    expect(stats.recoveryPlaybook.recent[0]).toMatchObject({
+      triggerType: 'manual',
+      requestedSteps: ['outreach', 'ownerEmail', 'memberEmail', 'crmSync', 'webhook', 'slack'],
+      rerunOfRunId: null,
+      ok: true,
+      steps: {
+        memberEmail: expect.objectContaining({ status: 'completed', successCount: 1 }),
+        crmSync: expect.objectContaining({ status: 'completed', successCount: 1 }),
+      },
+    });
     expect(stats.actionableWorkspaces).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1322,6 +1334,212 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
         }),
       ]),
     );
+  });
+
+  it('POST /v1/admin/stats/recovery-playbook/rerun-failed reruns only failed steps', async () => {
+    const ownerEmail = `recovery-rerun-owner-${Date.now()}@example.com`;
+    const memberEmail = `recovery-rerun-member-${Date.now()}@example.com`;
+    const [ownerRegisterRes, memberRegisterRes] = await Promise.all([
+      app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: ownerEmail,
+          password: 'password123',
+          displayName: 'Recovery Rerun Owner',
+        },
+      }),
+      app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: memberEmail,
+          password: 'password123',
+          displayName: 'Recovery Rerun Member',
+        },
+      }),
+    ]);
+    const ownerRegistered = JSON.parse(ownerRegisterRes.body) as {
+      user: { id: string };
+      accessToken: string;
+    };
+    const memberRegistered = JSON.parse(memberRegisterRes.body) as {
+      accessToken: string;
+    };
+
+    await app.usersRepo.updateBillingAccount(ownerRegistered.user.id, {
+      subscription: 'team',
+      billingStatus: 'active',
+      billingInterval: 'month',
+    });
+
+    const createWorkspaceRes = await app.inject({
+      method: 'POST',
+      url: '/v1/team-workspace',
+      headers: {
+        authorization: `Bearer ${ownerRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: { name: 'Recovery Playbook Rerun Workspace' },
+    });
+    const createdWorkspace = JSON.parse(createWorkspaceRes.body) as {
+      workspace: { id: string };
+    };
+
+    await app.inject({
+      method: 'POST',
+      url: '/v1/team-workspace/invites',
+      headers: {
+        authorization: `Bearer ${ownerRegistered.accessToken}`,
+        'content-type': 'application/json',
+      },
+      payload: { email: memberEmail, role: 'member' },
+    });
+
+    const memberContextRes = await app.inject({
+      method: 'GET',
+      url: '/v1/team-workspace/me',
+      headers: {
+        authorization: `Bearer ${memberRegistered.accessToken}`,
+      },
+    });
+    const memberContext = JSON.parse(memberContextRes.body) as {
+      pendingInvites: Array<{ id: string }>;
+    };
+    await app.inject({
+      method: 'POST',
+      url: `/v1/team-workspace/invites/${memberContext.pendingInvites[0]!.id}/accept`,
+      headers: {
+        authorization: `Bearer ${memberRegistered.accessToken}`,
+      },
+    });
+
+    await app.usersRepo.updateBillingAccount(ownerRegistered.user.id, {
+      subscription: 'pro',
+      billingStatus: 'active',
+      billingInterval: 'month',
+      cancelAtPeriodEnd: true,
+    });
+
+    await app.inject({
+      method: 'POST',
+      url: '/v1/admin/scheduler/trigger',
+      headers: {
+        'x-admin-key': key,
+        'content-type': 'application/json',
+      },
+      payload: { sourceName: 'reconcile_team_workspace_billing', payload: {} },
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/v1/admin/scheduler/trigger',
+      headers: {
+        'x-admin-key': key,
+        'content-type': 'application/json',
+      },
+      payload: { sourceName: 'run_team_workspace_recovery_outreach', payload: {} },
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/v1/admin/stats/recovery-outreach/handoff',
+      headers: {
+        'x-admin-key': key,
+        'content-type': 'application/json',
+      },
+      payload: {
+        workspaceId: createdWorkspace.workspace.id,
+        channel: 'crm',
+        snoozeHours: 24,
+        note: 'Playbook rerun test handoff.',
+      },
+    });
+
+    process.env.TEAM_WORKSPACE_RECOVERY_EMAIL_SMTP_HOST = 'smtp.example.com';
+    process.env.TEAM_WORKSPACE_RECOVERY_EMAIL_FROM = 'Startup Graveyard <ops@example.com>';
+    process.env.TEAM_WORKSPACE_RECOVERY_CRM_API_URL = 'https://crm.example.com/recovery';
+    vi.spyOn(recoveryEmailClient, 'sendRecoveryOutreachEmail').mockResolvedValue({
+      messageId: 'rerun-owner-msg-1',
+    });
+    vi.spyOn(memberRecoveryEmailClient, 'sendRecoveryFallbackMemberEmail').mockResolvedValue({
+      messageId: 'rerun-member-msg-1',
+    });
+    vi.spyOn(recoveryCrmClient, 'deliverRecoveryOutreachCrmSync')
+      .mockResolvedValueOnce({
+        ok: false,
+        error: 'recovery_handoff_crm_failed',
+        attemptedCount: 1,
+        syncedCount: 0,
+        failedCount: 1,
+        detail: 'temporary_crm_failure',
+      })
+      .mockResolvedValue({
+        ok: true,
+        attemptedCount: 1,
+        syncedCount: 1,
+        failedCount: 0,
+        skipped: null,
+      });
+
+    const failedRunRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/stats/recovery-playbook',
+      headers: {
+        'x-admin-key': key,
+        'content-type': 'application/json',
+      },
+      payload: { retryIntervalHours: 0 },
+    });
+    expect(failedRunRes.statusCode).toBe(502);
+    const failedRunBody = JSON.parse(failedRunRes.body) as {
+      steps: { crmSync: { status: string } };
+    };
+    expect(failedRunBody.steps.crmSync.status).toBe('failed');
+
+    const failedRun = (await app.teamWorkspacesRepo.listRecentRecoveryPlaybookRuns(1))[0]!;
+    expect(failedRun.ok).toBe(false);
+
+    const rerunRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/stats/recovery-playbook/rerun-failed',
+      headers: {
+        'x-admin-key': key,
+        'content-type': 'application/json',
+      },
+      payload: { runId: failedRun.id },
+    });
+    expect(rerunRes.statusCode).toBe(200);
+    const rerunBody = JSON.parse(rerunRes.body) as {
+      ok: boolean;
+      requestedSteps: string[];
+      rerunOfRunId: string;
+      steps: {
+        outreach: { status: string; skippedReason: string | null };
+        crmSync: { status: string; successCount: number };
+        memberEmail: { status: string; skippedReason: string | null };
+      };
+    };
+    expect(rerunBody).toMatchObject({
+      ok: true,
+      requestedSteps: ['crmSync'],
+      rerunOfRunId: failedRun.id,
+      steps: {
+        outreach: { status: 'skipped', skippedReason: 'not_selected' },
+        crmSync: { status: 'completed', successCount: 1 },
+        memberEmail: { status: 'skipped', skippedReason: 'not_selected' },
+      },
+    });
+
+    const recentRuns = await app.teamWorkspacesRepo.listRecentRecoveryPlaybookRuns(2);
+    expect(recentRuns[0]).toMatchObject({
+      triggerType: 'manual_rerun',
+      requestedSteps: ['crmSync'],
+      rerunOfRunId: failedRun.id,
+      ok: true,
+      steps: {
+        outreach: expect.objectContaining({ status: 'skipped', skippedReason: 'not_selected' }),
+        crmSync: expect.objectContaining({ status: 'completed', successCount: 1 }),
+      },
+    });
   });
 
   it('POST /v1/admin/stats/recovery-handoffs/slack alerts webhook dead-letters to ops', async () => {

@@ -8,6 +8,7 @@ import {
   teamWorkspaceRecoveryOutreachAudienceSchema,
   teamWorkspaceRecoveryOutreachChannelSchema,
   teamWorkspaceRecoveryOutreachHandoffChannelSchema,
+  teamWorkspaceRecoveryPlaybookRunSchema,
   teamWorkspaceRecoveryOutreachSchema,
   teamWorkspaceRecoveryOutreachStatusSchema,
   teamWorkspaceBillingWarningSchema,
@@ -233,6 +234,16 @@ export const teamWorkspaceAdminMetricsSchema = z.object({
         workspaceName: z.string(),
       }),
     ),
+  }),
+  recoveryPlaybook: z.object({
+    totalRuns: nonnegativeInteger,
+    successfulRuns: nonnegativeInteger,
+    failedRuns: nonnegativeInteger,
+    scheduledRuns: nonnegativeInteger,
+    manualRuns: nonnegativeInteger,
+    lastRunAt: z.string().nullable(),
+    lastRunOk: z.boolean().nullable(),
+    recent: z.array(teamWorkspaceRecoveryPlaybookRunSchema),
   }),
   recentBillingEvents: z.array(
     teamWorkspaceBillingEventSchema.extend({

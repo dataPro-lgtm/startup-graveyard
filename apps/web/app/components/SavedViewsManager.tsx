@@ -53,23 +53,27 @@ type SavedViewsManagerProps = {
 
 function summarizeFilters(filters: SavedViewFilters): string[] {
   const parts: string[] = [];
-  if (filters.q) parts.push(`关键词：${filters.q}`);
+  if (filters.q) parts.push(`Query: ${filters.q}`);
   if (filters.industry) parts.push(industryLabel(filters.industry));
   if (filters.country) parts.push(countryLabel(filters.country));
-  if (filters.closedYear) parts.push(`${filters.closedYear} 关闭`);
+  if (filters.closedYear) parts.push(`Closed in ${filters.closedYear}`);
   if (filters.businessModelKey) parts.push(businessModelLabel(filters.businessModelKey));
   if (filters.primaryFailureReasonKey) {
     parts.push(primaryFailureReasonLabel(filters.primaryFailureReasonKey));
   }
-  if (parts.length === 0) return ['全部案例'];
+  if (parts.length === 0) return ['All cases'];
   return parts;
 }
 
 function apiErrorMessage(error: { error: string }) {
-  if (error.error === 'entitlement_required') return '当前套餐未解锁保存视图。';
-  if (error.error === 'saved_view_limit_reached') return '已达到当前套餐的保存视图上限。';
-  if (error.error === 'duplicate_saved_view') return '同一组筛选已存在于你的 Saved Views 中。';
-  return `保存视图失败：${error.error}`;
+  if (error.error === 'entitlement_required') return 'Saved views are not unlocked on this plan.';
+  if (error.error === 'saved_view_limit_reached') {
+    return 'You have reached the saved-view limit for this plan.';
+  }
+  if (error.error === 'duplicate_saved_view') {
+    return 'This filter set already exists in your saved views.';
+  }
+  return `Could not save the view: ${error.error}`;
 }
 
 function upsertItem(items: SavedViewItem[], nextItem: SavedViewItem): SavedViewItem[] {
@@ -114,7 +118,7 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
   const [editName, setEditName] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [name, setName] = useState(suggestedName ?? '全部案例');
+  const [name, setName] = useState(suggestedName ?? 'All Cases');
   const [teamWorkspaceContext, setTeamWorkspaceContext] =
     useState<TeamWorkspaceContextResponse | null>(null);
 
@@ -216,7 +220,7 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
     setError(null);
     setMessage(null);
     const res = await createSavedView(token, {
-      name: name.trim() || suggestedName || '全部案例',
+      name: name.trim() || suggestedName || 'All Cases',
       filters: currentFilters,
     });
     setSaving(false);
@@ -226,7 +230,11 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
     }
     setItems((prev) => upsertItem(prev, res.item));
     setSummary(res.summary);
-    setMessage(res.created ? '当前视图已保存。' : '这组筛选已经在你的 Saved Views 中。');
+    setMessage(
+      res.created
+        ? 'Current research view saved.'
+        : 'This filter set is already in your saved views.',
+    );
   }
 
   async function handleRename(savedViewId: string) {
@@ -244,7 +252,7 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
     setItems((prev) => upsertItem(prev, res.item));
     setSummary(res.summary);
     setEditingId(null);
-    setMessage('Saved view 名称已更新。');
+    setMessage('Saved view name updated.');
   }
 
   async function handleDelete(savedViewId: string) {
@@ -262,7 +270,7 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
     setItems((prev) => prev.filter((item) => item.id !== savedViewId));
     setReportShares((prev) => prev.filter((item) => item.savedViewId !== savedViewId));
     setSummary(res.summary);
-    setMessage('Saved view 已删除。');
+    setMessage('Saved view deleted.');
   }
 
   async function handleExport(
@@ -298,7 +306,7 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
         res.filename,
       );
     }
-    setMessage(`已导出 ${format === 'pdf' ? 'PDF' : 'Markdown'} brief：${res.filename}`);
+    setMessage(`Exported ${format === 'pdf' ? 'PDF' : 'Markdown'} brief: ${res.filename}`);
   }
 
   async function handleShare(savedViewId: string) {
@@ -311,7 +319,7 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
     const res = await shareSavedViewToWorkspace(token, savedViewId);
     setSharingId(null);
     if (isTeamWorkspaceApiError(res)) {
-      setError(`共享失败：${res.error}`);
+      setError(`Could not share the saved view: ${res.error}`);
       return;
     }
     setTeamWorkspaceContext((prev) =>
@@ -329,7 +337,9 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
           },
     );
     setMessage(
-      res.added ? 'Saved View 已共享到团队工作区。' : '这个 Saved View 已经在团队工作区里。',
+      res.added
+        ? 'Saved view shared to the Team Workspace.'
+        : 'This saved view is already in the Team Workspace.',
     );
     notifyTeamWorkspaceUpdated();
   }
@@ -344,7 +354,7 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
     const res = await createReportShare(token, savedView.id);
     setPublishingId(null);
     if (isReportShareApiError(res)) {
-      setError(`分享页生成失败：${res.error}`);
+      setError(`Could not publish the brief share: ${res.error}`);
       return;
     }
     setReportShares((prev) =>
@@ -353,7 +363,11 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
         ...prev.filter((item) => item.id !== res.item.id && item.savedViewId !== savedView.id),
       ].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
     );
-    setMessage(res.created ? '公开分享页已生成。' : '公开分享页已刷新到当前 Saved View。');
+    setMessage(
+      res.created
+        ? 'Public brief page created.'
+        : 'Public brief page refreshed to match the current saved view.',
+    );
   }
 
   async function handleDeleteShare(shareId: string, savedViewId: string) {
@@ -366,22 +380,22 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
     const res = await deleteReportShare(token, shareId);
     setRemovingShareId(null);
     if (isReportShareApiError(res)) {
-      setError(`停止分享失败：${res.error}`);
+      setError(`Could not stop the public share: ${res.error}`);
       return;
     }
     setReportShares((prev) =>
       prev.filter((item) => item.id !== res.shareId && item.savedViewId !== savedViewId),
     );
-    setMessage('公开分享页已停止。');
+    setMessage('Public brief share stopped.');
   }
 
   async function handleCopyShare(shareUrl: string) {
     try {
       await navigator.clipboard.writeText(shareUrl);
-      setMessage('分享链接已复制。');
+      setMessage('Share link copied.');
       setError(null);
     } catch {
-      setError('复制失败，请手动打开分享页。');
+      setError('Could not copy the link. Open the public brief manually.');
     }
   }
 
@@ -412,20 +426,20 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
             SAVED VIEWS
           </p>
           <h2 style={{ margin: '0 0 8px', fontSize: mode === 'compact' ? 20 : 22 }}>
-            {mode === 'compact' ? '保存当前研究视图' : '已保存研究视图'}
+            {mode === 'compact' ? 'Save the current research view' : 'Saved research views'}
           </h2>
           <p style={{ margin: 0, color: '#c8d0e5', lineHeight: 1.7 }}>
             {mode === 'compact'
-              ? '把当前筛选沉淀成可重复访问的研究入口。后续导出、分享和团队协作都会复用这层资产。'
-              : '这些 Saved Views 是你沉淀出来的长期研究入口，可以直接回到相同筛选上下文。'}
+              ? 'Turn the current filter set into a reusable research entry point for export, sharing, and team workflows.'
+              : 'Saved views preserve long-lived research angles so you can return to the same analytical context at any time.'}
           </p>
         </div>
         {displaySummary ? (
           <div style={{ color: '#9fb3ff', fontSize: 13, lineHeight: 1.6 }}>
             <div>
-              已保存 {displaySummary.savedViewCount}/{displaySummary.savedViewLimit}
+              Saved {displaySummary.savedViewCount}/{displaySummary.savedViewLimit}
             </div>
-            <div>剩余 {displaySummary.remainingSlots}</div>
+            <div>Remaining {displaySummary.remainingSlots}</div>
           </div>
         ) : null}
       </div>
@@ -458,43 +472,44 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
           </div>
           {!user ? (
             <div style={{ color: '#9fb3ff', fontSize: 14, lineHeight: 1.7 }}>
-              登录后可以把这组筛选保存到账户里。
+              Sign in to save this filter set to your account.
               <div style={{ marginTop: 10 }}>
                 <Link href="/auth/login" style={actionLinkStyle}>
-                  登录后保存
+                  Sign In to Save
                 </Link>
               </div>
             </div>
           ) : !user.entitlements.canUseSavedSearches ? (
             <div style={{ color: '#9fb3ff', fontSize: 14, lineHeight: 1.7 }}>
-              当前套餐还未解锁 Saved Views。升级后可长期保存研究视角、导出报告并复用筛选。
+              Your current plan does not unlock saved views. Upgrade to keep long-lived research
+              angles, export briefs, and reuse filters.
               <div style={{ marginTop: 10 }}>
                 <Link href="/auth/account" style={actionLinkStyle}>
-                  去升级套餐
+                  Upgrade Plan
                 </Link>
               </div>
             </div>
           ) : (
             <div style={{ display: 'grid', gap: 10 }}>
               <label style={{ display: 'grid', gap: 6, color: '#9fb3ff', fontSize: 13 }}>
-                视图名称
+                View Name
                 <input
                   value={name}
                   onChange={(event) => setName(event.target.value)}
-                  placeholder="例如：Marketplace 失速样本"
+                  placeholder="Example: Marketplace breakdown sample"
                   style={inputStyle}
                 />
               </label>
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
                 <button onClick={handleCreate} disabled={saving} style={primaryButton(saving)}>
-                  {saving ? '保存中…' : '保存当前视图'}
+                  {saving ? 'Saving…' : 'Save Current View'}
                 </button>
                 {user.entitlements.canExportReports ? (
                   <>
                     <button
                       onClick={() =>
                         void handleExport(
-                          name.trim() || suggestedName || '全部案例',
+                          name.trim() || suggestedName || 'All Cases',
                           currentFilters,
                           'current',
                           'markdown',
@@ -503,12 +518,12 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
                       disabled={exportingKey === 'current:markdown'}
                       style={ghostMiniButton}
                     >
-                      {exportingKey === 'current:markdown' ? '导出中…' : '导出 Markdown Brief'}
+                      {exportingKey === 'current:markdown' ? 'Exporting…' : 'Export Markdown Brief'}
                     </button>
                     <button
                       onClick={() =>
                         void handleExport(
-                          name.trim() || suggestedName || '全部案例',
+                          name.trim() || suggestedName || 'All Cases',
                           currentFilters,
                           'current',
                           'pdf',
@@ -517,12 +532,12 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
                       disabled={exportingKey === 'current:pdf'}
                       style={ghostMiniButton}
                     >
-                      {exportingKey === 'current:pdf' ? '导出中…' : '导出 PDF Brief'}
+                      {exportingKey === 'current:pdf' ? 'Exporting…' : 'Export PDF Brief'}
                     </button>
                   </>
                 ) : null}
                 <span style={{ color: '#6b7fa8', fontSize: 12 }}>
-                  会保留当前筛选，不含分页和临时浏览位置。
+                  Keeps the current filters, but not temporary pagination state.
                 </span>
               </div>
             </div>
@@ -530,17 +545,17 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
         </div>
       ) : null}
 
-      {fetching ? <p style={{ color: '#8a96b0' }}>正在同步 Saved Views…</p> : null}
+      {fetching ? <p style={{ color: '#8a96b0' }}>Syncing saved views…</p> : null}
       {mode === 'full' && teamWorkspaceContext?.workspace ? (
         <p style={{ color: '#8a96b0', fontSize: 13 }}>
-          当前团队工作区：{teamWorkspaceContext.workspace.name}。你可以把任意 Saved View
-          共享给团队成员。
+          Active Team Workspace: {teamWorkspaceContext.workspace.name}. Any saved view can be shared
+          with the team.
         </p>
       ) : null}
       {mode === 'full' && user?.entitlements.canExportReports ? (
         <p style={{ color: '#8a96b0', fontSize: 13 }}>
-          公开分享页和 PDF brief 都会复用同一套 report
-          generator。现在可以直接对外发链接，也可以导出正式交付版 PDF。
+          Public brief pages and PDF briefs reuse the same report generator. You can share a link
+          externally or export a deliverable PDF from the same saved view.
         </p>
       ) : null}
       {message ? <p style={{ color: '#7dffb3' }}>{message}</p> : null}
@@ -557,8 +572,8 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
           }}
         >
           {user
-            ? '还没有保存过研究视图。先在首页筛选出一组你会反复查看的案例，再把它存下来。'
-            : '登录后可以建立自己的 Saved Views 列表。'}
+            ? 'No saved research views yet. Build one from the homepage filters and keep it for repeated analysis.'
+            : 'Sign in to build your own saved-view library.'}
         </div>
       ) : null}
 
@@ -603,7 +618,7 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
                           disabled={saving}
                           style={miniButton}
                         >
-                          保存
+                          Save
                         </button>
                         <button
                           onClick={() => {
@@ -612,7 +627,7 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
                           }}
                           style={ghostMiniButton}
                         >
-                          取消
+                          Cancel
                         </button>
                       </div>
                     ) : (
@@ -646,8 +661,8 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
                     </div>
                   </div>
                   <div style={{ color: '#6b7ca8', fontSize: 12, lineHeight: 1.6 }}>
-                    <div>{item.caseCount} 个案例</div>
-                    <div>更新于 {new Date(item.updatedAt).toLocaleDateString('zh-CN')}</div>
+                    <div>{item.caseCount} cases</div>
+                    <div>Updated {new Date(item.updatedAt).toLocaleDateString('en-US')}</div>
                   </div>
                 </div>
 
@@ -664,12 +679,12 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
                       lineHeight: 1.7,
                     }}
                   >
-                    <div>公开分享页：{share.shareUrl}</div>
+                    <div>Public brief: {share.shareUrl}</div>
                     <div>
-                      最近访问：
+                      Last access:
                       {share.lastAccessedAt
-                        ? new Date(share.lastAccessedAt).toLocaleString('zh-CN')
-                        : '还没有外部访问'}
+                        ? new Date(share.lastAccessedAt).toLocaleString('en-US')
+                        : 'No external visits yet'}
                     </div>
                   </div>
                 ) : null}
@@ -684,7 +699,7 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
                   }}
                 >
                   <Link href={href} style={actionLinkStyle}>
-                    打开视图
+                    Open View
                   </Link>
                   {mode === 'full' && user?.entitlements.canUseSavedSearches ? (
                     <button
@@ -696,7 +711,7 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
                       }}
                       style={ghostMiniButton}
                     >
-                      重命名
+                      Rename
                     </button>
                   ) : null}
                   {mode === 'full' ? (
@@ -710,7 +725,9 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
                             disabled={exportingKey === `${item.id}:markdown`}
                             style={ghostMiniButton}
                           >
-                            {exportingKey === `${item.id}:markdown` ? '导出中…' : '导出 Markdown'}
+                            {exportingKey === `${item.id}:markdown`
+                              ? 'Exporting…'
+                              : 'Export Markdown'}
                           </button>
                           <button
                             onClick={() =>
@@ -719,7 +736,7 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
                             disabled={exportingKey === `${item.id}:pdf`}
                             style={ghostMiniButton}
                           >
-                            {exportingKey === `${item.id}:pdf` ? '导出中…' : '导出 PDF'}
+                            {exportingKey === `${item.id}:pdf` ? 'Exporting…' : 'Export PDF'}
                           </button>
                         </>
                       ) : null}
@@ -731,10 +748,10 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
                             style={ghostMiniButton}
                           >
                             {publishingId === item.id
-                              ? '生成中…'
+                              ? 'Publishing…'
                               : share
-                                ? '刷新分享页'
-                                : '生成分享页'}
+                                ? 'Refresh Public Brief'
+                                : 'Publish Brief Share'}
                           </button>
                           {share ? (
                             <>
@@ -742,17 +759,17 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
                                 onClick={() => void handleCopyShare(share.shareUrl)}
                                 style={ghostMiniButton}
                               >
-                                复制链接
+                                Copy Link
                               </button>
                               <Link href={share.sharePath} style={actionLinkStyle} target="_blank">
-                                预览分享页
+                                Preview Brief
                               </Link>
                               <button
                                 onClick={() => void handleDeleteShare(share.id, item.id)}
                                 disabled={removingShareId === share.id}
                                 style={ghostMiniButton}
                               >
-                                {removingShareId === share.id ? '停止中…' : '停止分享'}
+                                {removingShareId === share.id ? 'Stopping…' : 'Stop Sharing'}
                               </button>
                             </>
                           ) : null}
@@ -764,7 +781,7 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
                           disabled={sharingId === item.id}
                           style={ghostMiniButton}
                         >
-                          {sharingId === item.id ? '共享中…' : '共享到 Team'}
+                          {sharingId === item.id ? 'Sharing…' : 'Share to Team'}
                         </button>
                       ) : null}
                     </>
@@ -775,7 +792,7 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
                       disabled={deletingId === item.id}
                       style={ghostMiniButton}
                     >
-                      {deletingId === item.id ? '删除中…' : '删除'}
+                      {deletingId === item.id ? 'Deleting…' : 'Delete'}
                     </button>
                   ) : null}
                 </div>

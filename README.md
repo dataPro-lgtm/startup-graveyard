@@ -1,115 +1,161 @@
 # Startup Graveyard
 
-> 把创业失败案例做成结构化、可检索、可解释的研究型知识库。
+> Open-source failure intelligence for founders, investors, and researchers.
 
-Startup Graveyard 不是一个“创业失败故事站”，而是一个面向创业者、投资人、产品经理和研究者的 **failure intelligence platform**。它试图回答的不是“这家公司怎么死的”，而是：
+Startup Graveyard turns startup postmortems into structured, queryable, explainable research assets.
 
-- 我现在的项目，是否正在重演历史上的失败路径？
-- 哪些失败信号可以被提早识别？
-- 某个赛道、商业模式、区域市场里，最常见的失败模式是什么？
+中文辅助理解：把创业失败从“故事阅读”升级成“结构化研究资产”。
 
-当前仓库已经是一个 **可运行的 alpha 产品**，不是 demo 空壳；但它还没有走到成熟商业产品阶段。现在更准确的定位是：
+`Runnable alpha` · `Open source` · `40+ published seed cases`
 
-> 一个已经具备结构化案例库、管理后台、基础 ingestion，以及带 session / prompt telemetry / replayable eval 的 Copilot 能力的 alpha 版 failure research product。
+Visual placeholders and image prompts for the README live under [`docs/assets`](./docs/assets/README.md) and [`docs/IMAGE_PROMPTS.md`](./docs/IMAGE_PROMPTS.md).
 
-## 当前能力
+## Why this exists
 
-### Public
+Most startup failure content is still trapped in anecdotal postmortems, scattered news coverage, and founder folklore.
 
-- 案例列表、关键词搜索、多维筛选
-- 案例详情页：公司概览、时间线、失败因子、证据来源、核心教训、个人 watchlist 入口
-- 相似案例推荐
-- Failure Copilot：基于案例知识库的 grounded Q&A，支持多会话线程、pinned context、回答反馈、prompt 版本追踪与 run telemetry
-- 首页 summary：案例数、总融资蒸发金额、失败模式数
-- 首页可直接保存当前筛选为 Saved View，并导出 Markdown / PDF research brief
-- Saved View 可生成公开 research brief 分享页，并提供面向客户交付的 PDF 下载
-- 账号中心：订阅状态、Pro / Team 升级入口、有效权限概览、账单入口、已保存 watchlist / saved views、带 seat / billing 状态、按 owner / member 分层的恢复 notices、自动补偿提示、推荐恢复动作、自动恢复邀请和最近账单事件的 Team Workspace 协作面板
+That format is useful for reading, but weak for research. It is hard to compare cases across sectors, markets, business models, and failure modes. It is even harder to ask practical questions like:
 
-### Admin
+- Which failure patterns repeat across adjacent startups?
+- What signals usually show up before a shutdown?
+- How do marketplace, fintech, or climate startups fail differently?
+- What does a founder, investor, or product team need to study before repeating the same path?
 
-- 草稿创建、审核、`changes_requested -> resubmit -> approve/reject` 工作流
-- 证据来源管理
-- 失败因子、时间线、分析结论录入与修正
-- ingestion job 管理、source snapshot 查看、操作审计
-- 运营 dashboard（含 Copilot telemetry / prompt regression、订阅转化、checkout / portal / 恢复漏斗、个人付费工作流激活、Team Workspace 生命周期事件、恢复动作分布、恢复阶段分布、恢复触达自动化概览、跟进节奏分布，以及带最近商业化动作、最近触达次数、下次自动重试时间和下次应跟进时间的高风险 workspace 恢复队列）
-- 运营 dashboard 可直接把高风险 workspace 移交到 CRM / 人工跟进并暂停自动重新入队，也可导出 recovery queue CSV 与 CRM handoff CSV，或直接发送 owner 恢复邮件、成员回退通知、同步 CRM API case、强制推送外部 recovery webhook / Ops Slack，或一键运行 recovery playbook 串行编排这些通道；系统会持续记录 owner/member 邮件、CRM/API/webhook 尝试次数、最近一次尝试、下次自动重试窗口、外部 CRM case id、dead-letter 状态，以及内部 Slack 告警是否已经成功送达
+Startup Graveyard exists to answer those questions with structure instead of vibes.
 
-### Data / Platform
+## What Startup Graveyard is
 
-- PostgreSQL + `pgvector` + `pg_trgm` + `citext`
-- source snapshot 留痕
-- `extract_case_signals` 轻量结构化抽取
-- `rebuild_case_search_index` / `backfill_case_search_index`
-- taxonomy 规范化与历史回填
-- Copilot prompt versioning、run-level token/cost telemetry、feedback-based eval summary
-- Free / Pro / Team entitlement helper、billing profile、Pro / Team Stripe checkout、watchlist + saved views + public brief share + team workspace 数据模型、seat-aware workspace billing state、workspace entitlement inheritance、workspace downgrade compensation、workspace billing event history / recovery visibility、Stripe portal / lifecycle sync、checkout / portal / recovery funnel metrics、Markdown / PDF report export、Team Workspace ops metrics、高风险恢复队列、持久化 recovery outreach 记录、自动重试 cadence、owner 恢复邮件通道、成员回退通知邮件、CRM/manual handoff + snooze、handoff 导出次数/最后导出时间追踪、CSV 导出、CRM API case sync/外部 id 回写、外部 webhook handoff 投递/重试窗口/状态回写、自动重试上限 dead-letter / 人工强制重推、Ops Slack dead-letter 告警，以及后台定时 billing reconciliation / recovery outreach job
-- replayable Copilot eval dataset、regression batch、latest failure samples、nightly eval scheduler baseline
-- OpenAPI 契约、shared schema、PostgreSQL 集成测试 harness
+Startup Graveyard is an open-source failure intelligence platform.
 
-## 当前数据范围
+It combines:
 
-- 内置 **40+** 个已发布失败案例 seed，覆盖全球与中文创业案例
-- 包含案例、失败因子、时间线、标签、核心教训、向量索引等基础数据
-- 支持继续通过后台或 ingestion pipeline 扩充案例库
+- A structured case library of startup shutdowns and postmortems
+- Research workflows for filtering, saving, exporting, and sharing insight slices
+- Grounded analysis through Failure Copilot
+- Admin workflows for ingestion, review, evidence management, and publication
+- Platform primitives for search, indexing, taxonomy normalization, and research operations
 
-## 典型工作流
+This repository is not a slide deck or static mock. It is a runnable alpha product with a working public surface, admin workflows, and an evolving commercial foundation.
+
+## Who it is for
+
+- Founders who want to study failure patterns before they scale into them
+- Investors who want structured downside pattern recognition, not isolated anecdotes
+- Researchers and analysts who need reusable case intelligence, not one-off reading notes
+- Product, strategy, and operating teams building internal research workflows around startup failure
+
+## What you can do with it
+
+- Explore a structured case dataset with filters across industry, country, business model, closure year, and primary failure reason
+- Open the Research Hub to start from reusable research questions instead of random browsing
+- Ask Failure Copilot grounded questions across the archive
+- Save case filters as reusable research views
+- Export Markdown and PDF research briefs
+- Publish shareable public brief links
+- Collaborate through Team Workspaces, shared saved views, and shared cases
+- Run admin review and ingestion flows from source snapshot to published case
+
+## How it works
 
 ```mermaid
 flowchart LR
-  A["Source URL / Manual Draft"] --> B["Source Snapshot"]
+  A["Source URL or Manual Draft"] --> B["Source Snapshot"]
   B --> C["Draft Case + Evidence"]
-  C --> D["extract_case_signals"]
+  C --> D["Signal Extraction + Normalization"]
   D --> E["Review Workflow"]
   E --> F["Published Case"]
   F --> G["Search Index + Embeddings"]
-  G --> H["List / Detail / Similar Cases / Copilot"]
+  G --> H["Cases UI / Research Hub / Failure Copilot / Reports"]
 ```
 
-这条链路已经在仓库里打通到可运行状态：抓取、留痕、抽取、审核、发布、索引回填都有实现与测试覆盖。
+The product already supports a real content production loop:
 
-## 技术栈
+1. Capture or draft a case.
+2. Attach evidence and snapshots.
+3. Extract and normalize structured signals.
+4. Review and publish.
+5. Index for search, similarity, Copilot, and research outputs.
 
-```text
-apps/
-  web/          Next.js 16 App Router + React 19
-services/
-  api/          Fastify 5 + TypeScript + Zod
-packages/
-  shared/       shared schema + taxonomy
-  contracts/    OpenAPI 契约
-db/
-  migrations/   PostgreSQL 迁移
-  seed/         本地 seed 数据
-```
+## Product architecture
 
-核心依赖：
+The current architecture is organized around three layers.
 
-- PostgreSQL 16
-- `pgvector`
-- `pg_trgm`
-- OpenAI / Anthropic（可选，用于 Copilot 与 embeddings）
+### Public research surface
 
-## 快速开始
+- Homepage and case explorer
+- Research Hub
+- Case detail pages
+- Failure Copilot
+- Saved views, report export, and public brief shares
 
-### 前置要求
+### Admin and operations surface
+
+- Draft and review workflow
+- Evidence and source snapshot management
+- Ingestion handlers and scheduler triggers
+- Team billing recovery, outreach, and recovery playbooks
+- Ops dashboard for research, billing, and recovery workflows
+
+### Platform and data layer
+
+- PostgreSQL with `pgvector`, `pg_trgm`, and `citext`
+- Shared schema and OpenAPI contract layer
+- Search index and embedding pipelines
+- Taxonomy normalization and backfill jobs
+- Eval, telemetry, and commercial operations primitives
+
+## Why it is different
+
+Startup Graveyard is not trying to be a content farm, a meme archive, or a collection of startup horror stories.
+
+Its differentiation is structural:
+
+- The unit of value is a reusable research asset, not a pageview
+- Cases are normalized into comparable entities, factors, timelines, and lessons
+- Copilot is grounded in the case archive instead of free-form speculation
+- Outputs are shareable and operational: saved views, briefs, PDF exports, and team workflows
+- The repo includes both the public product and the operational machinery behind it
+
+## Current status
+
+This project is best described as a runnable alpha.
+
+What is true today:
+
+- The repository contains a working public product, admin surface, and platform workflows
+- The seed dataset includes 40+ published cases
+- Saved views, briefs, PDF exports, Team Workspaces, billing foundations, and recovery operations already exist
+- The system includes structured ingestion, indexing, eval, and operational instrumentation
+
+What is not true today:
+
+- This is not yet a polished production SaaS
+- The dataset is not yet at large-scale coverage
+- Some commercial and operational flows are still maturing behind the scenes
+
+Detailed maturity tracking lives in [`docs/PRODUCT_MATURITY_PLAN.md`](./docs/PRODUCT_MATURITY_PLAN.md).
+
+## Quickstart
+
+### Prerequisites
 
 - Node.js 20+
 - pnpm 9+
 - Docker Desktop
 
-### 1. 安装依赖
+### Install dependencies
 
 ```bash
 pnpm install
 ```
 
-### 2. 配置环境变量
+### Configure environment variables
 
 ```bash
 cp .env.example .env
 ```
 
-本地推荐最小配置：
+Recommended minimum local setup:
 
 ```bash
 NODE_ENV=development
@@ -121,23 +167,22 @@ ADMIN_API_KEY=dev-admin-key
 JWT_SECRET=change-me-in-production
 ```
 
-可选配置：
+Optional integrations:
 
-- `OPENAI_API_KEY`：Copilot / embeddings
-- `ANTHROPIC_API_KEY`：Copilot chat provider，优先于 OpenAI
-- `OPENAI_CHAT_INPUT_COST_PER_1K` / `OPENAI_CHAT_OUTPUT_COST_PER_1K`：覆盖 OpenAI chat 成本估算单价
-- `ANTHROPIC_CHAT_INPUT_COST_PER_1K` / `ANTHROPIC_CHAT_OUTPUT_COST_PER_1K`：覆盖 Anthropic chat 成本估算单价
-- `STRIPE_*`：订阅链路验证
+- `OPENAI_API_KEY`
+- `ANTHROPIC_API_KEY`
+- `STRIPE_*`
+- recovery outreach / CRM / webhook / Slack env vars from `.env.example`
 
-### 3. 启动并初始化数据库
+### Start and initialize the database
 
-首次建议直接用一个干净的本地库：
+Create a clean local database:
 
 ```bash
 make db-reset
 ```
 
-如果你只想启动数据库但保留已有 volume：
+Or run the pieces separately:
 
 ```bash
 make db-up
@@ -145,132 +190,125 @@ make db-migrate
 make db-seed
 ```
 
-说明：
-
-- `docker-compose.yml` 会在本机暴露 `5433 -> 5432`
-- `make db-migrate` 现在只会应用未记录的 migration，适合对已有 volume 做增量升级
-- `make db-seed` 会在容器内执行 pending seed，不依赖本机安装 `psql`
-- `make db-reset` 会清空 volume，并重新执行全部 migration + seed；当你想重建一个干净库时再使用
-
-### 4. 启动应用
-
-开发模式：
+### Run the product
 
 ```bash
 make dev
 ```
 
-只启动 API：
+Useful variants:
 
 ```bash
 make dev-api
-```
-
-只启动 Web：
-
-```bash
 make dev-web
-```
-
-生产构建方式：
-
-```bash
 pnpm build
 pnpm --filter @sg/api start
 pnpm --filter @sg/web start
 ```
 
-### 5. 打开本地地址
+## Local URLs
 
-- 前台首页: `http://127.0.0.1:3000/`
-- Copilot: `http://127.0.0.1:3000/copilot`
-- 账号中心: `http://127.0.0.1:3000/auth/account`
-- 管理后台 dashboard: `http://127.0.0.1:3000/admin/dashboard`
-- 管理后台 reviews: `http://127.0.0.1:3000/admin/reviews`
-- 管理后台 cases: `http://127.0.0.1:3000/admin/cases`
+- Web home: `http://127.0.0.1:3000/`
+- Research Hub: `http://127.0.0.1:3000/research`
+- Failure Copilot: `http://127.0.0.1:3000/copilot`
+- Account: `http://127.0.0.1:3000/auth/account`
+- Ops dashboard: `http://127.0.0.1:3000/admin/dashboard`
+- Review queue: `http://127.0.0.1:3000/admin/reviews`
+- Cases admin: `http://127.0.0.1:3000/admin/cases`
 - API docs: `http://127.0.0.1:18080/docs`
 - Health: `http://127.0.0.1:18080/health`
 
-注意：
+## Tech stack
 
-- `/admin` 本身不是 landing page，直接访问 `dashboard` / `reviews` / `cases`
-- 如果 `DATABASE_URL` 未配置，API 会退回 mock mode；公共页面还能看，但 admin / ingestion / 索引链路不完整
+### Web
 
-## 常用命令
+- Next.js 16 App Router
+- React 19
+- TypeScript
+
+### API
+
+- Fastify 5
+- Zod
+- TypeScript
+
+### Data and contracts
+
+- PostgreSQL 16
+- `pgvector`
+- `pg_trgm`
+- `citext`
+- shared schema package
+- OpenAPI contract package
+
+### AI and research primitives
+
+- OpenAI / Anthropic providers
+- vector indexing
+- eval datasets and replayable regression runs
+- prompt telemetry and cost tracking
+
+## Testing strategy
+
+The test strategy is layered.
+
+- Fast feedback through mock-repository API tests
+- PostgreSQL integration coverage for the main data and workflow paths
+- Contract and type safety through shared schemas and OpenAPI alignment
+- Build validation across API and web apps
+
+Common commands:
 
 ```bash
-make help         # 查看所有命令
-make ci           # 本地完整 CI
-make test-pg      # PostgreSQL 集成测试
-make embed        # 生成/回填向量
-make db-reset     # 清空并重建本地数据库
-```
-
-也可以直接使用：
-
-```bash
+pnpm format:check
 pnpm lint
 pnpm typecheck
-pnpm test
+pnpm --filter @sg/api test
+pnpm --filter @sg/api test:pg
 pnpm build
 ```
 
-## 测试策略
+## Product maturity roadmap
 
-- 单元测试默认走 mock repository，反馈快
-- PostgreSQL 集成测试会创建隔离测试库、回放 migration，并在测试后清理
-- 当前已经覆盖的主链包括：
-  - review approval -> rebuild_case_search_index
-  - pipeline_url_draft -> extract_case_signals
-  - taxonomy normalization / taxonomy backfill
+The current roadmap is staged around four layers:
 
-运行真实库回归：
+- `M1`: trusted data foundation
+- `M2`: research product loop
+- `M3`: commercial product loop
+- `M4`: platform hardening and operational maturity
 
-```bash
-pnpm --filter @sg/api test:pg
-```
+See the detailed plan in [`docs/PRODUCT_MATURITY_PLAN.md`](./docs/PRODUCT_MATURITY_PLAN.md).
 
-## 产品路线
+## Repository highlights
 
-当前路线按四层推进：
-
-- `M1` 可信数据底座：真实 DB、snapshot、抽取、taxonomy、索引回填
-- `M2` 研究型产品闭环：Topic / 趋势页 / Copilot session / discovery hub
-- `M3` 商业化闭环：Free / Pro / Team、watchlist、saved views、导出、账单生命周期
-- `M4` 平台化：OTel、worker、Redis、对象存储、nightly regression、alerting、数据质量报表
-
-详细成熟化计划见：[docs/PRODUCT_MATURITY_PLAN.md](docs/PRODUCT_MATURITY_PLAN.md)
-
-## 仓库里最值得看的部分
-
-- `apps/web/app/page.tsx`：首页与 discovery 入口
-- `apps/web/app/cases/[id]/page.tsx` / `cases/s/[slug]`：案例详情
-- `apps/web/app/admin/reviews/page.tsx`：审核与 ingestion 运营台
-- `services/api/src/ingestion/`：source snapshot、抽取、taxonomy backfill、索引链路
-- `services/api/src/repositories/`：mock / PostgreSQL 双实现
-- `packages/contracts/openapi/startup-graveyard.v1.yaml`：接口契约
+- [`apps/web/app/page.tsx`](./apps/web/app/page.tsx): homepage and research entry
+- [`apps/web/app/research/page.tsx`](./apps/web/app/research/page.tsx): Research Hub
+- [`apps/web/app/copilot/page.tsx`](./apps/web/app/copilot/page.tsx): Failure Copilot workbench
+- [`apps/web/app/components/SavedViewsManager.tsx`](./apps/web/app/components/SavedViewsManager.tsx): reusable research asset workflows
+- [`services/api/src/ingestion/`](./services/api/src/ingestion): snapshots, extraction, indexing, scheduler handlers
+- [`services/api/src/recoveryOutreach/`](./services/api/src/recoveryOutreach): recovery operations channels and playbooks
+- [`services/api/src/repositories/`](./services/api/src/repositories): mock and PostgreSQL implementations
+- [`packages/contracts/openapi/startup-graveyard.v1.yaml`](./packages/contracts/openapi/startup-graveyard.v1.yaml): API contract
 
 ## Contributing
 
-欢迎 PR，尤其是下面几类：
+Contributions are welcome, especially in these areas:
 
-- 新失败案例与证据补充
-- taxonomy / label / normalization 改进
-- ingestion、抽取、索引质量提升
-- research workflow、趋势页、专题页
-- 测试基线、CI、观测性与部署脚手架
+- New structured cases and evidence
+- Taxonomy, normalization, and labeling quality
+- Research workflows and insight UX
+- Copilot quality, eval coverage, and prompt iteration
+- Platform reliability and local developer experience
 
-如果你要补案例，建议先参考：
+Before changing outward-facing copy, read:
 
-- `db/seed/005_seed_rich_cases.sql`
-- `db/seed/010_seed_global_cases.sql`
-- `db/seed/012_seed_cn_cases.sql`
+- [`docs/README_NARRATIVE_GUIDE.md`](./docs/README_NARRATIVE_GUIDE.md)
+- [`docs/WEBSITE_MESSAGING_GUIDE.md`](./docs/WEBSITE_MESSAGING_GUIDE.md)
+- [`docs/IMAGE_PROMPTS.md`](./docs/IMAGE_PROMPTS.md)
 
-## 当前限制
+## Limitations
 
-- 仍是 alpha，数据规模和研究工作流还不够深
-- Copilot 已有 session、上下文 pin、反馈回路、prompt version、token/cost 追踪、可回放 eval dataset、batch regression 和 nightly scheduler baseline，但还缺 answer grading、自动告警和 CI 级 prompt replay
-- 商业化已经有 billing profile、Pro / Team checkout、portal、checkout / portal / recovery funnel metrics、watchlist、saved views、Markdown / PDF brief export、public brief share、Team Workspace 基础协作、seat / billing 风险可见性、workspace entitlement inheritance、workspace downgrade compensation、workspace billing event history / recovery visibility、角色分层恢复 notices、workspace 恢复动作建议、自动恢复被系统撤销的邀请、持久化 recovery outreach 记录与定时调度、自动重试 cadence、owner 恢复邮件通道、成员回退通知邮件、CRM/manual handoff + snooze、handoff 导出追踪、跟进队列 / CRM handoff CSV 导出、CRM API case sync、外部 recovery webhook 投递/自动重试/强制重推与状态回写、恢复阶段与 follow-up cadence、recovery playbook 编排、个人付费工作流激活指标、订阅转化指标和 team ops metrics，但 Slack/CRM 的更深编排和完整外发告警矩阵还没补齐
-- 平台化能力还没有上独立 worker / Redis / 对象存储 / OTel
-
-如果你希望把它推进到成熟商业产品，建议直接从 `docs/PRODUCT_MATURITY_PLAN.md` 对照当前分支继续迭代。
+- The dataset is still intentionally small and seed-stage
+- The product is still alpha, even though many flows are already runnable
+- Some internal ops and commercial workflows are more mature than the outward product surface
+- The current public positioning should stay disciplined: open-source, research-oriented, and credible

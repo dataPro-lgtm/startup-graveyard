@@ -659,10 +659,11 @@ export default async function AdminReviewsPage({
             成员通知发送到 SMTP 邮件通道，并按 <code>retryIntervalHours</code> 自动重试失败邮件；
             默认只发送当前到点且尚未成功发出的项，可用 <code>force=true</code> 立即补发；{' '}
             <code>run_team_workspace_recovery_playbook</code> → 先刷新 recovery outreach，再串行执行
-            owner/member 邮件、CRM sync、webhook 和 Slack 升级告警，适合挂到定时编排；{' '}
-            <code>deliver_team_workspace_recovery_webhook</code> → 将到点且仍可重试的 handoff admin
-            恢复触达推送到外部 webhook，并按 retry window 回写状态；达到上限后会停止自动重试，可用{' '}
-            <code>force=true</code> 忽略冷却窗口立即重推；{' '}
+            owner/member 邮件、CRM sync、webhook 和 Slack 升级告警，并持久化 playbook run
+            history；失败 run 现在也能在 Dashboard 上直接定向补跑失败步骤；这条 job
+            也已经适合直接挂到定时编排； <code>deliver_team_workspace_recovery_webhook</code> →
+            将到点且仍可重试的 handoff admin 恢复触达推送到外部 webhook，并按 retry window
+            回写状态；达到上限后会停止自动重试，可用 <code>force=true</code> 忽略冷却窗口立即重推；{' '}
             <code>deliver_team_workspace_recovery_crm_sync</code> → 将{' '}
             <code>handoff_channel=crm</code> 的恢复触达同步到 CRM API，并回写外部 case id / 下次 CRM
             重试时间；默认只同步当前到点且尚未成功的项，可用 <code>force=true</code> 立即重推；{' '}

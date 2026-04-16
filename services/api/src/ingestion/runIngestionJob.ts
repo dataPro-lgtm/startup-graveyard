@@ -72,7 +72,7 @@ function mean(values: number[]): number {
  * - **run_copilot_eval_suite**：回放内置 Copilot eval dataset，写入批次结果与失败样本。
  * - **reconcile_team_workspace_billing**：全量重跑 Team Workspace 账单/席位补偿与邀请恢复。
  * - **run_team_workspace_recovery_outreach**：为高风险 Team Workspace 调度 owner/admin 恢复触达，并按 `retryIntervalHours` 自动重试、在恢复后自动收敛待处理触达。
- * - **run_team_workspace_recovery_playbook**：在 recovery outreach 基础上，串行执行 owner/member 邮件、CRM sync、webhook 和 Slack 升级告警。
+ * - **run_team_workspace_recovery_playbook**：在 recovery outreach 基础上，串行执行 owner/member 邮件、CRM sync、webhook 和 Slack 升级告警，并持久化 playbook run history。
  * - **deliver_team_workspace_recovery_owner_email**：向 owner pending recovery outreach 发送恢复邮件，并按 `retryIntervalHours` 自动重试失败邮件。
  * - **deliver_team_workspace_recovery_member_email**：向当前已回退到个人权限的 Team 成员发送恢复说明邮件，并按 `retryIntervalHours` 自动重试失败邮件。
  * - **deliver_team_workspace_recovery_crm_sync**：将 `handoff_channel=crm` 的 admin recovery outreach 直接同步到 CRM API，并回写外部 case id / 下次重试时间。
@@ -85,7 +85,7 @@ export async function runIngestionJob(
   input: IngestionRunInput,
   ctx?: IngestionRunContext,
 ): Promise<IngestionRunResult> {
-  const { sourceName, payload } = input;
+  const { sourceName, triggerType, payload } = input;
 
   if (sourceName === 'echo') {
     const msg = payload.message;
@@ -222,6 +222,7 @@ export async function runIngestionJob(
     const played = await runRecoveryOutreachPlaybook(ctx.teamWorkspaces, {
       retryIntervalHours,
       force,
+      triggerType: triggerType ?? 'scheduled',
     });
     if (!played.ok) {
       return {

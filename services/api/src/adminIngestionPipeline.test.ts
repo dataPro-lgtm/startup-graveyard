@@ -1940,6 +1940,10 @@ describe('admin ingestion pipeline (mock DB)', () => {
     const statsBody = JSON.parse(statsRes.body) as {
       commercial: {
         teamWorkspaces: {
+          recoveryPlaybook: {
+            totalRuns: number;
+            recent: Array<Record<string, unknown>>;
+          };
           recoveryOutreach: {
             deliveredMemberEmail: number;
             syncedCrm: number;
@@ -1953,6 +1957,21 @@ describe('admin ingestion pipeline (mock DB)', () => {
     ).toBeGreaterThanOrEqual(1);
     expect(statsBody.commercial.teamWorkspaces.recoveryOutreach.syncedCrm).toBeGreaterThanOrEqual(
       1,
+    );
+    expect(statsBody.commercial.teamWorkspaces.recoveryPlaybook.totalRuns).toBeGreaterThanOrEqual(
+      1,
+    );
+    expect(statsBody.commercial.teamWorkspaces.recoveryPlaybook.recent).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          triggerType: 'manual',
+          ok: true,
+          steps: expect.objectContaining({
+            memberEmail: expect.objectContaining({ status: 'completed', successCount: 1 }),
+            crmSync: expect.objectContaining({ status: 'completed', successCount: 1 }),
+          }),
+        }),
+      ]),
     );
     expect(statsBody.commercial.teamWorkspaces.actionableWorkspaces).toEqual(
       expect.arrayContaining([

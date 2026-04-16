@@ -465,15 +465,22 @@ export class PgUsersRepository implements UsersRepository {
     const user = rowToProfile(rows[0]);
     const result = buildAuthResult(user);
 
-    await this.pool.query(
-      `INSERT INTO user_sessions (user_id, refresh_token, expires_at)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (user_id) DO UPDATE
-         SET refresh_token = EXCLUDED.refresh_token,
-             expires_at = EXCLUDED.expires_at,
-             created_at = NOW()`,
-      [user.id, result.refreshToken, refreshTokenExpiresAt()],
-    );
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('DELETE FROM user_sessions WHERE user_id = $1', [user.id]);
+      await client.query(
+        `INSERT INTO user_sessions (user_id, refresh_token, expires_at)
+         VALUES ($1, $2, $3)`,
+        [user.id, result.refreshToken, refreshTokenExpiresAt()],
+      );
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
 
     return result;
   }

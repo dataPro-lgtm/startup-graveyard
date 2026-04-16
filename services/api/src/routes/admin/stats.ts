@@ -3,6 +3,10 @@ import type { Pool } from 'pg';
 import { z } from 'zod';
 import { getPool } from '../../db/pool.js';
 import type { CommercialAdminMetrics } from '@sg/shared/schemas/adminStats';
+import type {
+  TeamWorkspaceRecoveryPlaybookRun,
+  TeamWorkspaceRecoveryPlaybookStepName,
+} from '@sg/shared/schemas/teamWorkspace';
 import { adminStatsResponseSchema } from '../../schemas/adminStats.js';
 import { handoffTeamWorkspaceRecoveryOutreachBodySchema } from '../../schemas/teamWorkspace.js';
 import { deliverRecoveryOutreachCrmSync } from '../../recoveryOutreach/deliverRecoveryOutreachCrmSync.js';
@@ -39,6 +43,30 @@ const recoveryWebhookDeliveryBodySchema = z.object({
 const recoverySlackDeliveryBodySchema = z.object({
   force: z.boolean().optional(),
 });
+
+const recoveryPlaybookRerunBodySchema = z.object({
+  runId: z.string().uuid(),
+  retryIntervalHours: z
+    .number()
+    .int()
+    .min(0)
+    .max(24 * 14)
+    .optional(),
+  force: z.boolean().optional(),
+});
+
+function failedRecoveryPlaybookSteps(
+  run: TeamWorkspaceRecoveryPlaybookRun,
+): TeamWorkspaceRecoveryPlaybookStepName[] {
+  const failed: TeamWorkspaceRecoveryPlaybookStepName[] = [];
+  if (run.steps.outreach.status === 'failed') failed.push('outreach');
+  if (run.steps.ownerEmail.status === 'failed') failed.push('ownerEmail');
+  if (run.steps.memberEmail.status === 'failed') failed.push('memberEmail');
+  if (run.steps.crmSync.status === 'failed') failed.push('crmSync');
+  if (run.steps.webhook.status === 'failed') failed.push('webhook');
+  if (run.steps.slack.status === 'failed') failed.push('slack');
+  return failed;
+}
 
 export async function adminStatsRoutes(app: FastifyInstance) {
   app.get('/', async (_request, reply) => {
@@ -191,7 +219,10 @@ export async function adminStatsRoutes(app: FastifyInstance) {
       if (!parsed.success) {
         return reply.code(400).send({ error: 'invalid_recovery_playbook_body' });
       }
-      const played = await runRecoveryOutreachPlaybook(app.teamWorkspacesRepo, parsed.data);
+      const played = await runRecoveryOutreachPlaybook(app.teamWorkspacesRepo, {
+        ...parsed.data,
+        triggerType: 'manual',
+      });
       if (!played.ok) {
         return reply.code(502).send({
           error: 'recovery_playbook_failed',
@@ -207,6 +238,51 @@ export async function adminStatsRoutes(app: FastifyInstance) {
     } catch (err) {
       app.log.error(err, 'Failed to run recovery playbook');
       return reply.code(500).send({ error: 'recovery_playbook_unavailable' });
+    }
+  });
+
+  app.post('/recovery-playbook/rerun-failed', async (_request, reply) => {
+    try {
+      const parsed = recoveryPlaybookRerunBodySchema.safeParse(_request.body ?? {});
+      if (!parsed.success) {
+        return reply.code(400).send({ error: 'invalid_recovery_playbook_rerun_body' });
+      }
+      const previousRun = await app.teamWorkspacesRepo.getRecoveryPlaybookRunById(
+        parsed.data.runId,
+      );
+      if (!previousRun) {
+        return reply.code(404).send({ error: 'recovery_playbook_run_not_found' });
+      }
+      const requestedSteps = failedRecoveryPlaybookSteps(previousRun);
+      if (requestedSteps.length === 0) {
+        return reply.code(409).send({ error: 'recovery_playbook_no_failed_steps' });
+      }
+      const played = await runRecoveryOutreachPlaybook(app.teamWorkspacesRepo, {
+        retryIntervalHours: parsed.data.retryIntervalHours ?? previousRun.retryIntervalHours,
+        force: parsed.data.force ?? true,
+        triggerType: 'manual_rerun',
+        onlySteps: requestedSteps,
+        rerunOfRunId: previousRun.id,
+      });
+      if (!played.ok) {
+        return reply.code(502).send({
+          error: 'recovery_playbook_rerun_failed',
+          summary: played.summary,
+          steps: played.steps,
+          rerunOfRunId: previousRun.id,
+          requestedSteps,
+        });
+      }
+      return reply.send({
+        ok: true,
+        summary: played.summary,
+        steps: played.steps,
+        rerunOfRunId: previousRun.id,
+        requestedSteps,
+      });
+    } catch (err) {
+      app.log.error(err, 'Failed to rerun failed recovery playbook steps');
+      return reply.code(500).send({ error: 'recovery_playbook_rerun_unavailable' });
     }
   });
 

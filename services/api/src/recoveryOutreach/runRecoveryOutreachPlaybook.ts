@@ -1,4 +1,10 @@
 import type { TeamWorkspacesRepository } from '../repositories/teamWorkspacesRepository.js';
+import type {
+  TeamWorkspaceRecoveryPlaybookDeliveryStep,
+  TeamWorkspaceRecoveryPlaybookOutreachStep,
+  TeamWorkspaceRecoveryPlaybookStepName,
+  TeamWorkspaceRecoveryPlaybookSteps,
+} from '@sg/shared/schemas/teamWorkspace';
 import {
   deliverRecoveryOutreachCrmSync,
   type RecoveryOutreachCrmSyncResult,
@@ -20,48 +26,23 @@ import {
   type RecoveryOutreachWebhookDeliveryResult,
 } from './deliverRecoveryOutreachWebhook.js';
 
-type RecoveryPlaybookDeliveryStep = {
-  status: 'completed' | 'skipped' | 'disabled' | 'failed';
-  attemptedCount: number;
-  successCount: number;
-  failedCount: number;
-  skippedReason: string | null;
-  error: string | null;
-  detail: string | null;
-  statusCode: number | null;
-};
+type RecoveryPlaybookDeliveryStep = TeamWorkspaceRecoveryPlaybookDeliveryStep;
+type RecoveryPlaybookOutreachStep = TeamWorkspaceRecoveryPlaybookOutreachStep;
+type RecoveryPlaybookStepName = TeamWorkspaceRecoveryPlaybookStepName;
 
-type RecoveryPlaybookOutreachStep =
-  | {
-      status: 'completed';
-      workspaceCount: number;
-      ownerOutreachCreated: number;
-      adminOutreachCreated: number;
-      retriedOutreachCount: number;
-      resolvedOutreachCount: number;
-      detail: null;
-    }
-  | {
-      status: 'failed';
-      workspaceCount: 0;
-      ownerOutreachCreated: 0;
-      adminOutreachCreated: 0;
-      retriedOutreachCount: 0;
-      resolvedOutreachCount: 0;
-      detail: string;
-    };
+const ALL_RECOVERY_PLAYBOOK_STEPS: readonly RecoveryPlaybookStepName[] = [
+  'outreach',
+  'ownerEmail',
+  'memberEmail',
+  'crmSync',
+  'webhook',
+  'slack',
+];
 
 export type RecoveryOutreachPlaybookResult = {
   ok: boolean;
   summary: string;
-  steps: {
-    outreach: RecoveryPlaybookOutreachStep;
-    ownerEmail: RecoveryPlaybookDeliveryStep;
-    memberEmail: RecoveryPlaybookDeliveryStep;
-    crmSync: RecoveryPlaybookDeliveryStep;
-    webhook: RecoveryPlaybookDeliveryStep;
-    slack: RecoveryPlaybookDeliveryStep;
-  };
+  steps: TeamWorkspaceRecoveryPlaybookSteps;
 };
 
 function normalizeOwnerEmailStep(
@@ -209,136 +190,163 @@ function summarizeDeliveryStep(label: string, step: RecoveryPlaybookDeliveryStep
   return `${label}=failed:${step.error ?? 'unknown'}`;
 }
 
+function summarizeOutreachStep(step: RecoveryPlaybookOutreachStep) {
+  if (step.status === 'completed') {
+    return `outreach=ok:${step.ownerOutreachCreated}/${step.adminOutreachCreated}/${step.resolvedOutreachCount}`;
+  }
+  if (step.status === 'skipped') {
+    return `outreach=skip:${step.skippedReason ?? 'none'}`;
+  }
+  return `outreach=failed:${step.detail ?? 'unknown'}`;
+}
+
+function normalizeRequestedSteps(
+  requestedSteps?: RecoveryPlaybookStepName[],
+): RecoveryPlaybookStepName[] {
+  if (!requestedSteps || requestedSteps.length === 0) {
+    return [...ALL_RECOVERY_PLAYBOOK_STEPS];
+  }
+  return [...new Set(requestedSteps.filter((step) => ALL_RECOVERY_PLAYBOOK_STEPS.includes(step)))];
+}
+
+function skippedDeliveryStep(reason: string): RecoveryPlaybookDeliveryStep {
+  return {
+    status: 'skipped',
+    attemptedCount: 0,
+    successCount: 0,
+    failedCount: 0,
+    skippedReason: reason,
+    error: null,
+    detail: null,
+    statusCode: null,
+  };
+}
+
+function skippedOutreachStep(reason: string): RecoveryPlaybookOutreachStep {
+  return {
+    status: 'skipped',
+    workspaceCount: 0,
+    ownerOutreachCreated: 0,
+    adminOutreachCreated: 0,
+    retriedOutreachCount: 0,
+    resolvedOutreachCount: 0,
+    skippedReason: reason,
+    detail: null,
+  };
+}
+
 export async function runRecoveryOutreachPlaybook(
   teamWorkspacesRepo: TeamWorkspacesRepository,
   options?: {
     retryIntervalHours?: number;
     force?: boolean;
+    triggerType?: string;
+    onlySteps?: RecoveryPlaybookStepName[];
+    rerunOfRunId?: string | null;
   },
 ): Promise<RecoveryOutreachPlaybookResult> {
   const retryIntervalHours = Math.max(0, options?.retryIntervalHours ?? 24);
   const force = options?.force ?? false;
+  const triggerType = options?.triggerType ?? 'manual';
+  const requestedSteps = normalizeRequestedSteps(options?.onlySteps);
+  const requestedStepSet = new Set<RecoveryPlaybookStepName>(requestedSteps);
+  const rerunOfRunId = options?.rerunOfRunId ?? null;
 
   let outreach: RecoveryPlaybookOutreachStep;
-  try {
-    const synced = await teamWorkspacesRepo.runRecoveryOutreachAutomation({
-      retryIntervalHours,
-    });
-    outreach = {
-      status: 'completed',
-      workspaceCount: synced.workspaceCount,
-      ownerOutreachCreated: synced.ownerOutreachCreated,
-      adminOutreachCreated: synced.adminOutreachCreated,
-      retriedOutreachCount: synced.retriedOutreachCount,
-      resolvedOutreachCount: synced.resolvedOutreachCount,
-      detail: null,
-    };
-  } catch (error) {
-    const detail =
-      error instanceof Error ? error.message || error.name : 'recovery_playbook_outreach_failed';
-    outreach = {
-      status: 'failed',
-      workspaceCount: 0,
-      ownerOutreachCreated: 0,
-      adminOutreachCreated: 0,
-      retriedOutreachCount: 0,
-      resolvedOutreachCount: 0,
-      detail,
-    };
-    return {
-      ok: false,
-      summary: `outreach=failed:${detail}`,
-      steps: {
-        outreach,
-        ownerEmail: {
-          status: 'skipped',
-          attemptedCount: 0,
-          successCount: 0,
-          failedCount: 0,
-          skippedReason: 'outreach_failed',
-          error: null,
-          detail: null,
-          statusCode: null,
-        },
-        memberEmail: {
-          status: 'skipped',
-          attemptedCount: 0,
-          successCount: 0,
-          failedCount: 0,
-          skippedReason: 'outreach_failed',
-          error: null,
-          detail: null,
-          statusCode: null,
-        },
-        crmSync: {
-          status: 'skipped',
-          attemptedCount: 0,
-          successCount: 0,
-          failedCount: 0,
-          skippedReason: 'outreach_failed',
-          error: null,
-          detail: null,
-          statusCode: null,
-        },
-        webhook: {
-          status: 'skipped',
-          attemptedCount: 0,
-          successCount: 0,
-          failedCount: 0,
-          skippedReason: 'outreach_failed',
-          error: null,
-          detail: null,
-          statusCode: null,
-        },
-        slack: {
-          status: 'skipped',
-          attemptedCount: 0,
-          successCount: 0,
-          failedCount: 0,
-          skippedReason: 'outreach_failed',
-          error: null,
-          detail: null,
-          statusCode: null,
-        },
-      },
-    };
+  if (requestedStepSet.has('outreach')) {
+    try {
+      const synced = await teamWorkspacesRepo.runRecoveryOutreachAutomation({
+        retryIntervalHours,
+      });
+      outreach = {
+        status: 'completed',
+        workspaceCount: synced.workspaceCount,
+        ownerOutreachCreated: synced.ownerOutreachCreated,
+        adminOutreachCreated: synced.adminOutreachCreated,
+        retriedOutreachCount: synced.retriedOutreachCount,
+        resolvedOutreachCount: synced.resolvedOutreachCount,
+        skippedReason: null,
+        detail: null,
+      };
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message || error.name : 'recovery_playbook_outreach_failed';
+      outreach = {
+        status: 'failed',
+        workspaceCount: 0,
+        ownerOutreachCreated: 0,
+        adminOutreachCreated: 0,
+        retriedOutreachCount: 0,
+        resolvedOutreachCount: 0,
+        skippedReason: null,
+        detail,
+      };
+    }
+  } else {
+    outreach = skippedOutreachStep('not_selected');
   }
 
-  const ownerEmail = normalizeOwnerEmailStep(
-    await deliverRecoveryOutreachOwnerEmail(teamWorkspacesRepo, {
-      retryIntervalHours,
-      force,
-    }),
-  );
-  const memberEmail = normalizeMemberEmailStep(
-    await deliverRecoveryFallbackMemberEmail(teamWorkspacesRepo, {
-      retryIntervalHours,
-      force,
-    }),
-  );
-  const crmSync = normalizeCrmStep(
-    await deliverRecoveryOutreachCrmSync(teamWorkspacesRepo, {
-      retryIntervalHours,
-      force,
-    }),
-  );
-  const webhook = normalizeWebhookStep(
-    await deliverRecoveryOutreachWebhook(teamWorkspacesRepo, {
-      retryIntervalHours,
-      force,
-    }),
-  );
-  const slack = normalizeSlackStep(
-    await deliverRecoveryOutreachSlackAlert(teamWorkspacesRepo, {
-      force,
-    }),
-  );
+  const blockedByOutreachFailure = requestedStepSet.has('outreach') && outreach.status === 'failed';
 
-  const ok = [ownerEmail, memberEmail, crmSync, webhook, slack].every(
-    (step) => step.status !== 'failed',
-  );
+  const ownerEmail = !requestedStepSet.has('ownerEmail')
+    ? skippedDeliveryStep('not_selected')
+    : blockedByOutreachFailure
+      ? skippedDeliveryStep('outreach_failed')
+      : normalizeOwnerEmailStep(
+          await deliverRecoveryOutreachOwnerEmail(teamWorkspacesRepo, {
+            retryIntervalHours,
+            force,
+          }),
+        );
+  const memberEmail = !requestedStepSet.has('memberEmail')
+    ? skippedDeliveryStep('not_selected')
+    : blockedByOutreachFailure
+      ? skippedDeliveryStep('outreach_failed')
+      : normalizeMemberEmailStep(
+          await deliverRecoveryFallbackMemberEmail(teamWorkspacesRepo, {
+            retryIntervalHours,
+            force,
+          }),
+        );
+  const crmSync = !requestedStepSet.has('crmSync')
+    ? skippedDeliveryStep('not_selected')
+    : blockedByOutreachFailure
+      ? skippedDeliveryStep('outreach_failed')
+      : normalizeCrmStep(
+          await deliverRecoveryOutreachCrmSync(teamWorkspacesRepo, {
+            retryIntervalHours,
+            force,
+          }),
+        );
+  const webhook = !requestedStepSet.has('webhook')
+    ? skippedDeliveryStep('not_selected')
+    : blockedByOutreachFailure
+      ? skippedDeliveryStep('outreach_failed')
+      : normalizeWebhookStep(
+          await deliverRecoveryOutreachWebhook(teamWorkspacesRepo, {
+            retryIntervalHours,
+            force,
+          }),
+        );
+  const slack = !requestedStepSet.has('slack')
+    ? skippedDeliveryStep('not_selected')
+    : blockedByOutreachFailure
+      ? skippedDeliveryStep('outreach_failed')
+      : normalizeSlackStep(
+          await deliverRecoveryOutreachSlackAlert(teamWorkspacesRepo, {
+            force,
+          }),
+        );
+
+  const ok =
+    (!requestedStepSet.has('outreach') || outreach.status !== 'failed') &&
+    (!requestedStepSet.has('ownerEmail') || ownerEmail.status !== 'failed') &&
+    (!requestedStepSet.has('memberEmail') || memberEmail.status !== 'failed') &&
+    (!requestedStepSet.has('crmSync') || crmSync.status !== 'failed') &&
+    (!requestedStepSet.has('webhook') || webhook.status !== 'failed') &&
+    (!requestedStepSet.has('slack') || slack.status !== 'failed');
   const summary = [
-    `outreach=ok:${outreach.ownerOutreachCreated}/${outreach.adminOutreachCreated}/${outreach.resolvedOutreachCount}`,
+    summarizeOutreachStep(outreach),
     summarizeDeliveryStep('owner', ownerEmail),
     summarizeDeliveryStep('member', memberEmail),
     summarizeDeliveryStep('crm', crmSync),
@@ -346,7 +354,7 @@ export async function runRecoveryOutreachPlaybook(
     summarizeDeliveryStep('slack', slack),
   ].join(' ');
 
-  return {
+  const result: RecoveryOutreachPlaybookResult = {
     ok,
     summary,
     steps: {
@@ -358,4 +366,15 @@ export async function runRecoveryOutreachPlaybook(
       slack,
     },
   };
+  await teamWorkspacesRepo.recordRecoveryPlaybookRun({
+    triggerType,
+    retryIntervalHours,
+    force,
+    requestedSteps,
+    rerunOfRunId,
+    ok: result.ok,
+    summary: result.summary,
+    steps: result.steps,
+  });
+  return result;
 }
