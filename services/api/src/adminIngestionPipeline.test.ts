@@ -204,6 +204,54 @@ describe('admin ingestion pipeline (mock DB)', () => {
     });
   });
 
+  it('capture_platform_snapshot writes a scheduled platform snapshot after queue processing', async () => {
+    const enqueueRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/ingestion-jobs',
+      headers: {
+        ...headers,
+        'content-type': 'application/json',
+      },
+      payload: {
+        sourceName: 'capture_platform_snapshot',
+        triggerType: 'scheduled',
+        payload: {},
+      },
+    });
+    expect(enqueueRes.statusCode).toBe(200);
+
+    const processRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/ingestion-jobs/process-next',
+      headers,
+    });
+    expect(processRes.statusCode).toBe(200);
+    expect(JSON.parse(processRes.body)).toMatchObject({
+      ok: true,
+      job: {
+        status: 'succeeded',
+        sourceName: 'capture_platform_snapshot',
+        triggerType: 'scheduled',
+      },
+    });
+
+    const statsRes = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/stats',
+      headers,
+    });
+    expect(statsRes.statusCode).toBe(200);
+    expect(JSON.parse(statsRes.body)).toMatchObject({
+      platform: {
+        recentSnapshots: expect.arrayContaining([
+          expect.objectContaining({
+            triggerType: 'scheduled',
+          }),
+        ]),
+      },
+    });
+  });
+
   it('run_copilot_eval_suite stores a replay batch and exposes it in admin stats', async () => {
     const triggerRes = await app.inject({
       method: 'POST',

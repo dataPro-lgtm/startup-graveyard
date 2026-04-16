@@ -108,6 +108,9 @@
 - 这条诊断链现在还会额外识别超过阈值的 `stale running` ingestion jobs，并允许运营直接从 Dashboard 触发 reclaim，不用再切回 reviews 才能处理卡住的 worker 任务。
 - 平台诊断层现在还会暴露 ingestion worker 的运行状态、最近 heartbeat 历史、最近一次 tick、最近处理的 job，以及 stalled / erroring worker 告警，方便判断问题是“队列本身卡住”还是“worker 已经不再消费队列”。
 - 诊断层现在还会额外给出 queued backlog 年龄、最老 queued job 和最近一小时吞吐，帮助区分“worker 死掉了”和“worker 还活着，但 ingest 已经开始积压”。
+- 运营现在还能从 Dashboard 手动捕获 `platform snapshot`，并通过新的 `capture_platform_snapshot` scheduler job 定时留痕 queue / worker / alert 姿态；后续判断是“瞬时毛刺”还是“持续退化”不再只靠口头描述。
+- 在 snapshot history 之上，Dashboard 现在还会给出最近窗口内的 trend 聚合，直接总结 queued / alerts / failed / worker errors 相对起点是上升还是回落，减少人工目测历史卡片的成本。
+- 在 trend 之上，Dashboard 现在还会按小时窗口 roll up 最近的 snapshots，直接给出每个窗口内的 queued / alert / failed / worker error 峰值，帮助区分“持续退化”与“单次毛刺”。
 
 ## 4. 当前执行顺序
 

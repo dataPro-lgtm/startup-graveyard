@@ -2225,6 +2225,114 @@ components:
               lastJobSourceName: { type: string, nullable: true }
               lastJobStatus: { type: string, nullable: true }
               error: { type: string, nullable: true }
+    PlatformSnapshot:
+      type: object
+      required:
+        [
+          createdAt,
+          triggerType,
+          mockMode,
+          queuedCount,
+          oldestQueuedAgeMinutes,
+          runningCount,
+          staleRunningCount,
+          failedCount,
+          completedLastHour,
+          alertCount,
+          criticalAlertCount,
+          warningAlertCount,
+          infoAlertCount,
+          workerStatus,
+          workerConsecutiveErrors,
+          workerLastProcessedAt,
+        ]
+      properties:
+        createdAt: { type: string }
+        triggerType:
+          type: string
+          enum: [manual, scheduled]
+        mockMode: { type: boolean }
+        queuedCount: { type: integer, minimum: 0 }
+        oldestQueuedAgeMinutes: { type: integer, minimum: 0, nullable: true }
+        runningCount: { type: integer, minimum: 0 }
+        staleRunningCount: { type: integer, minimum: 0 }
+        failedCount: { type: integer, minimum: 0 }
+        completedLastHour: { type: integer, minimum: 0 }
+        alertCount: { type: integer, minimum: 0 }
+        criticalAlertCount: { type: integer, minimum: 0 }
+        warningAlertCount: { type: integer, minimum: 0 }
+        infoAlertCount: { type: integer, minimum: 0 }
+        workerStatus:
+          type: string
+          enum: [disabled, idle, processing, error, stopped]
+        workerConsecutiveErrors: { type: integer, minimum: 0 }
+        workerLastProcessedAt: { type: string, nullable: true }
+    PlatformSnapshotTrend:
+      type: object
+      required:
+        [
+          sampleCount,
+          oldestCapturedAt,
+          latestCapturedAt,
+          queuedCountDelta,
+          oldestQueuedAgeDelta,
+          alertCountDelta,
+          failedCountDelta,
+          workerConsecutiveErrorsDelta,
+          maxQueuedCount,
+          maxOldestQueuedAgeMinutes,
+          maxAlertCount,
+          maxFailedCount,
+          maxWorkerConsecutiveErrors,
+        ]
+      properties:
+        sampleCount: { type: integer, minimum: 0 }
+        oldestCapturedAt: { type: string, nullable: true }
+        latestCapturedAt: { type: string, nullable: true }
+        queuedCountDelta: { type: integer, nullable: true }
+        oldestQueuedAgeDelta: { type: integer, nullable: true }
+        alertCountDelta: { type: integer, nullable: true }
+        failedCountDelta: { type: integer, nullable: true }
+        workerConsecutiveErrorsDelta: { type: integer, nullable: true }
+        maxQueuedCount: { type: integer, minimum: 0 }
+        maxOldestQueuedAgeMinutes: { type: integer, minimum: 0, nullable: true }
+        maxAlertCount: { type: integer, minimum: 0 }
+        maxFailedCount: { type: integer, minimum: 0 }
+        maxWorkerConsecutiveErrors: { type: integer, minimum: 0 }
+    PlatformSnapshotRollupBucket:
+      type: object
+      required:
+        [
+          bucketStart,
+          bucketEnd,
+          sampleCount,
+          avgQueuedCount,
+          maxQueuedCount,
+          maxOldestQueuedAgeMinutes,
+          maxAlertCount,
+          maxFailedCount,
+          maxWorkerConsecutiveErrors,
+        ]
+      properties:
+        bucketStart: { type: string }
+        bucketEnd: { type: string }
+        sampleCount: { type: integer, minimum: 0 }
+        avgQueuedCount: { type: number, minimum: 0 }
+        maxQueuedCount: { type: integer, minimum: 0 }
+        maxOldestQueuedAgeMinutes: { type: integer, minimum: 0, nullable: true }
+        maxAlertCount: { type: integer, minimum: 0 }
+        maxFailedCount: { type: integer, minimum: 0 }
+        maxWorkerConsecutiveErrors: { type: integer, minimum: 0 }
+    PlatformSnapshotRollup:
+      type: object
+      required: [bucketSizeMinutes, bucketCount, buckets]
+      properties:
+        bucketSizeMinutes: { type: integer, minimum: 0 }
+        bucketCount: { type: integer, minimum: 0 }
+        buckets:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlatformSnapshotRollupBucket'
     PlatformAlert:
       type: object
       required: [severity, code, title, detail, href]
@@ -2254,7 +2362,17 @@ components:
         href: { type: string, nullable: true }
     PlatformAdminMetrics:
       type: object
-      required: [runtime, worker, ingestion, alertSummary, alerts]
+      required:
+        [
+          runtime,
+          worker,
+          recentSnapshots,
+          snapshotTrend,
+          snapshotRollup,
+          ingestion,
+          alertSummary,
+          alerts,
+        ]
       properties:
         runtime:
           type: object
@@ -2269,6 +2387,14 @@ components:
               $ref: '#/components/schemas/PlatformRuntimeFeatureFlags'
         worker:
           $ref: '#/components/schemas/PlatformWorkerMonitor'
+        recentSnapshots:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlatformSnapshot'
+        snapshotTrend:
+          $ref: '#/components/schemas/PlatformSnapshotTrend'
+        snapshotRollup:
+          $ref: '#/components/schemas/PlatformSnapshotRollup'
         ingestion:
           type: object
           required:
@@ -3811,6 +3937,31 @@ paths:
           description: Unauthorized
         '503':
           description: Admin API disabled
+  /v1/admin/stats/platform-snapshot:
+    post:
+      summary: Capture the current platform diagnostics as a point-in-time snapshot in the admin audit log
+      security:
+        - AdminKey: []
+      responses:
+        '200':
+          description: Snapshot captured
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, auditId, snapshot]
+                properties:
+                  ok:
+                    type: boolean
+                  auditId:
+                    type: string
+                    format: uuid
+                  snapshot:
+                    $ref: '#/components/schemas/PlatformSnapshot'
+        '401':
+          description: Unauthorized
+        '503':
+          description: Admin API disabled
   /v1/admin/stats/recovery-queue.csv:
     get:
       summary: Export actionable Team Workspace recovery queue as CSV
@@ -4185,6 +4336,7 @@ paths:
       summary: >-
         Claim next queued job (SKIP LOCKED), run processor (echo / fetch_title /
         create_draft / pipeline_url_draft / backfill_case_taxonomy /
+        capture_platform_snapshot /
         reconcile_team_workspace_billing /
         run_team_workspace_recovery_outreach with optional retryIntervalHours /
         run_team_workspace_recovery_playbook with optional retryIntervalHours /

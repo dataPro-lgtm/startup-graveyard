@@ -2,12 +2,18 @@ import type { FastifyInstance } from 'fastify';
 import type { Pool } from 'pg';
 import { z } from 'zod';
 import { getPool } from '../../db/pool.js';
-import type { CommercialAdminMetrics, PlatformAdminMetrics } from '@sg/shared/schemas/adminStats';
+import type {
+  CommercialAdminMetrics,
+  PlatformAdminMetrics,
+  PlatformSnapshot,
+  PlatformSnapshotRollup,
+  PlatformSnapshotTrend,
+} from '@sg/shared/schemas/adminStats';
 import type {
   TeamWorkspaceRecoveryPlaybookRun,
   TeamWorkspaceRecoveryPlaybookStepName,
 } from '@sg/shared/schemas/teamWorkspace';
-import { adminStatsResponseSchema } from '../../schemas/adminStats.js';
+import { adminStatsResponseSchema, platformSnapshotSchema } from '../../schemas/adminStats.js';
 import { handoffTeamWorkspaceRecoveryOutreachBodySchema } from '../../schemas/teamWorkspace.js';
 import { getRuntimeFeatureFlags } from '../../env/runtime.js';
 import { deliverRecoveryOutreachCrmSync } from '../../recoveryOutreach/deliverRecoveryOutreachCrmSync.js';
@@ -71,57 +77,46 @@ function failedRecoveryPlaybookSteps(
   return failed;
 }
 
+export async function capturePlatformSnapshot(
+  app: FastifyInstance,
+  triggerType: PlatformSnapshot['triggerType'],
+) {
+  const statsPayload = await fetchAdminStatsPayload(app);
+  const snapshot = buildPlatformSnapshot(statsPayload.platform, triggerType);
+  const auditItem = await app.auditRepo.record({
+    action: 'platform.snapshot_captured',
+    metadata: {
+      snapshot,
+    },
+  });
+  return {
+    auditId: auditItem.id,
+    snapshot,
+  };
+}
+
 export async function adminStatsRoutes(app: FastifyInstance) {
   app.get('/', async (_request, reply) => {
-    const pool = getPool();
-    if (!pool) {
-      const contentStats = emptyContentStats();
-      const [copilotRunStats, copilotEvalStats, commercialStats] = await Promise.all([
-        app.copilotSessionsRepo.getAdminMetrics(),
-        app.copilotEvalsRepo.getAdminMetrics(),
-        fetchCommercialStats(app),
-      ]);
-      const platformStats = await fetchPlatformStats(app, {
-        contentStats,
-        commercialStats,
-      });
-      return reply.send(
-        adminStatsResponseSchema.parse({
-          ...contentStats,
-          platform: platformStats,
-          commercial: commercialStats,
-          copilot: {
-            ...copilotRunStats,
-            evals: copilotEvalStats,
-          },
-        }),
-      );
-    }
     try {
-      const [contentStats, copilotRunStats, copilotEvalStats, commercialStats] = await Promise.all([
-        fetchContentStats(pool),
-        app.copilotSessionsRepo.getAdminMetrics(),
-        app.copilotEvalsRepo.getAdminMetrics(),
-        fetchCommercialStats(app),
-      ]);
-      const platformStats = await fetchPlatformStats(app, {
-        contentStats,
-        commercialStats,
-      });
-      return reply.send(
-        adminStatsResponseSchema.parse({
-          ...contentStats,
-          platform: platformStats,
-          commercial: commercialStats,
-          copilot: {
-            ...copilotRunStats,
-            evals: copilotEvalStats,
-          },
-        }),
-      );
+      const statsPayload = await fetchAdminStatsPayload(app);
+      return reply.send(adminStatsResponseSchema.parse(statsPayload));
     } catch (err) {
       app.log.error(err, 'Failed to fetch admin stats');
       return reply.code(500).send({ error: 'stats_unavailable' });
+    }
+  });
+
+  app.post('/platform-snapshot', async (_request, reply) => {
+    try {
+      const captured = await capturePlatformSnapshot(app, 'manual');
+      return reply.send({
+        ok: true,
+        auditId: captured.auditId,
+        snapshot: captured.snapshot,
+      });
+    } catch (err) {
+      app.log.error(err, 'Failed to capture platform snapshot');
+      return reply.code(500).send({ error: 'platform_snapshot_unavailable' });
     }
   });
 
@@ -421,6 +416,168 @@ function emptyContentStats(): ContentStatsResult {
   };
 }
 
+function parsePlatformSnapshotMetadata(metadata: Record<string, unknown>): PlatformSnapshot | null {
+  const candidate =
+    metadata.snapshot && typeof metadata.snapshot === 'object' && !Array.isArray(metadata.snapshot)
+      ? metadata.snapshot
+      : metadata;
+  const parsed = platformSnapshotSchema.safeParse(candidate);
+  return parsed.success ? parsed.data : null;
+}
+
+function summarizePlatformSnapshotTrend(
+  recentSnapshots: PlatformSnapshot[],
+): PlatformSnapshotTrend {
+  if (recentSnapshots.length === 0) {
+    return {
+      sampleCount: 0,
+      oldestCapturedAt: null,
+      latestCapturedAt: null,
+      queuedCountDelta: null,
+      oldestQueuedAgeDelta: null,
+      alertCountDelta: null,
+      failedCountDelta: null,
+      workerConsecutiveErrorsDelta: null,
+      maxQueuedCount: 0,
+      maxOldestQueuedAgeMinutes: null,
+      maxAlertCount: 0,
+      maxFailedCount: 0,
+      maxWorkerConsecutiveErrors: 0,
+    };
+  }
+
+  const latest = recentSnapshots[0]!;
+  const oldest = recentSnapshots[recentSnapshots.length - 1]!;
+  return {
+    sampleCount: recentSnapshots.length,
+    oldestCapturedAt: oldest.createdAt,
+    latestCapturedAt: latest.createdAt,
+    queuedCountDelta: latest.queuedCount - oldest.queuedCount,
+    oldestQueuedAgeDelta:
+      latest.oldestQueuedAgeMinutes == null || oldest.oldestQueuedAgeMinutes == null
+        ? null
+        : latest.oldestQueuedAgeMinutes - oldest.oldestQueuedAgeMinutes,
+    alertCountDelta: latest.alertCount - oldest.alertCount,
+    failedCountDelta: latest.failedCount - oldest.failedCount,
+    workerConsecutiveErrorsDelta: latest.workerConsecutiveErrors - oldest.workerConsecutiveErrors,
+    maxQueuedCount: Math.max(...recentSnapshots.map((snapshot) => snapshot.queuedCount)),
+    maxOldestQueuedAgeMinutes: recentSnapshots
+      .map((snapshot) => snapshot.oldestQueuedAgeMinutes)
+      .filter((value): value is number => value != null)
+      .reduce<number | null>((max, value) => (max == null || value > max ? value : max), null),
+    maxAlertCount: Math.max(...recentSnapshots.map((snapshot) => snapshot.alertCount)),
+    maxFailedCount: Math.max(...recentSnapshots.map((snapshot) => snapshot.failedCount)),
+    maxWorkerConsecutiveErrors: Math.max(
+      ...recentSnapshots.map((snapshot) => snapshot.workerConsecutiveErrors),
+    ),
+  };
+}
+
+function summarizePlatformSnapshotRollup(
+  recentSnapshots: PlatformSnapshot[],
+  bucketSizeMinutes = 60,
+): PlatformSnapshotRollup {
+  if (recentSnapshots.length === 0) {
+    return {
+      bucketSizeMinutes,
+      bucketCount: 0,
+      buckets: [],
+    };
+  }
+
+  const bucketSizeMs = bucketSizeMinutes * 60_000;
+  const buckets = new Map<number, PlatformSnapshot[]>();
+
+  recentSnapshots.forEach((snapshot) => {
+    const capturedAt = new Date(snapshot.createdAt).getTime();
+    const bucketStartMs = Math.floor(capturedAt / bucketSizeMs) * bucketSizeMs;
+    const bucket = buckets.get(bucketStartMs);
+    if (bucket) {
+      bucket.push(snapshot);
+      return;
+    }
+    buckets.set(bucketStartMs, [snapshot]);
+  });
+
+  const rollupBuckets = Array.from(buckets.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([bucketStartMs, samples]) => {
+      const queuedTotal = samples.reduce((sum, snapshot) => sum + snapshot.queuedCount, 0);
+      const oldestQueuedAges = samples
+        .map((snapshot) => snapshot.oldestQueuedAgeMinutes)
+        .filter((value): value is number => value != null);
+
+      return {
+        bucketStart: new Date(bucketStartMs).toISOString(),
+        bucketEnd: new Date(bucketStartMs + bucketSizeMs).toISOString(),
+        sampleCount: samples.length,
+        avgQueuedCount:
+          samples.length === 0 ? 0 : Number((queuedTotal / samples.length).toFixed(2)),
+        maxQueuedCount: Math.max(...samples.map((snapshot) => snapshot.queuedCount)),
+        maxOldestQueuedAgeMinutes:
+          oldestQueuedAges.length === 0 ? null : Math.max(...oldestQueuedAges),
+        maxAlertCount: Math.max(...samples.map((snapshot) => snapshot.alertCount)),
+        maxFailedCount: Math.max(...samples.map((snapshot) => snapshot.failedCount)),
+        maxWorkerConsecutiveErrors: Math.max(
+          ...samples.map((snapshot) => snapshot.workerConsecutiveErrors),
+        ),
+      };
+    });
+
+  return {
+    bucketSizeMinutes,
+    bucketCount: rollupBuckets.length,
+    buckets: rollupBuckets,
+  };
+}
+
+export function buildPlatformSnapshot(
+  platformStats: PlatformAdminMetrics,
+  triggerType: PlatformSnapshot['triggerType'],
+): PlatformSnapshot {
+  return {
+    createdAt: new Date().toISOString(),
+    triggerType,
+    mockMode: platformStats.runtime.features.mockMode,
+    queuedCount: platformStats.ingestion.queuedCount,
+    oldestQueuedAgeMinutes: platformStats.ingestion.oldestQueuedAgeMinutes,
+    runningCount: platformStats.ingestion.runningCount,
+    staleRunningCount: platformStats.ingestion.staleRunningCount,
+    failedCount: platformStats.ingestion.recentFailedCount,
+    completedLastHour: platformStats.ingestion.completedLastHour,
+    alertCount: platformStats.alerts.length,
+    criticalAlertCount: platformStats.alertSummary.critical,
+    warningAlertCount: platformStats.alertSummary.warning,
+    infoAlertCount: platformStats.alertSummary.info,
+    workerStatus: platformStats.worker.status,
+    workerConsecutiveErrors: platformStats.worker.consecutiveErrors,
+    workerLastProcessedAt: platformStats.worker.lastProcessedAt,
+  };
+}
+
+export async function fetchAdminStatsPayload(app: FastifyInstance) {
+  const pool = getPool();
+  const contentStats = pool ? await fetchContentStats(pool) : emptyContentStats();
+  const [copilotRunStats, copilotEvalStats, commercialStats] = await Promise.all([
+    app.copilotSessionsRepo.getAdminMetrics(),
+    app.copilotEvalsRepo.getAdminMetrics(),
+    fetchCommercialStats(app),
+  ]);
+  const platformStats = await fetchPlatformStats(app, {
+    contentStats,
+    commercialStats,
+  });
+  return {
+    ...contentStats,
+    platform: platformStats,
+    commercial: commercialStats,
+    copilot: {
+      ...copilotRunStats,
+      evals: copilotEvalStats,
+    },
+  };
+}
+
 async function fetchPlatformStats(
   app: FastifyInstance,
   input: {
@@ -432,30 +589,42 @@ async function fetchPlatformStats(
   const generatedAt = new Date().toISOString();
   const queueStats = input.contentStats.ingestionStats;
   const worker = app.ingestionWorkerMonitor;
-  const [recentFailedJobs, runningJobs, queuedJobs, oldestQueuedJobs, recentSucceededJobs] =
-    await Promise.all([
-      app.ingestionJobsRepo.listRecent({
-        limit: 25,
-        status: 'failed',
-      }),
-      app.ingestionJobsRepo.listRecent({
-        limit: 50,
-        status: 'running',
-      }),
-      app.ingestionJobsRepo.listRecent({
-        limit: 50,
-        status: 'queued',
-      }),
-      app.ingestionJobsRepo.listRecent({
-        limit: 1,
-        status: 'queued',
-        order: 'asc',
-      }),
-      app.ingestionJobsRepo.listRecent({
-        limit: 50,
-        status: 'succeeded',
-      }),
-    ]);
+  const [
+    recentFailedJobs,
+    runningJobs,
+    queuedJobs,
+    oldestQueuedJobs,
+    recentSucceededJobs,
+    recentSnapshotAuditItems,
+  ] = await Promise.all([
+    app.ingestionJobsRepo.listRecent({
+      limit: 25,
+      status: 'failed',
+    }),
+    app.ingestionJobsRepo.listRecent({
+      limit: 50,
+      status: 'running',
+    }),
+    app.ingestionJobsRepo.listRecent({
+      limit: 50,
+      status: 'queued',
+    }),
+    app.ingestionJobsRepo.listRecent({
+      limit: 1,
+      status: 'queued',
+      order: 'asc',
+    }),
+    app.ingestionJobsRepo.listRecent({
+      limit: 50,
+      status: 'succeeded',
+    }),
+    app.auditRepo.listRecentByAction('platform.snapshot_captured', 12),
+  ]);
+  const recentSnapshots = recentSnapshotAuditItems
+    .map((item) => parsePlatformSnapshotMetadata(item.metadata))
+    .filter((item): item is PlatformSnapshot => item != null);
+  const snapshotTrend = summarizePlatformSnapshotTrend(recentSnapshots);
+  const snapshotRollup = summarizePlatformSnapshotRollup(recentSnapshots);
   const oldestQueuedJob = oldestQueuedJobs[0] ?? null;
   const oldestQueuedAgeMinutes = oldestQueuedJob
     ? Math.max(0, Math.floor((Date.now() - new Date(oldestQueuedJob.createdAt).getTime()) / 60_000))
@@ -667,6 +836,9 @@ async function fetchPlatformStats(
       lastStopAt: worker.lastStopAt,
       recentTicks: worker.recentTicks,
     },
+    recentSnapshots,
+    snapshotTrend,
+    snapshotRollup,
     ingestion: {
       queuedCount,
       oldestQueuedAgeMinutes,

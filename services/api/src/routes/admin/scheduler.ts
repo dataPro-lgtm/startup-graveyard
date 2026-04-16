@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { getPool } from '../../db/pool.js';
 import { runIngestionJob } from '../../ingestion/runIngestionJob.js';
+import { capturePlatformSnapshot } from './stats.js';
 
 const triggerBodySchema = z.object({
   jobName: z.string().min(1).optional(),
@@ -61,6 +62,7 @@ export async function adminSchedulerRoutes(app: FastifyInstance) {
         ingestionJobs: app.ingestionJobsRepo,
         copilotEvals: app.copilotEvalsRepo,
         teamWorkspaces: app.teamWorkspacesRepo,
+        capturePlatformSnapshot: (triggerType) => capturePlatformSnapshot(app, triggerType),
       },
     );
     return reply.send(result);

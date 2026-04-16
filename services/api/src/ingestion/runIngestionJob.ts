@@ -14,6 +14,7 @@ import { deliverRecoveryOutreachWebhook } from '../recoveryOutreach/deliverRecov
 import { deliverRecoveryOutreachSlackAlert } from '../recoveryOutreach/deliverRecoveryOutreachSlackAlert.js';
 import type { AdminCaseAttachmentsRepository } from '../repositories/adminCaseAttachmentsRepository.js';
 import type { AdminWriteRepository } from '../repositories/adminWriteRepository.js';
+import type { PlatformSnapshot } from '@sg/shared/schemas/adminStats';
 import type { CasesRepository } from '../repositories/casesRepository.js';
 import type {
   CopilotEvalBatchResultItem,
@@ -38,6 +39,9 @@ export type IngestionRunContext = {
   ingestionJobs?: IngestionJobsRepository;
   copilotEvals?: CopilotEvalsRepository;
   teamWorkspaces?: TeamWorkspacesRepository;
+  capturePlatformSnapshot?: (
+    triggerType: PlatformSnapshot['triggerType'],
+  ) => Promise<{ auditId: string; snapshot: PlatformSnapshot }>;
   pool?: Pool;
 };
 
@@ -78,6 +82,7 @@ function mean(values: number[]): number {
  * - **deliver_team_workspace_recovery_crm_sync**：将 `handoff_channel=crm` 的 admin recovery outreach 直接同步到 CRM API，并回写外部 case id / 下次重试时间。
  * - **deliver_team_workspace_recovery_webhook**：将到点且仍可重试的 handoff admin recovery outreach 推送到外部 webhook，并按 `retryIntervalHours` 回写重试窗口；达到上限后会停止自动重试，`force=true` 可忽略冷却窗口立即重推。
  * - **deliver_team_workspace_recovery_slack_alert**：将已进入 webhook dead-letter 的 handoff admin recovery outreach 发送到 Ops Slack；默认只发尚未成功告警的项，`force=true` 可重新发送。
+ * - **capture_platform_snapshot**：抓取当前 platform diagnostics 快照并写入 admin audit，用于后续回看 queue / worker / alert 的时间点状态。
  * - **upsert_embedding_stub**：`payload.caseId`（uuid）；需 `ctx.pool`。若设置 `OPENAI_API_KEY` 则用
  *   `company_name`+`summary` 调 OpenAI 写入真实向量；否则用确定性 sin 向量（演示）。
  */
@@ -106,6 +111,22 @@ export async function runIngestionJob(
     const t = await captureSourceSnapshot(urlRaw);
     if (!t.ok) return { ok: false, error: clip(`fetch_title：${t.error}`) };
     return { ok: true, detail: t.snapshot.title ?? t.snapshot.companyName };
+  }
+
+  if (sourceName === 'capture_platform_snapshot') {
+    if (!ctx?.capturePlatformSnapshot) {
+      return {
+        ok: false,
+        error: 'capture_platform_snapshot：服务端未注入 capturePlatformSnapshot',
+      };
+    }
+    const snapshotTriggerType: PlatformSnapshot['triggerType'] =
+      triggerType === 'scheduled' ? 'scheduled' : 'manual';
+    const captured = await ctx.capturePlatformSnapshot(snapshotTriggerType);
+    return {
+      ok: true,
+      detail: `capture_platform_snapshot: auditId=${captured.auditId} createdAt=${captured.snapshot.createdAt}`,
+    };
   }
 
   if (sourceName === 'deliver_team_workspace_recovery_webhook') {

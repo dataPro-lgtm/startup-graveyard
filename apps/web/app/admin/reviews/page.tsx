@@ -661,8 +661,10 @@ export default async function AdminReviewsPage({
             <code>run_team_workspace_recovery_playbook</code> → 先刷新 recovery outreach，再串行执行
             owner/member 邮件、CRM sync、webhook 和 Slack 升级告警，并持久化 playbook run
             history；失败 run 现在也能在 Dashboard 上直接定向补跑失败步骤；这条 job
-            也已经适合直接挂到定时编排； <code>deliver_team_workspace_recovery_webhook</code> →
-            将到点且仍可重试的 handoff admin 恢复触达推送到外部 webhook，并按 retry window
+            也已经适合直接挂到定时编排； <code>capture_platform_snapshot</code> → 捕获当前 platform
+            diagnostics 快照并写入 admin audit，可由 scheduler 定时留痕 queue / worker / alert
+            的时间点状态； <code>deliver_team_workspace_recovery_webhook</code> → 将到点且仍可重试的
+            handoff admin 恢复触达推送到外部 webhook，并按 retry window
             回写状态；达到上限后会停止自动重试，可用 <code>force=true</code> 忽略冷却窗口立即重推；{' '}
             <code>deliver_team_workspace_recovery_crm_sync</code> → 将{' '}
             <code>handoff_channel=crm</code> 的恢复触达同步到 CRM API，并回写外部 case id / 下次 CRM
@@ -791,6 +793,7 @@ backfill_case_search_index → {"limit":25}
 backfill_case_taxonomy → {"limit":100}
 reconcile_team_workspace_billing → {}
 run_team_workspace_recovery_outreach → {"retryIntervalHours":24}
+capture_platform_snapshot → {}
 deliver_team_workspace_recovery_owner_email → {"retryIntervalHours":24}
 deliver_team_workspace_recovery_member_email → {"retryIntervalHours":24}
 run_team_workspace_recovery_playbook → {"retryIntervalHours":24}

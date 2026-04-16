@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Pool, QueryResultRow } from 'pg';
 import { runIngestionJob } from '../ingestion/runIngestionJob.js';
+import type { PlatformSnapshot } from '@sg/shared/schemas/adminStats';
 import type { AdminCaseAttachmentsRepository } from './adminCaseAttachmentsRepository.js';
 import type { AdminWriteRepository } from './adminWriteRepository.js';
 import type { CasesRepository } from './casesRepository.js';
@@ -93,6 +94,9 @@ export class MockIngestionJobsRepository implements IngestionJobsRepository {
     private readonly sourceSnapshots?: SourceSnapshotsRepository,
     private readonly copilotEvals?: CopilotEvalsRepository,
     private readonly teamWorkspaces?: TeamWorkspacesRepository,
+    private readonly capturePlatformSnapshot?: (
+      triggerType: PlatformSnapshot['triggerType'],
+    ) => Promise<{ auditId: string; snapshot: PlatformSnapshot }>,
   ) {}
 
   async listRecent(params: ListIngestionJobsParams): Promise<IngestionJobItem[]> {
@@ -160,6 +164,7 @@ export class MockIngestionJobsRepository implements IngestionJobsRepository {
         ingestionJobs: this,
         copilotEvals: this.copilotEvals,
         teamWorkspaces: this.teamWorkspaces,
+        capturePlatformSnapshot: this.capturePlatformSnapshot,
       },
     );
 
@@ -236,6 +241,9 @@ export class PgIngestionJobsRepository implements IngestionJobsRepository {
     private readonly sourceSnapshots?: SourceSnapshotsRepository,
     private readonly copilotEvals?: CopilotEvalsRepository,
     private readonly teamWorkspaces?: TeamWorkspacesRepository,
+    private readonly capturePlatformSnapshot?: (
+      triggerType: PlatformSnapshot['triggerType'],
+    ) => Promise<{ auditId: string; snapshot: PlatformSnapshot }>,
   ) {}
 
   async listRecent(params: ListIngestionJobsParams): Promise<IngestionJobItem[]> {
@@ -334,6 +342,7 @@ export class PgIngestionJobsRepository implements IngestionJobsRepository {
         ingestionJobs: this,
         copilotEvals: this.copilotEvals,
         teamWorkspaces: this.teamWorkspaces,
+        capturePlatformSnapshot: this.capturePlatformSnapshot,
         pool: this.pool,
       },
     );

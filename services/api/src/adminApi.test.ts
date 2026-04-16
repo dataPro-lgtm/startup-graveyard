@@ -21,6 +21,7 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers();
     delete process.env.DATABASE_URL;
     delete process.env.TEAM_WORKSPACE_RECOVERY_CRM_API_URL;
     delete process.env.TEAM_WORKSPACE_RECOVERY_CRM_API_BEARER_TOKEN;
@@ -439,6 +440,232 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
         ]),
       },
     });
+  });
+
+  it('POST /v1/admin/stats/platform-snapshot stores a snapshot and GET /v1/admin/stats returns it', async () => {
+    const captureRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/stats/platform-snapshot',
+      headers: { 'x-admin-key': key },
+    });
+    expect(captureRes.statusCode).toBe(200);
+    const captured = JSON.parse(captureRes.body) as {
+      ok: boolean;
+      auditId: string;
+      snapshot: {
+        createdAt: string;
+        triggerType: 'manual' | 'scheduled';
+        mockMode: boolean;
+        workerStatus: string;
+      };
+    };
+    expect(captured.ok).toBe(true);
+    expect(captured.auditId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
+    expect(captured.snapshot.triggerType).toBe('manual');
+
+    const statsRes = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/stats',
+      headers: { 'x-admin-key': key },
+    });
+    expect(statsRes.statusCode).toBe(200);
+    expect(JSON.parse(statsRes.body)).toMatchObject({
+      platform: {
+        recentSnapshots: expect.arrayContaining([
+          expect.objectContaining({
+            createdAt: captured.snapshot.createdAt,
+            triggerType: 'manual',
+            mockMode: captured.snapshot.mockMode,
+            workerStatus: captured.snapshot.workerStatus,
+          }),
+        ]),
+      },
+    });
+  });
+
+  it('POST /v1/admin/scheduler/trigger can run capture_platform_snapshot manually', async () => {
+    const triggerRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/scheduler/trigger',
+      headers: {
+        'x-admin-key': key,
+        'content-type': 'application/json',
+      },
+      payload: {
+        sourceName: 'capture_platform_snapshot',
+      },
+    });
+    expect(triggerRes.statusCode).toBe(200);
+    expect(JSON.parse(triggerRes.body)).toMatchObject({
+      ok: true,
+    });
+
+    const statsRes = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/stats',
+      headers: { 'x-admin-key': key },
+    });
+    expect(statsRes.statusCode).toBe(200);
+    expect(JSON.parse(statsRes.body)).toMatchObject({
+      platform: {
+        recentSnapshots: expect.arrayContaining([
+          expect.objectContaining({
+            triggerType: 'manual',
+          }),
+        ]),
+      },
+    });
+  });
+
+  it('GET /v1/admin/stats summarizes platform snapshot trend across recent captures', async () => {
+    const firstCaptureRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/stats/platform-snapshot',
+      headers: { 'x-admin-key': key },
+    });
+    expect(firstCaptureRes.statusCode).toBe(200);
+
+    await app.ingestionJobsRepo.enqueue({
+      sourceName: 'echo',
+      triggerType: 'snapshot_trend_test',
+      payload: { message: 'queued backlog sample' },
+    });
+    app.ingestionWorkerMonitor.consecutiveErrors = 2;
+
+    const secondCaptureRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/stats/platform-snapshot',
+      headers: { 'x-admin-key': key },
+    });
+    expect(secondCaptureRes.statusCode).toBe(200);
+    const secondCaptured = JSON.parse(secondCaptureRes.body) as {
+      snapshot: { createdAt: string };
+    };
+
+    const statsRes = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/stats',
+      headers: { 'x-admin-key': key },
+    });
+    expect(statsRes.statusCode).toBe(200);
+    expect(JSON.parse(statsRes.body)).toMatchObject({
+      platform: {
+        snapshotTrend: expect.objectContaining({
+          sampleCount: expect.any(Number),
+          latestCapturedAt: secondCaptured.snapshot.createdAt,
+          maxQueuedCount: expect.any(Number),
+          maxWorkerConsecutiveErrors: expect.any(Number),
+        }),
+      },
+    });
+    const statsBody = JSON.parse(statsRes.body) as {
+      platform: {
+        snapshotTrend: {
+          sampleCount: number;
+          maxQueuedCount: number;
+          maxWorkerConsecutiveErrors: number;
+        };
+      };
+    };
+    expect(statsBody.platform.snapshotTrend.sampleCount).toBeGreaterThanOrEqual(2);
+    expect(statsBody.platform.snapshotTrend.maxQueuedCount).toBeGreaterThanOrEqual(1);
+    expect(statsBody.platform.snapshotTrend.maxWorkerConsecutiveErrors).toBeGreaterThanOrEqual(2);
+  });
+
+  it('GET /v1/admin/stats groups platform snapshots into hourly rollup buckets', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-16T10:05:00.000Z'));
+    const firstCaptureRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/stats/platform-snapshot',
+      headers: { 'x-admin-key': key },
+    });
+    expect(firstCaptureRes.statusCode).toBe(200);
+
+    await app.ingestionJobsRepo.enqueue({
+      sourceName: 'echo',
+      triggerType: 'snapshot_rollup_test',
+      payload: { message: 'rollup sample 1' },
+    });
+
+    vi.setSystemTime(new Date('2026-04-16T10:35:00.000Z'));
+    app.ingestionWorkerMonitor.consecutiveErrors = 1;
+    const secondCaptureRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/stats/platform-snapshot',
+      headers: { 'x-admin-key': key },
+    });
+    expect(secondCaptureRes.statusCode).toBe(200);
+
+    await app.ingestionJobsRepo.enqueue({
+      sourceName: 'echo',
+      triggerType: 'snapshot_rollup_test',
+      payload: { message: 'rollup sample 2' },
+    });
+
+    vi.setSystemTime(new Date('2026-04-16T11:05:00.000Z'));
+    app.ingestionWorkerMonitor.consecutiveErrors = 3;
+    const thirdCaptureRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/stats/platform-snapshot',
+      headers: { 'x-admin-key': key },
+    });
+    expect(thirdCaptureRes.statusCode).toBe(200);
+
+    const statsRes = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/stats',
+      headers: { 'x-admin-key': key },
+    });
+    expect(statsRes.statusCode).toBe(200);
+    const statsBody = JSON.parse(statsRes.body) as {
+      platform: {
+        snapshotRollup: {
+          bucketSizeMinutes: number;
+          bucketCount: number;
+          buckets: Array<{
+            bucketStart: string;
+            sampleCount: number;
+            maxQueuedCount: number;
+            maxWorkerConsecutiveErrors: number;
+          }>;
+        };
+      };
+    };
+    expect(statsBody.platform.snapshotRollup.bucketSizeMinutes).toBe(60);
+    expect(statsBody.platform.snapshotRollup.bucketCount).toBeGreaterThanOrEqual(2);
+    expect(statsBody.platform.snapshotRollup.buckets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          bucketStart: '2026-04-16T10:00:00.000Z',
+          sampleCount: 2,
+          maxQueuedCount: expect.any(Number),
+        }),
+        expect.objectContaining({
+          bucketStart: '2026-04-16T11:00:00.000Z',
+          sampleCount: 1,
+          maxWorkerConsecutiveErrors: expect.any(Number),
+        }),
+      ]),
+    );
+    const tenAmBucket = statsBody.platform.snapshotRollup.buckets.find(
+      (bucket) => bucket.bucketStart === '2026-04-16T10:00:00.000Z',
+    );
+    const elevenAmBucket = statsBody.platform.snapshotRollup.buckets.find(
+      (bucket) => bucket.bucketStart === '2026-04-16T11:00:00.000Z',
+    );
+    expect(tenAmBucket?.maxQueuedCount).toBeGreaterThanOrEqual(1);
+    expect(elevenAmBucket?.maxWorkerConsecutiveErrors).toBeGreaterThanOrEqual(3);
+
+    while (true) {
+      const result = await app.ingestionJobsRepo.processNext();
+      if (result.processed === 0) {
+        break;
+      }
+    }
+    app.ingestionWorkerMonitor.consecutiveErrors = 0;
   });
 
   it('GET /v1/admin/stats detects stale running jobs and reclaim-stale resets them', async () => {

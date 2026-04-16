@@ -121,6 +121,9 @@ What is true today:
 - The diagnostics layer also flags stale running ingestion jobs and gives operators a direct reclaim path from the dashboard
 - The platform layer now also exposes ingestion worker health, recent heartbeat history, last tick / last processed job, and stalled or erroring worker alerts
 - The dashboard now also shows ingestion queue backlog age and recent throughput, so operators can tell whether the worker is healthy but the queue is still accumulating
+- Operators can now capture point-in-time platform snapshots, keep a short diagnostics history, and also schedule recurring snapshot capture for queue / worker / alert drift
+- The dashboard now also summarizes snapshot trends, so operators can tell whether backlog, alert volume, or worker errors are actually improving over recent captures
+- The dashboard now also rolls those snapshots up into recent hourly windows, so operators can separate sustained degradation from a single noisy spike
 
 What is not true today:
 

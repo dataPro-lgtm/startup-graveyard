@@ -195,6 +195,61 @@ export const platformWorkerStatusSchema = z.enum([
   'stopped',
 ]);
 
+export const platformSnapshotTriggerSchema = z.enum(['manual', 'scheduled']);
+
+export const platformSnapshotSchema = z.object({
+  createdAt: z.string(),
+  triggerType: platformSnapshotTriggerSchema,
+  mockMode: z.boolean(),
+  queuedCount: nonnegativeInteger,
+  oldestQueuedAgeMinutes: nonnegativeInteger.nullable(),
+  runningCount: nonnegativeInteger,
+  staleRunningCount: nonnegativeInteger,
+  failedCount: nonnegativeInteger,
+  completedLastHour: nonnegativeInteger,
+  alertCount: nonnegativeInteger,
+  criticalAlertCount: nonnegativeInteger,
+  warningAlertCount: nonnegativeInteger,
+  infoAlertCount: nonnegativeInteger,
+  workerStatus: platformWorkerStatusSchema,
+  workerConsecutiveErrors: nonnegativeInteger,
+  workerLastProcessedAt: z.string().nullable(),
+});
+
+export const platformSnapshotTrendSchema = z.object({
+  sampleCount: nonnegativeInteger,
+  oldestCapturedAt: z.string().nullable(),
+  latestCapturedAt: z.string().nullable(),
+  queuedCountDelta: z.number().int().nullable(),
+  oldestQueuedAgeDelta: z.number().int().nullable(),
+  alertCountDelta: z.number().int().nullable(),
+  failedCountDelta: z.number().int().nullable(),
+  workerConsecutiveErrorsDelta: z.number().int().nullable(),
+  maxQueuedCount: nonnegativeInteger,
+  maxOldestQueuedAgeMinutes: nonnegativeInteger.nullable(),
+  maxAlertCount: nonnegativeInteger,
+  maxFailedCount: nonnegativeInteger,
+  maxWorkerConsecutiveErrors: nonnegativeInteger,
+});
+
+export const platformSnapshotRollupBucketSchema = z.object({
+  bucketStart: z.string(),
+  bucketEnd: z.string(),
+  sampleCount: nonnegativeInteger,
+  avgQueuedCount: nonnegativeNumber,
+  maxQueuedCount: nonnegativeInteger,
+  maxOldestQueuedAgeMinutes: nonnegativeInteger.nullable(),
+  maxAlertCount: nonnegativeInteger,
+  maxFailedCount: nonnegativeInteger,
+  maxWorkerConsecutiveErrors: nonnegativeInteger,
+});
+
+export const platformSnapshotRollupSchema = z.object({
+  bucketSizeMinutes: nonnegativeInteger,
+  bucketCount: nonnegativeInteger,
+  buckets: z.array(platformSnapshotRollupBucketSchema),
+});
+
 export const platformWorkerTickOutcomeSchema = z.enum(['processed', 'empty_queue', 'error']);
 
 export const platformWorkerRecentTickSchema = z.object({
@@ -481,6 +536,9 @@ export const platformAdminMetricsSchema = z.object({
     features: platformRuntimeFeatureFlagsSchema,
   }),
   worker: platformWorkerMonitorSchema,
+  recentSnapshots: z.array(platformSnapshotSchema),
+  snapshotTrend: platformSnapshotTrendSchema,
+  snapshotRollup: platformSnapshotRollupSchema,
   ingestion: z.object({
     queuedCount: nonnegativeInteger,
     oldestQueuedAgeMinutes: nonnegativeInteger.nullable(),
@@ -575,6 +633,11 @@ export type PlatformRecentStaleIngestionJob = z.infer<typeof platformRecentStale
 export type PlatformRecentSucceededIngestionJob = z.infer<
   typeof platformRecentSucceededIngestionJobSchema
 >;
+export type PlatformSnapshotTrigger = z.infer<typeof platformSnapshotTriggerSchema>;
+export type PlatformSnapshot = z.infer<typeof platformSnapshotSchema>;
+export type PlatformSnapshotTrend = z.infer<typeof platformSnapshotTrendSchema>;
+export type PlatformSnapshotRollupBucket = z.infer<typeof platformSnapshotRollupBucketSchema>;
+export type PlatformSnapshotRollup = z.infer<typeof platformSnapshotRollupSchema>;
 export type PlatformWorkerStatus = z.infer<typeof platformWorkerStatusSchema>;
 export type PlatformWorkerRecentTick = z.infer<typeof platformWorkerRecentTickSchema>;
 export type PlatformWorkerMonitor = z.infer<typeof platformWorkerMonitorSchema>;

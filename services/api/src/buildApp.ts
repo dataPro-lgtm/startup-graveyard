@@ -79,6 +79,7 @@ import {
   MockReviewsRepository,
   PgReviewsRepository,
 } from './repositories/reviewsRepository.js';
+import { capturePlatformSnapshot } from './routes/admin/stats.js';
 import { registerAdminRoutes } from './plugins/adminRoutes.js';
 import { createIngestionWorkerMonitor } from './ingestion/workerMonitor.js';
 import { healthRoutes } from './routes/health.js';
@@ -118,6 +119,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
   let teamWorkspacesRepo: TeamWorkspacesRepository;
   let billingFunnelRepo: BillingFunnelRepository;
   const ingestionWorkerMonitor = createIngestionWorkerMonitor();
+  const auditRepo = pgPool ? new PgAuditRepository(pgPool) : new MockAuditRepository();
+  const capturePlatformSnapshotForIngestion = (triggerType: 'manual' | 'scheduled') =>
+    capturePlatformSnapshot(server, triggerType);
   const queueApprovedCaseIndex = async (caseId: string) => {
     await ingestionJobsRepo.enqueue({
       sourceName: 'rebuild_case_search_index',
@@ -150,6 +154,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
       sourceSnapshotsRepo,
       copilotEvalsRepo,
       teamWorkspacesRepo,
+      capturePlatformSnapshotForIngestion,
     );
   } else {
     const mc = new MockCasesRepository();
@@ -181,6 +186,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
       sourceSnapshotsRepo,
       copilotEvalsRepo,
       teamWorkspacesRepo,
+      capturePlatformSnapshotForIngestion,
     );
   }
 
@@ -199,7 +205,6 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
   server.decorate('reportSharesRepo', reportSharesRepo as ReportSharesRepository);
   server.decorate('teamWorkspacesRepo', teamWorkspacesRepo as TeamWorkspacesRepository);
   server.decorate('billingFunnelRepo', billingFunnelRepo as BillingFunnelRepository);
-  const auditRepo = pgPool ? new PgAuditRepository(pgPool) : new MockAuditRepository();
   server.decorate('auditRepo', auditRepo as AuditRepository);
   if (!pgPool) {
     server.log.warn('DATABASE_URL unset; using in-memory mock cases + reviews');
