@@ -2333,6 +2333,106 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/PlatformSnapshotRollupBucket'
+    PlatformSnapshotCadence:
+      type: object
+      required:
+        [
+          status,
+          expectedIntervalMinutes,
+          lastCapturedAt,
+          lastScheduledCapturedAt,
+          expectedNextSnapshotAt,
+          minutesSinceLastSnapshot,
+          minutesSinceLastScheduledSnapshot,
+          overdue,
+          missedIntervals,
+        ]
+      properties:
+        status:
+          type: string
+          enum: [awaiting_baseline, healthy, overdue]
+        expectedIntervalMinutes: { type: integer, minimum: 0 }
+        lastCapturedAt: { type: string, nullable: true }
+        lastScheduledCapturedAt: { type: string, nullable: true }
+        expectedNextSnapshotAt: { type: string, nullable: true }
+        minutesSinceLastSnapshot: { type: integer, minimum: 0, nullable: true }
+        minutesSinceLastScheduledSnapshot: { type: integer, minimum: 0, nullable: true }
+        overdue: { type: boolean }
+        missedIntervals: { type: integer, minimum: 0 }
+    PlatformSnapshotRegression:
+      type: object
+      required:
+        [
+          hasRegression,
+          severity,
+          regressionStreak,
+          suppressed,
+          suppressionReason,
+          latestBucketStart,
+          previousBucketStart,
+          queuedDelta,
+          oldestQueuedAgeDelta,
+          alertCountDelta,
+          failedCountDelta,
+          workerConsecutiveErrorsDelta,
+          reasons,
+          recommendedActions,
+        ]
+      properties:
+        hasRegression: { type: boolean }
+        severity:
+          type: string
+          enum: [info, warning, critical]
+        regressionStreak: { type: integer, minimum: 0 }
+        suppressed: { type: boolean }
+        suppressionReason: { type: string, nullable: true }
+        latestBucketStart: { type: string, nullable: true }
+        previousBucketStart: { type: string, nullable: true }
+        queuedDelta: { type: integer, nullable: true }
+        oldestQueuedAgeDelta: { type: integer, nullable: true }
+        alertCountDelta: { type: integer, nullable: true }
+        failedCountDelta: { type: integer, nullable: true }
+        workerConsecutiveErrorsDelta: { type: integer, nullable: true }
+        reasons:
+          type: array
+          items: { type: string }
+        recommendedActions:
+          type: array
+          items: { type: string }
+    PlatformSnapshotMetricsSurface:
+      type: object
+      required:
+        [
+          windowHours,
+          coveredHours,
+          snapshotCount,
+          scheduledSnapshotCount,
+          expectedScheduledSnapshotCount,
+          cadenceAdherenceRate,
+          regressionWindowCount,
+          peakQueuedCount,
+          peakOldestQueuedAgeMinutes,
+          peakAlertCount,
+          peakFailedCount,
+          peakWorkerConsecutiveErrors,
+        ]
+      properties:
+        windowHours: { type: integer, minimum: 0 }
+        coveredHours: { type: integer, minimum: 0 }
+        snapshotCount: { type: integer, minimum: 0 }
+        scheduledSnapshotCount: { type: integer, minimum: 0 }
+        expectedScheduledSnapshotCount: { type: integer, minimum: 0 }
+        cadenceAdherenceRate:
+          type: number
+          minimum: 0
+          maximum: 1
+          nullable: true
+        regressionWindowCount: { type: integer, minimum: 0 }
+        peakQueuedCount: { type: integer, minimum: 0 }
+        peakOldestQueuedAgeMinutes: { type: integer, minimum: 0, nullable: true }
+        peakAlertCount: { type: integer, minimum: 0 }
+        peakFailedCount: { type: integer, minimum: 0 }
+        peakWorkerConsecutiveErrors: { type: integer, minimum: 0 }
     PlatformAlert:
       type: object
       required: [severity, code, title, detail, href]
@@ -2353,6 +2453,9 @@ components:
               ingestion_worker_inactive,
               ingestion_worker_stalled,
               ingestion_worker_erroring,
+              snapshot_cadence_overdue,
+              snapshot_cadence_adherence_low,
+              snapshot_trend_regressing,
               recovery_dead_letters,
               recovery_delivery_failures,
               recovery_playbook_failed,
@@ -2367,8 +2470,11 @@ components:
           runtime,
           worker,
           recentSnapshots,
+          snapshotCadence,
           snapshotTrend,
           snapshotRollup,
+          snapshotRegression,
+          snapshotMetrics,
           ingestion,
           alertSummary,
           alerts,
@@ -2391,10 +2497,16 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/PlatformSnapshot'
+        snapshotCadence:
+          $ref: '#/components/schemas/PlatformSnapshotCadence'
         snapshotTrend:
           $ref: '#/components/schemas/PlatformSnapshotTrend'
         snapshotRollup:
           $ref: '#/components/schemas/PlatformSnapshotRollup'
+        snapshotRegression:
+          $ref: '#/components/schemas/PlatformSnapshotRegression'
+        snapshotMetrics:
+          $ref: '#/components/schemas/PlatformSnapshotMetricsSurface'
         ingestion:
           type: object
           required:

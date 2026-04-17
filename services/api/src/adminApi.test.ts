@@ -668,6 +668,254 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
     app.ingestionWorkerMonitor.consecutiveErrors = 0;
   });
 
+  it('GET /v1/admin/stats raises snapshot_trend_regressing when the latest bucket gets worse', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-17T08:05:00.000Z'));
+    await app.inject({
+      method: 'POST',
+      url: '/v1/admin/stats/platform-snapshot',
+      headers: { 'x-admin-key': key },
+    });
+
+    await app.ingestionJobsRepo.enqueue({
+      sourceName: 'echo',
+      triggerType: 'snapshot_regression_test',
+      payload: { message: 'regression sample 1' },
+    });
+
+    vi.setSystemTime(new Date('2026-04-17T09:05:00.000Z'));
+    app.ingestionWorkerMonitor.consecutiveErrors = 3;
+    await app.ingestionJobsRepo.enqueue({
+      sourceName: 'echo',
+      triggerType: 'snapshot_regression_test',
+      payload: { message: 'regression sample 2' },
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/v1/admin/stats/platform-snapshot',
+      headers: { 'x-admin-key': key },
+    });
+
+    const statsRes = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/stats',
+      headers: { 'x-admin-key': key },
+    });
+    expect(statsRes.statusCode).toBe(200);
+    const statsBody = JSON.parse(statsRes.body) as {
+      platform: {
+        snapshotRegression: {
+          hasRegression: boolean;
+          severity: string;
+          regressionStreak: number;
+          suppressed: boolean;
+          suppressionReason: string | null;
+          latestBucketStart: string | null;
+          previousBucketStart: string | null;
+          reasons: string[];
+          queuedDelta: number | null;
+          workerConsecutiveErrorsDelta: number | null;
+          recommendedActions: string[];
+        };
+        alerts: Array<{ code: string; detail: string }>;
+      };
+    };
+    expect(statsBody.platform.snapshotRegression).toMatchObject({
+      hasRegression: true,
+      severity: 'critical',
+      regressionStreak: 1,
+      suppressed: false,
+      suppressionReason: null,
+      latestBucketStart: '2026-04-17T09:00:00.000Z',
+      previousBucketStart: '2026-04-17T08:00:00.000Z',
+    });
+    expect(statsBody.platform.snapshotRegression.reasons).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('queued peak'),
+        expect.stringContaining('worker errors peak'),
+      ]),
+    );
+    expect(statsBody.platform.snapshotRegression.queuedDelta).toBeGreaterThan(0);
+    expect(statsBody.platform.snapshotRegression.workerConsecutiveErrorsDelta).toBeGreaterThan(0);
+    expect(statsBody.platform.snapshotRegression.recommendedActions).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('queue backlog'),
+        expect.stringContaining('worker health'),
+      ]),
+    );
+    expect(statsBody.platform.alerts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'snapshot_trend_regressing',
+          detail: expect.stringContaining('queued peak'),
+        }),
+      ]),
+    );
+
+    while (true) {
+      const result = await app.ingestionJobsRepo.processNext();
+      if (result.processed === 0) {
+        break;
+      }
+    }
+    app.ingestionWorkerMonitor.consecutiveErrors = 0;
+  });
+
+  it('GET /v1/admin/stats suppresses snapshot regression when covered by backlog alerts', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-17T08:00:00.000Z'));
+    await app.inject({
+      method: 'POST',
+      url: '/v1/admin/stats/platform-snapshot',
+      headers: { 'x-admin-key': key },
+    });
+
+    vi.setSystemTime(new Date('2026-04-17T09:00:00.000Z'));
+    await app.ingestionJobsRepo.enqueue({
+      sourceName: 'echo',
+      triggerType: 'snapshot_suppression_test',
+      payload: { message: 'backlog sample' },
+    });
+    vi.setSystemTime(new Date('2026-04-17T09:20:00.000Z'));
+    await app.inject({
+      method: 'POST',
+      url: '/v1/admin/stats/platform-snapshot',
+      headers: { 'x-admin-key': key },
+    });
+
+    const statsRes = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/stats',
+      headers: { 'x-admin-key': key },
+    });
+    expect(statsRes.statusCode).toBe(200);
+    const statsBody = JSON.parse(statsRes.body) as {
+      platform: {
+        snapshotRegression: {
+          hasRegression: boolean;
+          suppressed: boolean;
+          suppressionReason: string | null;
+          severity: string;
+        };
+        alerts: Array<{ code: string }>;
+      };
+    };
+    expect(statsBody.platform.snapshotRegression).toMatchObject({
+      hasRegression: true,
+      suppressed: true,
+      suppressionReason: 'covered_by_current_runtime_alerts',
+      severity: 'warning',
+    });
+    expect(statsBody.platform.alerts).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'ingestion_queue_backlog' })]),
+    );
+    expect(statsBody.platform.alerts).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'snapshot_trend_regressing' })]),
+    );
+
+    while (true) {
+      const result = await app.ingestionJobsRepo.processNext();
+      if (result.processed === 0) {
+        break;
+      }
+    }
+  });
+
+  it('GET /v1/admin/stats flags overdue snapshot cadence when scheduled capture stops', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-17T08:00:00.000Z'));
+    await app.ingestionJobsRepo.enqueue({
+      sourceName: 'capture_platform_snapshot',
+      triggerType: 'scheduled',
+      payload: {},
+    });
+    await app.ingestionJobsRepo.processNext();
+
+    vi.setSystemTime(new Date('2026-04-17T09:35:00.000Z'));
+    const statsRes = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/stats',
+      headers: { 'x-admin-key': key },
+    });
+    expect(statsRes.statusCode).toBe(200);
+    const statsBody = JSON.parse(statsRes.body) as {
+      platform: {
+        snapshotCadence: {
+          status: string;
+          overdue: boolean;
+          expectedIntervalMinutes: number;
+          missedIntervals: number;
+        };
+        alerts: Array<{ code: string }>;
+      };
+    };
+    expect(statsBody.platform.snapshotCadence).toMatchObject({
+      status: 'overdue',
+      overdue: true,
+      expectedIntervalMinutes: 30,
+    });
+    expect(statsBody.platform.snapshotCadence.missedIntervals).toBeGreaterThanOrEqual(1);
+    expect(statsBody.platform.alerts).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'snapshot_cadence_overdue' })]),
+    );
+  });
+
+  it('GET /v1/admin/stats surfaces snapshot coverage metrics and low-adherence alerts', async () => {
+    vi.useFakeTimers();
+    for (const capturedAt of [
+      '2026-04-17T00:00:00.000Z',
+      '2026-04-17T00:30:00.000Z',
+      '2026-04-17T02:00:00.000Z',
+      '2026-04-17T03:30:00.000Z',
+    ]) {
+      vi.setSystemTime(new Date(capturedAt));
+      await app.ingestionJobsRepo.enqueue({
+        sourceName: 'capture_platform_snapshot',
+        triggerType: 'scheduled',
+        payload: {},
+      });
+      await app.ingestionJobsRepo.processNext();
+    }
+
+    vi.setSystemTime(new Date('2026-04-17T04:00:00.000Z'));
+    const statsRes = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/stats',
+      headers: { 'x-admin-key': key },
+    });
+    expect(statsRes.statusCode).toBe(200);
+    const statsBody = JSON.parse(statsRes.body) as {
+      platform: {
+        snapshotCadence: {
+          status: string;
+          overdue: boolean;
+        };
+        snapshotMetrics: {
+          coveredHours: number;
+          scheduledSnapshotCount: number;
+          expectedScheduledSnapshotCount: number;
+          cadenceAdherenceRate: number | null;
+          regressionWindowCount: number;
+        };
+        alerts: Array<{ code: string }>;
+      };
+    };
+    expect(statsBody.platform.snapshotCadence).toMatchObject({
+      status: 'healthy',
+      overdue: false,
+    });
+    expect(statsBody.platform.snapshotMetrics).toMatchObject({
+      coveredHours: 4,
+      scheduledSnapshotCount: 4,
+      expectedScheduledSnapshotCount: 8,
+      regressionWindowCount: 0,
+    });
+    expect(statsBody.platform.snapshotMetrics.cadenceAdherenceRate).toBeCloseTo(0.5, 5);
+    expect(statsBody.platform.alerts).toEqual(
+      expect.arrayContaining([expect.objectContaining({ code: 'snapshot_cadence_adherence_low' })]),
+    );
+  });
+
   it('GET /v1/admin/stats detects stale running jobs and reclaim-stale resets them', async () => {
     const queued = await app.ingestionJobsRepo.enqueue({
       sourceName: 'pipeline_url_draft',

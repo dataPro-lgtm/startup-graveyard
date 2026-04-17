@@ -111,6 +111,9 @@
 - 运营现在还能从 Dashboard 手动捕获 `platform snapshot`，并通过新的 `capture_platform_snapshot` scheduler job 定时留痕 queue / worker / alert 姿态；后续判断是“瞬时毛刺”还是“持续退化”不再只靠口头描述。
 - 在 snapshot history 之上，Dashboard 现在还会给出最近窗口内的 trend 聚合，直接总结 queued / alerts / failed / worker errors 相对起点是上升还是回落，减少人工目测历史卡片的成本。
 - 在 trend 之上，Dashboard 现在还会按小时窗口 roll up 最近的 snapshots，直接给出每个窗口内的 queued / alert / failed / worker error 峰值，帮助区分“持续退化”与“单次毛刺”。
+- 在 rollup 之上，平台诊断层现在还能直接抬出 `snapshot_trend_regressing` 告警：当最新窗口相较上一窗口出现 queued / alerts / failed / worker errors 回升时，Dashboard 不再只展示历史，而会主动标记“最近窗口正在退化”。
+- 在 regression detection 之上，平台层现在还会额外给出 snapshot cadence、missed intervals、regression streak/severity，以及 suppression reason；也就是说运营能分辨“采样本身已经断档”“趋势确实在持续恶化”，还是“退化已被更具体的 queue/worker 告警覆盖，无需重复处理”。
+- 在 cadence / suppression 之上，平台层现在还会补一层 24h snapshot metrics surface：scheduled coverage、cadence adherence、regression windows，以及 queue / alert / failed / worker error 的最近峰值，方便运营判断“采样是否持续掉点”与“最近是否频繁出现退化窗口”。
 
 ## 4. 当前执行顺序
 

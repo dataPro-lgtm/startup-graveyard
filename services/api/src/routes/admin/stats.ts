@@ -5,7 +5,10 @@ import { getPool } from '../../db/pool.js';
 import type {
   CommercialAdminMetrics,
   PlatformAdminMetrics,
+  PlatformSnapshotCadence,
+  PlatformSnapshotMetricsSurface,
   PlatformSnapshot,
+  PlatformSnapshotRegression,
   PlatformSnapshotRollup,
   PlatformSnapshotTrend,
 } from '@sg/shared/schemas/adminStats';
@@ -38,6 +41,8 @@ interface ContentStatsResult {
 }
 
 const STALE_RUNNING_THRESHOLD_MINUTES = 30;
+const DEFAULT_PLATFORM_SNAPSHOT_INTERVAL_MINUTES = 30;
+const PLATFORM_SNAPSHOT_METRICS_WINDOW_HOURS = 24;
 
 const recoveryWebhookDeliveryBodySchema = z.object({
   retryIntervalHours: z
@@ -531,6 +536,254 @@ function summarizePlatformSnapshotRollup(
   };
 }
 
+function summarizePlatformSnapshotCadence(
+  recentSnapshots: PlatformSnapshot[],
+  now = Date.now(),
+): PlatformSnapshotCadence {
+  const scheduledSnapshots = recentSnapshots.filter(
+    (snapshot) => snapshot.triggerType === 'scheduled',
+  );
+  const latestSnapshot = recentSnapshots[0] ?? null;
+  const latestScheduledSnapshot = scheduledSnapshots[0] ?? null;
+  const observedIntervals = scheduledSnapshots
+    .slice(0, -1)
+    .map((snapshot, index) => {
+      const previous = scheduledSnapshots[index + 1];
+      if (!previous) return null;
+      const deltaMinutes = Math.round(
+        (Date.parse(snapshot.createdAt) - Date.parse(previous.createdAt)) / 60_000,
+      );
+      return deltaMinutes > 0 ? deltaMinutes : null;
+    })
+    .filter((value): value is number => value != null);
+  const expectedIntervalMinutes =
+    observedIntervals.length > 0
+      ? Math.min(...observedIntervals)
+      : DEFAULT_PLATFORM_SNAPSHOT_INTERVAL_MINUTES;
+  const minutesSinceLastSnapshot = latestSnapshot
+    ? Math.max(0, Math.floor((now - Date.parse(latestSnapshot.createdAt)) / 60_000))
+    : null;
+  const minutesSinceLastScheduledSnapshot = latestScheduledSnapshot
+    ? Math.max(0, Math.floor((now - Date.parse(latestScheduledSnapshot.createdAt)) / 60_000))
+    : null;
+  const overdue =
+    minutesSinceLastScheduledSnapshot != null &&
+    minutesSinceLastScheduledSnapshot > expectedIntervalMinutes * 2;
+  const missedIntervals =
+    minutesSinceLastScheduledSnapshot == null || !overdue
+      ? 0
+      : Math.max(1, Math.floor(minutesSinceLastScheduledSnapshot / expectedIntervalMinutes) - 1);
+
+  return {
+    status: latestScheduledSnapshot == null ? 'awaiting_baseline' : overdue ? 'overdue' : 'healthy',
+    expectedIntervalMinutes,
+    lastCapturedAt: latestSnapshot?.createdAt ?? null,
+    lastScheduledCapturedAt: latestScheduledSnapshot?.createdAt ?? null,
+    expectedNextSnapshotAt: latestScheduledSnapshot
+      ? new Date(
+          Date.parse(latestScheduledSnapshot.createdAt) + expectedIntervalMinutes * 60_000,
+        ).toISOString()
+      : null,
+    minutesSinceLastSnapshot,
+    minutesSinceLastScheduledSnapshot,
+    overdue,
+    missedIntervals,
+  };
+}
+
+function platformSnapshotBucketHasRegression(
+  current: PlatformSnapshotRollup['buckets'][number],
+  previous: PlatformSnapshotRollup['buckets'][number],
+) {
+  return (
+    current.maxQueuedCount > previous.maxQueuedCount ||
+    (current.maxOldestQueuedAgeMinutes ?? 0) > (previous.maxOldestQueuedAgeMinutes ?? 0) ||
+    current.maxAlertCount > previous.maxAlertCount ||
+    current.maxFailedCount > previous.maxFailedCount ||
+    current.maxWorkerConsecutiveErrors > previous.maxWorkerConsecutiveErrors
+  );
+}
+
+function summarizePlatformSnapshotRegression(
+  snapshotRollup: PlatformSnapshotRollup,
+): PlatformSnapshotRegression {
+  if (snapshotRollup.buckets.length < 2) {
+    return {
+      hasRegression: false,
+      severity: 'info',
+      regressionStreak: 0,
+      suppressed: false,
+      suppressionReason: null,
+      latestBucketStart: null,
+      previousBucketStart: null,
+      queuedDelta: null,
+      oldestQueuedAgeDelta: null,
+      alertCountDelta: null,
+      failedCountDelta: null,
+      workerConsecutiveErrorsDelta: null,
+      reasons: [],
+      recommendedActions: [],
+    };
+  }
+
+  const latest = snapshotRollup.buckets[snapshotRollup.buckets.length - 1]!;
+  const previous = snapshotRollup.buckets[snapshotRollup.buckets.length - 2]!;
+  const queuedDelta = latest.maxQueuedCount - previous.maxQueuedCount;
+  const oldestQueuedAgeDelta =
+    latest.maxOldestQueuedAgeMinutes == null || previous.maxOldestQueuedAgeMinutes == null
+      ? null
+      : latest.maxOldestQueuedAgeMinutes - previous.maxOldestQueuedAgeMinutes;
+  const alertCountDelta = latest.maxAlertCount - previous.maxAlertCount;
+  const failedCountDelta = latest.maxFailedCount - previous.maxFailedCount;
+  const workerConsecutiveErrorsDelta =
+    latest.maxWorkerConsecutiveErrors - previous.maxWorkerConsecutiveErrors;
+
+  const reasons: string[] = [];
+  if (queuedDelta > 0) {
+    reasons.push(`queued peak +${queuedDelta}`);
+  }
+  if (oldestQueuedAgeDelta != null && oldestQueuedAgeDelta > 0) {
+    reasons.push(`queued age peak +${oldestQueuedAgeDelta}m`);
+  }
+  if (alertCountDelta > 0) {
+    reasons.push(`alerts peak +${alertCountDelta}`);
+  }
+  if (failedCountDelta > 0) {
+    reasons.push(`failed peak +${failedCountDelta}`);
+  }
+  if (workerConsecutiveErrorsDelta > 0) {
+    reasons.push(`worker errors peak +${workerConsecutiveErrorsDelta}`);
+  }
+
+  const recommendedActions = [
+    queuedDelta > 0 || (oldestQueuedAgeDelta ?? 0) > 0
+      ? 'Review queue backlog and reclaim stale jobs if needed'
+      : null,
+    alertCountDelta > 0 ? 'Review the Platform Alerts panel for the latest warnings' : null,
+    failedCountDelta > 0 ? 'Inspect recent failed ingestion jobs before backlog compounds' : null,
+    workerConsecutiveErrorsDelta > 0
+      ? 'Inspect worker health, recent ticks, and lastError immediately'
+      : null,
+  ].filter((item): item is string => item != null);
+
+  let regressionStreak = 0;
+  for (let index = snapshotRollup.buckets.length - 1; index > 0; index--) {
+    const current = snapshotRollup.buckets[index]!;
+    const previousBucket = snapshotRollup.buckets[index - 1]!;
+    if (!platformSnapshotBucketHasRegression(current, previousBucket)) break;
+    regressionStreak += 1;
+  }
+
+  const severity: PlatformSnapshotRegression['severity'] =
+    failedCountDelta > 0 || workerConsecutiveErrorsDelta >= 2 || regressionStreak >= 3
+      ? 'critical'
+      : reasons.length > 0
+        ? 'warning'
+        : 'info';
+
+  return {
+    hasRegression: reasons.length > 0,
+    severity,
+    regressionStreak,
+    suppressed: false,
+    suppressionReason: null,
+    latestBucketStart: latest.bucketStart,
+    previousBucketStart: previous.bucketStart,
+    queuedDelta,
+    oldestQueuedAgeDelta,
+    alertCountDelta,
+    failedCountDelta,
+    workerConsecutiveErrorsDelta,
+    reasons,
+    recommendedActions,
+  };
+}
+
+function summarizePlatformSnapshotMetricsSurface(
+  recentSnapshots: PlatformSnapshot[],
+  snapshotCadence: PlatformSnapshotCadence,
+  snapshotRollup: PlatformSnapshotRollup,
+  now = Date.now(),
+): PlatformSnapshotMetricsSurface {
+  const windowStartMs = now - PLATFORM_SNAPSHOT_METRICS_WINDOW_HOURS * 60 * 60_000;
+  const snapshotsInWindow = recentSnapshots.filter(
+    (snapshot) => Date.parse(snapshot.createdAt) >= windowStartMs,
+  );
+  const scheduledSnapshotsInWindow = snapshotsInWindow.filter(
+    (snapshot) => snapshot.triggerType === 'scheduled',
+  );
+  const oldestSnapshotInWindow = snapshotsInWindow[snapshotsInWindow.length - 1] ?? null;
+  const oldestScheduledSnapshotInWindow =
+    scheduledSnapshotsInWindow[scheduledSnapshotsInWindow.length - 1] ?? null;
+  const coveredMinutes = oldestSnapshotInWindow
+    ? Math.max(1, Math.ceil((now - Date.parse(oldestSnapshotInWindow.createdAt)) / 60_000))
+    : 0;
+  const coveredHours = coveredMinutes === 0 ? 0 : Math.max(1, Math.ceil(coveredMinutes / 60));
+  const expectedScheduledSnapshotCount =
+    oldestScheduledSnapshotInWindow == null || snapshotCadence.status === 'awaiting_baseline'
+      ? 0
+      : Math.max(
+          1,
+          Math.ceil(
+            Math.max(
+              snapshotCadence.expectedIntervalMinutes,
+              now - Date.parse(oldestScheduledSnapshotInWindow.createdAt),
+            ) /
+              (snapshotCadence.expectedIntervalMinutes * 60_000),
+          ),
+        );
+  const cadenceAdherenceRate =
+    expectedScheduledSnapshotCount > 0
+      ? Math.min(1, scheduledSnapshotsInWindow.length / expectedScheduledSnapshotCount)
+      : null;
+  const rollupBucketsInWindow = snapshotRollup.buckets.filter(
+    (bucket) => Date.parse(bucket.bucketEnd) >= windowStartMs,
+  );
+  let regressionWindowCount = 0;
+  for (let index = 1; index < rollupBucketsInWindow.length; index++) {
+    const current = rollupBucketsInWindow[index]!;
+    const previous = rollupBucketsInWindow[index - 1]!;
+    if (platformSnapshotBucketHasRegression(current, previous)) {
+      regressionWindowCount += 1;
+    }
+  }
+
+  return {
+    windowHours: PLATFORM_SNAPSHOT_METRICS_WINDOW_HOURS,
+    coveredHours,
+    snapshotCount: snapshotsInWindow.length,
+    scheduledSnapshotCount: scheduledSnapshotsInWindow.length,
+    expectedScheduledSnapshotCount,
+    cadenceAdherenceRate,
+    regressionWindowCount,
+    peakQueuedCount:
+      rollupBucketsInWindow.length === 0
+        ? 0
+        : Math.max(...rollupBucketsInWindow.map((bucket) => bucket.maxQueuedCount)),
+    peakOldestQueuedAgeMinutes:
+      rollupBucketsInWindow.length === 0
+        ? null
+        : rollupBucketsInWindow.reduce<number | null>((maxAge, bucket) => {
+            if (bucket.maxOldestQueuedAgeMinutes == null) return maxAge;
+            return maxAge == null
+              ? bucket.maxOldestQueuedAgeMinutes
+              : Math.max(maxAge, bucket.maxOldestQueuedAgeMinutes);
+          }, null),
+    peakAlertCount:
+      rollupBucketsInWindow.length === 0
+        ? 0
+        : Math.max(...rollupBucketsInWindow.map((bucket) => bucket.maxAlertCount)),
+    peakFailedCount:
+      rollupBucketsInWindow.length === 0
+        ? 0
+        : Math.max(...rollupBucketsInWindow.map((bucket) => bucket.maxFailedCount)),
+    peakWorkerConsecutiveErrors:
+      rollupBucketsInWindow.length === 0
+        ? 0
+        : Math.max(...rollupBucketsInWindow.map((bucket) => bucket.maxWorkerConsecutiveErrors)),
+  };
+}
+
 export function buildPlatformSnapshot(
   platformStats: PlatformAdminMetrics,
   triggerType: PlatformSnapshot['triggerType'],
@@ -618,13 +871,21 @@ async function fetchPlatformStats(
       limit: 50,
       status: 'succeeded',
     }),
-    app.auditRepo.listRecentByAction('platform.snapshot_captured', 12),
+    app.auditRepo.listRecentByAction('platform.snapshot_captured', 72),
   ]);
-  const recentSnapshots = recentSnapshotAuditItems
+  const snapshotSamples = recentSnapshotAuditItems
     .map((item) => parsePlatformSnapshotMetadata(item.metadata))
     .filter((item): item is PlatformSnapshot => item != null);
-  const snapshotTrend = summarizePlatformSnapshotTrend(recentSnapshots);
-  const snapshotRollup = summarizePlatformSnapshotRollup(recentSnapshots);
+  const recentSnapshots = snapshotSamples.slice(0, 12);
+  const snapshotCadence = summarizePlatformSnapshotCadence(snapshotSamples);
+  const snapshotTrend = summarizePlatformSnapshotTrend(snapshotSamples);
+  const snapshotRollup = summarizePlatformSnapshotRollup(snapshotSamples);
+  const snapshotRegression = summarizePlatformSnapshotRegression(snapshotRollup);
+  const snapshotMetrics = summarizePlatformSnapshotMetricsSurface(
+    snapshotSamples,
+    snapshotCadence,
+    snapshotRollup,
+  );
   const oldestQueuedJob = oldestQueuedJobs[0] ?? null;
   const oldestQueuedAgeMinutes = oldestQueuedJob
     ? Math.max(0, Math.floor((Date.now() - new Date(oldestQueuedJob.createdAt).getTime()) / 60_000))
@@ -767,6 +1028,79 @@ async function fetchPlatformStats(
     });
   }
 
+  if (snapshotCadence.overdue) {
+    alerts.push({
+      severity: snapshotCadence.missedIntervals >= 2 ? 'critical' : 'warning',
+      code: 'snapshot_cadence_overdue',
+      title: '平台快照 cadence 已断档',
+      detail: snapshotCadence.lastScheduledCapturedAt
+        ? `最近一次 scheduled snapshot 是 ${snapshotCadence.lastScheduledCapturedAt}，距今约 ${snapshotCadence.minutesSinceLastScheduledSnapshot} 分钟，已错过 ${snapshotCadence.missedIntervals} 个采样窗口。`
+        : '还没有成功写入过 scheduled snapshot，当前无法判断平台趋势是否持续恶化。',
+      href: '/admin/dashboard',
+    });
+  }
+
+  if (
+    snapshotMetrics.cadenceAdherenceRate != null &&
+    snapshotMetrics.expectedScheduledSnapshotCount >= 4 &&
+    snapshotMetrics.cadenceAdherenceRate < 0.75 &&
+    !snapshotCadence.overdue
+  ) {
+    alerts.push({
+      severity: snapshotMetrics.cadenceAdherenceRate < 0.5 ? 'critical' : 'warning',
+      code: 'snapshot_cadence_adherence_low',
+      title: '平台快照 cadence 覆盖率偏低',
+      detail: `最近 ${snapshotMetrics.coveredHours} 小时预计应有 ${snapshotMetrics.expectedScheduledSnapshotCount} 次 scheduled snapshot，实际仅记录 ${snapshotMetrics.scheduledSnapshotCount} 次，覆盖率约 ${Math.round(snapshotMetrics.cadenceAdherenceRate * 100)}%。`,
+      href: '/admin/dashboard',
+    });
+  }
+
+  if (snapshotRegression.hasRegression) {
+    const regressionCoveredByCurrentAlerts =
+      ((snapshotRegression.queuedDelta ?? 0) <= 0 &&
+        (snapshotRegression.oldestQueuedAgeDelta ?? 0) <= 0) ||
+      alerts.some((alert) => alert.code === 'ingestion_queue_backlog');
+    const failedCovered =
+      (snapshotRegression.failedCountDelta ?? 0) <= 0 ||
+      alerts.some((alert) => alert.code === 'failed_ingestion_jobs');
+    const workerCovered =
+      (snapshotRegression.workerConsecutiveErrorsDelta ?? 0) <= 0 ||
+      alerts.some((alert) => alert.code === 'ingestion_worker_erroring');
+    const alertsCovered =
+      (snapshotRegression.alertCountDelta ?? 0) <= 0 ||
+      alerts.some((alert) =>
+        [
+          'failed_ingestion_jobs',
+          'stale_running_jobs',
+          'ingestion_queue_backlog',
+          'ingestion_worker_inactive',
+          'ingestion_worker_stalled',
+          'ingestion_worker_erroring',
+          'snapshot_cadence_overdue',
+          'snapshot_cadence_adherence_low',
+        ].includes(alert.code),
+      );
+    snapshotRegression.suppressed =
+      snapshotRegression.severity !== 'critical' &&
+      regressionCoveredByCurrentAlerts &&
+      failedCovered &&
+      workerCovered &&
+      alertsCovered;
+    snapshotRegression.suppressionReason = snapshotRegression.suppressed
+      ? 'covered_by_current_runtime_alerts'
+      : null;
+  }
+
+  if (snapshotRegression.hasRegression && !snapshotRegression.suppressed) {
+    alerts.push({
+      severity: snapshotRegression.severity,
+      code: 'snapshot_trend_regressing',
+      title: '最近平台窗口出现退化',
+      detail: `最近窗口 ${snapshotRegression.latestBucketStart} 相较上一窗口 ${snapshotRegression.previousBucketStart} 出现回升：${snapshotRegression.reasons.join(' · ')}。`,
+      href: '/admin/dashboard',
+    });
+  }
+
   if (recoveryOutreach.deadLetteredWebhook > 0) {
     alerts.push({
       severity: 'critical',
@@ -837,8 +1171,11 @@ async function fetchPlatformStats(
       recentTicks: worker.recentTicks,
     },
     recentSnapshots,
+    snapshotCadence,
     snapshotTrend,
     snapshotRollup,
+    snapshotRegression,
+    snapshotMetrics,
     ingestion: {
       queuedCount,
       oldestQueuedAgeMinutes,

@@ -124,6 +124,9 @@ What is true today:
 - Operators can now capture point-in-time platform snapshots, keep a short diagnostics history, and also schedule recurring snapshot capture for queue / worker / alert drift
 - The dashboard now also summarizes snapshot trends, so operators can tell whether backlog, alert volume, or worker errors are actually improving over recent captures
 - The dashboard now also rolls those snapshots up into recent hourly windows, so operators can separate sustained degradation from a single noisy spike
+- The diagnostics layer now also flags `snapshot_trend_regressing` when the latest rollup window is measurably worse than the previous one, so operators get an actionable warning instead of just raw history
+- The platform layer now also tracks snapshot cadence, missed intervals, regression streak/severity, and alert suppression, so operators can tell whether a trend warning is new, severe, or already covered by more specific runtime alerts
+- The platform diagnostics now also expose a 24h snapshot metrics surface, including scheduled coverage, cadence adherence, regression-window count, and recent peak queue/alert/worker-error pressure
 
 What is not true today:
 

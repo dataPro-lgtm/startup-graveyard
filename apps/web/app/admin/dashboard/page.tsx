@@ -1357,6 +1357,189 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
         )}
       </ChartCard>
 
+      <ChartCard title="Platform Snapshot Cadence">
+        <div style={{ display: 'grid', gap: 12 }}>
+          <div
+            style={{
+              border: `1px solid ${platformStats.snapshotCadence.overdue ? '#4b2430' : '#24314f'}`,
+              borderRadius: 12,
+              background: platformStats.snapshotCadence.overdue ? '#23131a' : '#0d1426',
+              color: platformStats.snapshotCadence.overdue ? '#fecdd3' : '#cbd5e1',
+              padding: '12px 14px',
+              display: 'grid',
+              gap: 6,
+            }}
+          >
+            <div style={{ fontWeight: 700, fontSize: 13 }}>
+              {platformStats.snapshotCadence.status === 'healthy'
+                ? 'Scheduled snapshot cadence 正常'
+                : platformStats.snapshotCadence.status === 'overdue'
+                  ? 'Scheduled snapshot cadence 已断档'
+                  : 'Scheduled snapshot cadence 还在建立基线'}
+            </div>
+            <div style={{ fontSize: 12 }}>
+              {platformStats.snapshotCadence.status === 'healthy'
+                ? `最近一次 scheduled snapshot 在 ${formatDateTime(platformStats.snapshotCadence.lastScheduledCapturedAt)}，预计每 ${platformStats.snapshotCadence.expectedIntervalMinutes} 分钟一次。`
+                : platformStats.snapshotCadence.status === 'overdue'
+                  ? `最近一次 scheduled snapshot 在 ${formatDateTime(platformStats.snapshotCadence.lastScheduledCapturedAt)}，距今 ${platformStats.snapshotCadence.minutesSinceLastScheduledSnapshot} 分钟，已错过 ${platformStats.snapshotCadence.missedIntervals} 个窗口。`
+                  : '当前还没有足够的 scheduled snapshots 来建立自动 cadence 基线。'}
+            </div>
+          </div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+              gap: 10,
+            }}
+          >
+            {[
+              [
+                'Expected interval',
+                `${platformStats.snapshotCadence.expectedIntervalMinutes} min`,
+                '#38bdf8',
+              ],
+              [
+                'Last snapshot',
+                formatDateTime(platformStats.snapshotCadence.lastCapturedAt),
+                '#cbd5e1',
+              ],
+              [
+                'Last scheduled',
+                formatDateTime(platformStats.snapshotCadence.lastScheduledCapturedAt),
+                '#cbd5e1',
+              ],
+              [
+                'Next expected',
+                formatDateTime(platformStats.snapshotCadence.expectedNextSnapshotAt),
+                '#f59e0b',
+              ],
+              [
+                'Missed intervals',
+                String(platformStats.snapshotCadence.missedIntervals),
+                platformStats.snapshotCadence.overdue ? '#fb7185' : '#22c55e',
+              ],
+            ].map(([label, value, color]) => (
+              <div
+                key={label}
+                style={{
+                  border: '1px solid #24314f',
+                  borderRadius: 10,
+                  background: '#10192e',
+                  padding: '10px 12px',
+                  display: 'grid',
+                  gap: 4,
+                }}
+              >
+                <div style={{ color: '#8a96b0', fontSize: 12 }}>{label}</div>
+                <div style={{ color, fontWeight: 700, fontSize: 13 }}>{value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </ChartCard>
+
+      <ChartCard title="Platform Snapshot Metrics Surface">
+        <div style={{ display: 'grid', gap: 12 }}>
+          <div
+            style={{
+              border: `1px solid ${
+                platformStats.snapshotMetrics.cadenceAdherenceRate != null &&
+                platformStats.snapshotMetrics.cadenceAdherenceRate < 0.75
+                  ? '#4b2430'
+                  : '#24314f'
+              }`,
+              borderRadius: 12,
+              background:
+                platformStats.snapshotMetrics.cadenceAdherenceRate != null &&
+                platformStats.snapshotMetrics.cadenceAdherenceRate < 0.75
+                  ? '#23131a'
+                  : '#0d1426',
+              color:
+                platformStats.snapshotMetrics.cadenceAdherenceRate != null &&
+                platformStats.snapshotMetrics.cadenceAdherenceRate < 0.75
+                  ? '#fecdd3'
+                  : '#cbd5e1',
+              padding: '12px 14px',
+              display: 'grid',
+              gap: 6,
+            }}
+          >
+            <div style={{ fontWeight: 700, fontSize: 13 }}>
+              最近 {platformStats.snapshotMetrics.coveredHours} 小时 snapshot coverage
+            </div>
+            <div style={{ fontSize: 12 }}>
+              {platformStats.snapshotMetrics.expectedScheduledSnapshotCount > 0
+                ? `scheduled snapshots ${platformStats.snapshotMetrics.scheduledSnapshotCount}/${platformStats.snapshotMetrics.expectedScheduledSnapshotCount}，覆盖率 ${formatPercent(platformStats.snapshotMetrics.cadenceAdherenceRate)}。`
+                : '当前 scheduled snapshots 还不足以形成稳定 coverage 基线。'}
+            </div>
+            <div style={{ fontSize: 12, color: '#8a96b0' }}>
+              regression windows {platformStats.snapshotMetrics.regressionWindowCount} · peak queued{' '}
+              {platformStats.snapshotMetrics.peakQueuedCount} · peak alerts{' '}
+              {platformStats.snapshotMetrics.peakAlertCount}
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+              gap: 10,
+            }}
+          >
+            {[
+              ['Covered hours', `${platformStats.snapshotMetrics.coveredHours} h`, '#cbd5e1'],
+              [
+                'Scheduled coverage',
+                `${platformStats.snapshotMetrics.scheduledSnapshotCount}/${platformStats.snapshotMetrics.expectedScheduledSnapshotCount}`,
+                '#38bdf8',
+              ],
+              [
+                'Cadence adherence',
+                formatPercent(platformStats.snapshotMetrics.cadenceAdherenceRate),
+                platformStats.snapshotMetrics.cadenceAdherenceRate != null &&
+                platformStats.snapshotMetrics.cadenceAdherenceRate < 0.75
+                  ? '#fb7185'
+                  : '#22c55e',
+              ],
+              [
+                'Regression windows',
+                String(platformStats.snapshotMetrics.regressionWindowCount),
+                platformStats.snapshotMetrics.regressionWindowCount > 0 ? '#f59e0b' : '#22c55e',
+              ],
+              ['Peak queued', String(platformStats.snapshotMetrics.peakQueuedCount), '#a78bfa'],
+              [
+                'Peak queued age',
+                platformStats.snapshotMetrics.peakOldestQueuedAgeMinutes != null
+                  ? `${platformStats.snapshotMetrics.peakOldestQueuedAgeMinutes} min`
+                  : 'N/A',
+                '#f97316',
+              ],
+              ['Peak failed', String(platformStats.snapshotMetrics.peakFailedCount), '#fb7185'],
+              [
+                'Peak worker errors',
+                String(platformStats.snapshotMetrics.peakWorkerConsecutiveErrors),
+                '#f97316',
+              ],
+            ].map(([label, value, color]) => (
+              <div
+                key={label}
+                style={{
+                  border: '1px solid #24314f',
+                  borderRadius: 10,
+                  background: '#10192e',
+                  padding: '10px 12px',
+                  display: 'grid',
+                  gap: 4,
+                }}
+              >
+                <div style={{ color: '#8a96b0', fontSize: 12 }}>{label}</div>
+                <div style={{ color, fontWeight: 700, fontSize: 13 }}>{value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </ChartCard>
+
       <ChartCard title="Platform Snapshot Trend">
         {platformStats.snapshotTrend.sampleCount === 0 ? (
           <EmptyState
@@ -1515,6 +1698,47 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
                 每 {platformStats.snapshotRollup.bucketSizeMinutes}{' '}
                 分钟聚合一次，用来区分持续退化和单次毛刺。
               </div>
+            </div>
+
+            <div
+              style={{
+                border: `1px solid ${
+                  platformStats.snapshotRegression.hasRegression ? '#4b2430' : '#24314f'
+                }`,
+                borderRadius: 12,
+                background: platformStats.snapshotRegression.hasRegression ? '#23131a' : '#0d1426',
+                color: platformStats.snapshotRegression.hasRegression ? '#fecdd3' : '#cbd5e1',
+                padding: '12px 14px',
+                display: 'grid',
+                gap: 6,
+              }}
+            >
+              <div style={{ fontWeight: 700, fontSize: 13 }}>
+                {platformStats.snapshotRegression.hasRegression
+                  ? platformStats.snapshotRegression.suppressed
+                    ? '最近窗口存在退化，但已被更具体告警覆盖'
+                    : '最近窗口正在退化'
+                  : '最近窗口未出现新的退化信号'}
+              </div>
+              <div style={{ fontSize: 12 }}>
+                {platformStats.snapshotRegression.hasRegression
+                  ? `上一窗口 ${formatDateTime(platformStats.snapshotRegression.previousBucketStart)} -> 最新窗口 ${formatDateTime(platformStats.snapshotRegression.latestBucketStart)}：${platformStats.snapshotRegression.reasons.join(' · ')}`
+                  : '最近两个可比较窗口之间没有发现 backlog、alerts、failed 或 worker errors 的回升。'}
+              </div>
+              {platformStats.snapshotRegression.hasRegression ? (
+                <div style={{ fontSize: 12, color: '#8a96b0' }}>
+                  severity {platformStats.snapshotRegression.severity} · streak{' '}
+                  {platformStats.snapshotRegression.regressionStreak}
+                  {platformStats.snapshotRegression.suppressed
+                    ? ` · suppressed: ${platformStats.snapshotRegression.suppressionReason}`
+                    : ''}
+                </div>
+              ) : null}
+              {platformStats.snapshotRegression.recommendedActions.length > 0 ? (
+                <div style={{ fontSize: 12, color: '#8a96b0' }}>
+                  next: {platformStats.snapshotRegression.recommendedActions.join(' · ')}
+                </div>
+              ) : null}
             </div>
 
             <div style={{ display: 'grid', gap: 12 }}>

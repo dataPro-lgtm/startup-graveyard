@@ -250,6 +250,58 @@ export const platformSnapshotRollupSchema = z.object({
   buckets: z.array(platformSnapshotRollupBucketSchema),
 });
 
+export const platformSnapshotCadenceStatusSchema = z.enum([
+  'awaiting_baseline',
+  'healthy',
+  'overdue',
+]);
+
+export const platformSnapshotCadenceSchema = z.object({
+  status: platformSnapshotCadenceStatusSchema,
+  expectedIntervalMinutes: nonnegativeInteger,
+  lastCapturedAt: z.string().nullable(),
+  lastScheduledCapturedAt: z.string().nullable(),
+  expectedNextSnapshotAt: z.string().nullable(),
+  minutesSinceLastSnapshot: nonnegativeInteger.nullable(),
+  minutesSinceLastScheduledSnapshot: nonnegativeInteger.nullable(),
+  overdue: z.boolean(),
+  missedIntervals: nonnegativeInteger,
+});
+
+export const platformSnapshotRegressionSeveritySchema = z.enum(['info', 'warning', 'critical']);
+
+export const platformSnapshotRegressionSchema = z.object({
+  hasRegression: z.boolean(),
+  severity: platformSnapshotRegressionSeveritySchema,
+  regressionStreak: nonnegativeInteger,
+  suppressed: z.boolean(),
+  suppressionReason: z.string().nullable(),
+  latestBucketStart: z.string().nullable(),
+  previousBucketStart: z.string().nullable(),
+  queuedDelta: z.number().int().nullable(),
+  oldestQueuedAgeDelta: z.number().int().nullable(),
+  alertCountDelta: z.number().int().nullable(),
+  failedCountDelta: z.number().int().nullable(),
+  workerConsecutiveErrorsDelta: z.number().int().nullable(),
+  reasons: z.array(z.string()),
+  recommendedActions: z.array(z.string()),
+});
+
+export const platformSnapshotMetricsSurfaceSchema = z.object({
+  windowHours: nonnegativeInteger,
+  coveredHours: nonnegativeInteger,
+  snapshotCount: nonnegativeInteger,
+  scheduledSnapshotCount: nonnegativeInteger,
+  expectedScheduledSnapshotCount: nonnegativeInteger,
+  cadenceAdherenceRate: z.number().min(0).max(1).nullable(),
+  regressionWindowCount: nonnegativeInteger,
+  peakQueuedCount: nonnegativeInteger,
+  peakOldestQueuedAgeMinutes: nonnegativeInteger.nullable(),
+  peakAlertCount: nonnegativeInteger,
+  peakFailedCount: nonnegativeInteger,
+  peakWorkerConsecutiveErrors: nonnegativeInteger,
+});
+
 export const platformWorkerTickOutcomeSchema = z.enum(['processed', 'empty_queue', 'error']);
 
 export const platformWorkerRecentTickSchema = z.object({
@@ -294,6 +346,9 @@ export const platformAlertCodeSchema = z.enum([
   'ingestion_worker_inactive',
   'ingestion_worker_stalled',
   'ingestion_worker_erroring',
+  'snapshot_cadence_overdue',
+  'snapshot_cadence_adherence_low',
+  'snapshot_trend_regressing',
   'recovery_dead_letters',
   'recovery_delivery_failures',
   'recovery_playbook_failed',
@@ -537,8 +592,11 @@ export const platformAdminMetricsSchema = z.object({
   }),
   worker: platformWorkerMonitorSchema,
   recentSnapshots: z.array(platformSnapshotSchema),
+  snapshotCadence: platformSnapshotCadenceSchema,
   snapshotTrend: platformSnapshotTrendSchema,
   snapshotRollup: platformSnapshotRollupSchema,
+  snapshotRegression: platformSnapshotRegressionSchema,
+  snapshotMetrics: platformSnapshotMetricsSurfaceSchema,
   ingestion: z.object({
     queuedCount: nonnegativeInteger,
     oldestQueuedAgeMinutes: nonnegativeInteger.nullable(),
@@ -635,9 +693,16 @@ export type PlatformRecentSucceededIngestionJob = z.infer<
 >;
 export type PlatformSnapshotTrigger = z.infer<typeof platformSnapshotTriggerSchema>;
 export type PlatformSnapshot = z.infer<typeof platformSnapshotSchema>;
+export type PlatformSnapshotCadenceStatus = z.infer<typeof platformSnapshotCadenceStatusSchema>;
+export type PlatformSnapshotCadence = z.infer<typeof platformSnapshotCadenceSchema>;
 export type PlatformSnapshotTrend = z.infer<typeof platformSnapshotTrendSchema>;
 export type PlatformSnapshotRollupBucket = z.infer<typeof platformSnapshotRollupBucketSchema>;
 export type PlatformSnapshotRollup = z.infer<typeof platformSnapshotRollupSchema>;
+export type PlatformSnapshotRegressionSeverity = z.infer<
+  typeof platformSnapshotRegressionSeveritySchema
+>;
+export type PlatformSnapshotRegression = z.infer<typeof platformSnapshotRegressionSchema>;
+export type PlatformSnapshotMetricsSurface = z.infer<typeof platformSnapshotMetricsSurfaceSchema>;
 export type PlatformWorkerStatus = z.infer<typeof platformWorkerStatusSchema>;
 export type PlatformWorkerRecentTick = z.infer<typeof platformWorkerRecentTickSchema>;
 export type PlatformWorkerMonitor = z.infer<typeof platformWorkerMonitorSchema>;
