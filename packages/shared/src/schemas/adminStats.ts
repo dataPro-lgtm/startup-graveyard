@@ -287,6 +287,20 @@ export const platformSnapshotRegressionSchema = z.object({
   recommendedActions: z.array(z.string()),
 });
 
+export const platformSnapshotSuppressionReasonBreakdownSchema = z.object({
+  reason: z.string(),
+  count: nonnegativeInteger,
+});
+
+export const platformSnapshotSuppressionSurfaceSchema = z.object({
+  windowHours: nonnegativeInteger,
+  suppressedRegressionCount: nonnegativeInteger,
+  unsuppressedRegressionCount: nonnegativeInteger,
+  activeSuppressionReason: z.string().nullable(),
+  lastSuppressedBucketStart: z.string().nullable(),
+  topReasons: z.array(platformSnapshotSuppressionReasonBreakdownSchema),
+});
+
 export const platformSnapshotMetricsSurfaceSchema = z.object({
   windowHours: nonnegativeInteger,
   coveredHours: nonnegativeInteger,
@@ -596,6 +610,7 @@ export const platformAdminMetricsSchema = z.object({
   snapshotTrend: platformSnapshotTrendSchema,
   snapshotRollup: platformSnapshotRollupSchema,
   snapshotRegression: platformSnapshotRegressionSchema,
+  snapshotSuppression: platformSnapshotSuppressionSurfaceSchema,
   snapshotMetrics: platformSnapshotMetricsSurfaceSchema,
   ingestion: z.object({
     queuedCount: nonnegativeInteger,
@@ -702,6 +717,12 @@ export type PlatformSnapshotRegressionSeverity = z.infer<
   typeof platformSnapshotRegressionSeveritySchema
 >;
 export type PlatformSnapshotRegression = z.infer<typeof platformSnapshotRegressionSchema>;
+export type PlatformSnapshotSuppressionReasonBreakdown = z.infer<
+  typeof platformSnapshotSuppressionReasonBreakdownSchema
+>;
+export type PlatformSnapshotSuppressionSurface = z.infer<
+  typeof platformSnapshotSuppressionSurfaceSchema
+>;
 export type PlatformSnapshotMetricsSurface = z.infer<typeof platformSnapshotMetricsSurfaceSchema>;
 export type PlatformWorkerStatus = z.infer<typeof platformWorkerStatusSchema>;
 export type PlatformWorkerRecentTick = z.infer<typeof platformWorkerRecentTickSchema>;

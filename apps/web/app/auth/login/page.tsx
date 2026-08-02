@@ -61,6 +61,8 @@ export default function LoginPage() {
             <span style={{ color: '#9fb3ff' }}>邮箱</span>
             <input
               type="email"
+              name="email"
+              autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
@@ -73,6 +75,8 @@ export default function LoginPage() {
             <span style={{ color: '#9fb3ff' }}>密码</span>
             <input
               type="password"
+              name="password"
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required

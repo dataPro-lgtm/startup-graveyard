@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from './buildApp.js';
 import * as memberRecoveryEmailClient from './recoveryOutreach/sendRecoveryFallbackMemberEmail.js';
@@ -9,19 +9,16 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
   let app: FastifyInstance;
   const key = 'vitest-admin-key';
 
-  beforeAll(async () => {
+  beforeEach(async () => {
     process.env.ADMIN_API_KEY = key;
     app = await buildApp({ logger: false });
   });
 
-  afterAll(async () => {
-    await app.close();
-    delete process.env.ADMIN_API_KEY;
-  });
-
-  afterEach(() => {
+  afterEach(async () => {
     vi.restoreAllMocks();
     vi.useRealTimers();
+    await app.close();
+    delete process.env.ADMIN_API_KEY;
     delete process.env.DATABASE_URL;
     delete process.env.TEAM_WORKSPACE_RECOVERY_CRM_API_URL;
     delete process.env.TEAM_WORKSPACE_RECOVERY_CRM_API_BEARER_TOKEN;
@@ -661,7 +658,7 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
 
     while (true) {
       const result = await app.ingestionJobsRepo.processNext();
-      if (result.processed === 0) {
+      if (!result.ok && result.reason === 'empty_queue') {
         break;
       }
     }
@@ -754,7 +751,7 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
 
     while (true) {
       const result = await app.ingestionJobsRepo.processNext();
-      if (result.processed === 0) {
+      if (!result.ok && result.reason === 'empty_queue') {
         break;
       }
     }
@@ -797,15 +794,31 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
           suppressionReason: string | null;
           severity: string;
         };
+        snapshotSuppression: {
+          suppressedRegressionCount: number;
+          unsuppressedRegressionCount: number;
+          activeSuppressionReason: string | null;
+          topReasons: Array<{ reason: string; count: number }>;
+        };
         alerts: Array<{ code: string }>;
       };
     };
     expect(statsBody.platform.snapshotRegression).toMatchObject({
       hasRegression: true,
       suppressed: true,
-      suppressionReason: 'covered_by_current_runtime_alerts',
+      suppressionReason: 'covered_by_queue_backlog_alert',
       severity: 'warning',
     });
+    expect(statsBody.platform.snapshotSuppression).toMatchObject({
+      suppressedRegressionCount: 1,
+      unsuppressedRegressionCount: 0,
+      activeSuppressionReason: 'covered_by_queue_backlog_alert',
+    });
+    expect(statsBody.platform.snapshotSuppression.topReasons).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ reason: 'covered_by_queue_backlog_alert', count: 1 }),
+      ]),
+    );
     expect(statsBody.platform.alerts).toEqual(
       expect.arrayContaining([expect.objectContaining({ code: 'ingestion_queue_backlog' })]),
     );
@@ -815,7 +828,7 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
 
     while (true) {
       const result = await app.ingestionJobsRepo.processNext();
-      if (result.processed === 0) {
+      if (!result.ok && result.reason === 'empty_queue') {
         break;
       }
     }
@@ -908,12 +921,91 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
       coveredHours: 4,
       scheduledSnapshotCount: 4,
       expectedScheduledSnapshotCount: 8,
-      regressionWindowCount: 0,
+      regressionWindowCount: 1,
     });
     expect(statsBody.platform.snapshotMetrics.cadenceAdherenceRate).toBeCloseTo(0.5, 5);
     expect(statsBody.platform.alerts).toEqual(
       expect.arrayContaining([expect.objectContaining({ code: 'snapshot_cadence_adherence_low' })]),
     );
+  });
+
+  it('GET /v1/admin/stats/platform-snapshot-report.csv exports summary and rollup rows', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-17T08:00:00.000Z'));
+    await app.ingestionJobsRepo.enqueue({
+      sourceName: 'capture_platform_snapshot',
+      triggerType: 'scheduled',
+      payload: {},
+    });
+    await app.ingestionJobsRepo.processNext();
+
+    vi.setSystemTime(new Date('2026-04-17T08:30:00.000Z'));
+    await app.ingestionJobsRepo.enqueue({
+      sourceName: 'echo',
+      triggerType: 'snapshot_report_test',
+      payload: { message: 'report sample' },
+    });
+    app.ingestionWorkerMonitor.consecutiveErrors = 2;
+    await app.inject({
+      method: 'POST',
+      url: '/v1/admin/stats/platform-snapshot',
+      headers: { 'x-admin-key': key },
+    });
+
+    const exportRes = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/stats/platform-snapshot-report.csv',
+      headers: { 'x-admin-key': key },
+    });
+    expect(exportRes.statusCode).toBe(200);
+    expect(exportRes.headers['content-type']).toContain('text/csv');
+    expect(exportRes.headers['content-disposition']).toContain('platform-snapshot-report');
+    expect(exportRes.body).toContain(
+      'section,generated_at,cadence_status,expected_interval_minutes',
+    );
+    expect(exportRes.body).toContain('cadence_adherence_rate');
+    expect(exportRes.body).toContain('suppressed_regression_count');
+    expect(exportRes.body).toContain('summary,');
+    expect(exportRes.body).toContain('rollup,');
+    expect(exportRes.body).toContain('latest_regression_reasons');
+  });
+
+  it('GET /v1/admin/stats/platform-snapshot-brief.md exports markdown handoff brief', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-17T09:00:00.000Z'));
+    await app.ingestionJobsRepo.enqueue({
+      sourceName: 'capture_platform_snapshot',
+      triggerType: 'scheduled',
+      payload: {},
+    });
+    await app.ingestionJobsRepo.processNext();
+
+    vi.setSystemTime(new Date('2026-04-17T09:20:00.000Z'));
+    await app.ingestionJobsRepo.enqueue({
+      sourceName: 'echo',
+      triggerType: 'brief_export_test',
+      payload: { message: 'brief sample' },
+    });
+    app.ingestionWorkerMonitor.consecutiveErrors = 1;
+    await app.inject({
+      method: 'POST',
+      url: '/v1/admin/stats/platform-snapshot',
+      headers: { 'x-admin-key': key },
+    });
+
+    const exportRes = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/stats/platform-snapshot-brief.md',
+      headers: { 'x-admin-key': key },
+    });
+    expect(exportRes.statusCode).toBe(200);
+    expect(exportRes.headers['content-type']).toContain('text/markdown');
+    expect(exportRes.headers['content-disposition']).toContain('platform-snapshot-brief');
+    expect(exportRes.body).toContain('# Platform Snapshot Incident Brief');
+    expect(exportRes.body).toContain('## Snapshot Metrics (24h)');
+    expect(exportRes.body).toContain('## Regression Alert Suppression');
+    expect(exportRes.body).toContain('## Latest Regression Signal');
+    expect(exportRes.body).toContain('## Recent Rollup Buckets');
   });
 
   it('GET /v1/admin/stats detects stale running jobs and reclaim-stale resets them', async () => {

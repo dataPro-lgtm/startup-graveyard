@@ -154,8 +154,8 @@ function parseAmountUsd(sentence: string): number | undefined {
 
 function inferEventType(sentence: string): string | null {
   const s = sentence.toLowerCase();
-  if (/(founded|started|创立|成立)/u.test(s)) return 'founded';
   if (/(raised|series [abcde]|funding|融资)/u.test(s)) return 'funding';
+  if (/(founded|established|创立|成立)/u.test(s)) return 'founded';
   if (/(launch|launched|上线|发布)/u.test(s)) return 'product_launch';
   if (/(pivot|转型)/u.test(s)) return 'pivot';
   if (/(shut down|shutdown|closed down|cease operations|bankrupt|破产|关闭|停运|倒闭)/u.test(s))
@@ -211,7 +211,7 @@ function extractTimelineEvents(sentences: string[], title: string | null): AddTi
       eventType === 'shutdown' && title
         ? clip(title.split('|')[0]?.trim() || sentence, 160)
         : clip(sentence, 160);
-    const key = `${eventDate}\0${eventType}\0${titleText}`;
+    const key = `${eventDate}\0${eventType}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push({

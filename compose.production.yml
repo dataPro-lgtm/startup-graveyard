@@ -1,0 +1,90 @@
+name: startup-graveyard
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-startup_graveyard}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-startup_graveyard}
+    volumes:
+      - startup_graveyard_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U ${POSTGRES_USER:-startup_graveyard} -d ${POSTGRES_DB:-startup_graveyard}',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  migrate:
+    build:
+      context: .
+      dockerfile: ops/docker/Dockerfile.migrate
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+
+  api:
+    build:
+      context: .
+      dockerfile: ops/docker/Dockerfile.api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 18080
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      WEB_BASE_URL: ${WEB_BASE_URL:-http://127.0.0.1:3000}
+      ADMIN_API_KEY: ${ADMIN_API_KEY:?ADMIN_API_KEY is required}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_PRO_PRICE_ID: ${STRIPE_PRO_PRICE_ID:-}
+      STRIPE_TEAM_PRICE_ID: ${STRIPE_TEAM_PRICE_ID:-}
+      TEAM_WORKSPACE_RECOVERY_EMAIL_SMTP_HOST: ${TEAM_WORKSPACE_RECOVERY_EMAIL_SMTP_HOST:-}
+      TEAM_WORKSPACE_RECOVERY_EMAIL_SMTP_PORT: ${TEAM_WORKSPACE_RECOVERY_EMAIL_SMTP_PORT:-587}
+      TEAM_WORKSPACE_RECOVERY_EMAIL_SMTP_SECURE: ${TEAM_WORKSPACE_RECOVERY_EMAIL_SMTP_SECURE:-false}
+      TEAM_WORKSPACE_RECOVERY_EMAIL_SMTP_USER: ${TEAM_WORKSPACE_RECOVERY_EMAIL_SMTP_USER:-}
+      TEAM_WORKSPACE_RECOVERY_EMAIL_SMTP_PASS: ${TEAM_WORKSPACE_RECOVERY_EMAIL_SMTP_PASS:-}
+      TEAM_WORKSPACE_RECOVERY_EMAIL_FROM: ${TEAM_WORKSPACE_RECOVERY_EMAIL_FROM:-}
+      TEAM_WORKSPACE_RECOVERY_EMAIL_REPLY_TO: ${TEAM_WORKSPACE_RECOVERY_EMAIL_REPLY_TO:-}
+      TEAM_WORKSPACE_RECOVERY_WEBHOOK_URL: ${TEAM_WORKSPACE_RECOVERY_WEBHOOK_URL:-}
+      TEAM_WORKSPACE_RECOVERY_WEBHOOK_BEARER_TOKEN: ${TEAM_WORKSPACE_RECOVERY_WEBHOOK_BEARER_TOKEN:-}
+      TEAM_WORKSPACE_RECOVERY_SLACK_WEBHOOK_URL: ${TEAM_WORKSPACE_RECOVERY_SLACK_WEBHOOK_URL:-}
+      TEAM_WORKSPACE_RECOVERY_CRM_API_URL: ${TEAM_WORKSPACE_RECOVERY_CRM_API_URL:-}
+      TEAM_WORKSPACE_RECOVERY_CRM_API_BEARER_TOKEN: ${TEAM_WORKSPACE_RECOVERY_CRM_API_BEARER_TOKEN:-}
+    ports:
+      - '${API_PORT:-18080}:18080'
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    build:
+      context: .
+      dockerfile: ops/docker/Dockerfile.web
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://127.0.0.1:18080}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://127.0.0.1:3000}
+    restart: unless-stopped
+    environment:
+      API_BASE_URL: http://api:18080
+      ADMIN_API_KEY: ${ADMIN_API_KEY:?ADMIN_API_KEY is required}
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://127.0.0.1:18080}
+      NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://127.0.0.1:3000}
+    ports:
+      - '${WEB_PORT:-3000}:3000'
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  startup_graveyard_pg_data:

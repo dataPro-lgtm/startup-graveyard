@@ -1,0 +1,8 @@
+FROM pgvector/pgvector:pg16
+
+COPY db/migrations /migrations
+COPY ops/docker/migrate.sh /usr/local/bin/sg-migrate
+
+RUN chmod 0555 /usr/local/bin/sg-migrate
+
+ENTRYPOINT ["/usr/local/bin/sg-migrate"]

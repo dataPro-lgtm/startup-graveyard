@@ -1,6 +1,8 @@
 # Startup Graveyard 产品成熟化计划
 
-更新时间：2026-04-14
+更新时间：2026-08-02
+
+> 本文档保留 M0-M4 的详细落地历史。当前能力判断、缺口优先级和阶段退出标准以 [`PRODUCT_EXECUTION_PLAN.md`](./PRODUCT_EXECUTION_PLAN.md) 为准。
 
 ## 1. 当前判断
 
@@ -14,7 +16,9 @@
 
 > 一个已经具备结构化案例库雏形的 alpha 产品，而不是可稳定商业化运营的 failure intelligence platform。
 
-## 2. 与文档目标的主要差距
+## 2. 与文档目标的主要差距（2026-04 历史基线）
+
+以下内容用于解释后续 M0-M4 的推进起点，不代表 2026-08 的当前状态。
 
 ### P0 基础工程与交付可靠性
 
@@ -114,6 +118,9 @@
 - 在 rollup 之上，平台诊断层现在还能直接抬出 `snapshot_trend_regressing` 告警：当最新窗口相较上一窗口出现 queued / alerts / failed / worker errors 回升时，Dashboard 不再只展示历史，而会主动标记“最近窗口正在退化”。
 - 在 regression detection 之上，平台层现在还会额外给出 snapshot cadence、missed intervals、regression streak/severity，以及 suppression reason；也就是说运营能分辨“采样本身已经断档”“趋势确实在持续恶化”，还是“退化已被更具体的 queue/worker 告警覆盖，无需重复处理”。
 - 在 cadence / suppression 之上，平台层现在还会补一层 24h snapshot metrics surface：scheduled coverage、cadence adherence、regression windows，以及 queue / alert / failed / worker error 的最近峰值，方便运营判断“采样是否持续掉点”与“最近是否频繁出现退化窗口”。
+- 在 metrics surface 之上，平台层现在还会额外给出 suppression surface：最近 24h 里有多少 regression windows 被压住、多少仍然裸露，以及最常见的 suppression reason，方便运营判断“这些退化是否已经被更具体的 runtime 告警接管”。
+- 在 metrics surface 之上，运营现在还能直接从 Dashboard 导出 `platform snapshot ops report CSV`，把 summary / latest regression / rollup buckets 一并交给外部 ops 或 incident handoff，不再只能截图或人工抄数。
+- 在 CSV handoff 之上，运营现在还能直接导出 `platform snapshot incident brief` Markdown，把当前 runtime / queue / cadence / regression / rollup 状态整理成可读 brief，便于人工 follow-up。
 
 ## 4. 当前执行顺序
 

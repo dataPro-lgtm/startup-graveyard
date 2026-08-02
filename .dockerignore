@@ -1,0 +1,14 @@
+.git
+.github
+.playwright-cli
+.turbo
+**/.DS_Store
+**/.next
+**/.turbo
+**/coverage
+**/dist
+**/node_modules
+**/*.log
+.env
+.env.*
+!.env.example

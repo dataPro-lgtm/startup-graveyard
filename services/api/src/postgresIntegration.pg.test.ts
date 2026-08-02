@@ -685,7 +685,7 @@ suite('postgres integration', () => {
       fallback_reason: string | null;
     }>(
       `
-      SELECT question, actual_citation_slugs, passed, fallback_reason
+      SELECT question, actual_citation_slugs::text[] AS actual_citation_slugs, passed, fallback_reason
       FROM copilot_eval_results
       ORDER BY created_at ASC
       `,
