@@ -21,7 +21,7 @@ describe('public API (mock DB)', () => {
       features: { adminEnabled: boolean; mockMode: boolean };
     };
     expect(body.ok).toBe(true);
-    expect(body.features.adminEnabled).toBe(false);
+    expect(body.features.adminEnabled).toBe(true);
     expect(body.features.mockMode).toBe(true);
   });
 
@@ -2013,10 +2013,10 @@ describe('public API (mock DB)', () => {
     });
   });
 
-  it('GET /v1/admin/audit is disabled when ADMIN_API_KEY is unset', async () => {
+  it('GET /v1/admin/audit requires a named session when ADMIN_API_KEY is unset', async () => {
     const res = await app.inject({ method: 'GET', url: '/v1/admin/audit?limit=5' });
-    expect(res.statusCode).toBe(503);
-    expect(JSON.parse(res.body)).toMatchObject({ error: 'admin_api_disabled' });
+    expect(res.statusCode).toBe(401);
+    expect(JSON.parse(res.body)).toMatchObject({ error: 'unauthorized' });
   });
 
   it('GET /v1/cases filters by businessModelKey', async () => {

@@ -43,14 +43,14 @@ API, worker, and scheduler must become separately deployable processes. PostgreS
 ### C1: Security and tenant boundary
 
 - Complete cross-tenant read/write denial tests for every Team asset.
-- Replace shared Admin API key usage with named operator identities and scoped roles.
+- Maintain named operator identities, revocable sessions, scoped roles, and actor-attributed audit.
 - Add device/session inventory, selective revocation, session audit events, and credential rotation.
 
 Exit: every authenticated resource has owner/member/non-member/admin negative tests, and browser credentials are never script-readable.
 
 ### C2: Billing correctness
 
-- Store Stripe event IDs and reject duplicate side effects.
+- Maintain the Stripe event ledger, processing leases, retry state, and source-event uniqueness.
 - Add sandbox fixtures for checkout, upgrade, downgrade, past due, cancellation, and recovery.
 - Introduce retry/dead-letter handling for Stripe and outbound recovery actions.
 

@@ -24,6 +24,7 @@ export type RecordBillingFunnelEventInput = {
   source: BillingFunnelEventSource;
   plan?: BillingFunnelPlan;
   detail: string;
+  sourceEventId?: string | null;
 };
 
 type BillingFunnelRow = {
@@ -92,9 +93,17 @@ function toMetrics(events: BillingFunnelEvent[]): BillingFunnelAdminMetrics {
 }
 
 export class MockBillingFunnelRepository implements BillingFunnelRepository {
-  private readonly events: Array<BillingFunnelEvent & { userId: string }> = [];
+  private readonly events: Array<
+    BillingFunnelEvent & { userId: string; sourceEventId: string | null }
+  > = [];
 
   async record(input: RecordBillingFunnelEventInput): Promise<void> {
+    if (
+      input.sourceEventId &&
+      this.events.some((event) => event.sourceEventId === input.sourceEventId)
+    ) {
+      return;
+    }
     this.events.unshift({
       userId: input.userId,
       id: randomUUID(),
@@ -103,6 +112,7 @@ export class MockBillingFunnelRepository implements BillingFunnelRepository {
       plan: input.plan ?? null,
       detail: input.detail,
       createdAt: new Date().toISOString(),
+      sourceEventId: input.sourceEventId ?? null,
     });
 
     if (this.events.length > 128) {
@@ -144,10 +154,19 @@ export class PgBillingFunnelRepository implements BillingFunnelRepository {
          event_type,
          event_source,
          plan,
-         detail
+         detail,
+         source_event_id
        )
-       VALUES ($1, $2, $3, $4, $5)`,
-      [input.userId, input.type, input.source, input.plan ?? null, input.detail],
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (source_event_id) WHERE source_event_id IS NOT NULL DO NOTHING`,
+      [
+        input.userId,
+        input.type,
+        input.source,
+        input.plan ?? null,
+        input.detail,
+        input.sourceEventId ?? null,
+      ],
     );
   }
 

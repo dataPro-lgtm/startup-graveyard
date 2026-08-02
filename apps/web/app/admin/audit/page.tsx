@@ -51,10 +51,10 @@ export default async function AdminAuditPage({
       </div>
 
       {audit.ok === false && audit.reason === 'no_key' ? (
-        <p style={{ color: '#ffb47d' }}>未设置 ADMIN_API_KEY。</p>
+        <p style={{ color: '#ffb47d' }}>管理会话不可用，请重新登录。</p>
       ) : null}
       {audit.ok === false && audit.reason === 'unauthorized' ? (
-        <p style={{ color: '#ff8a8a' }}>401：密钥与 API 不一致。</p>
+        <p style={{ color: '#ff8a8a' }}>当前管理会话无权读取审计流水。</p>
       ) : null}
       {audit.ok === false && audit.reason === 'bad_response' ? (
         <p style={{ color: '#c8d0e5' }}>无法拉取审计（表未迁移或 API 异常）。</p>

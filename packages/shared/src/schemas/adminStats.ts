@@ -354,6 +354,7 @@ export const platformAlertCodeSchema = z.enum([
   'mock_mode_active',
   'ai_provider_unconfigured',
   'stripe_disabled',
+  'stripe_webhook_failures',
   'failed_ingestion_jobs',
   'stale_running_jobs',
   'ingestion_queue_backlog',
@@ -612,6 +613,24 @@ export const platformAdminMetricsSchema = z.object({
   snapshotRegression: platformSnapshotRegressionSchema,
   snapshotSuppression: platformSnapshotSuppressionSurfaceSchema,
   snapshotMetrics: platformSnapshotMetricsSurfaceSchema,
+  stripeWebhooks: z.object({
+    total: nonnegativeInteger,
+    processing: nonnegativeInteger,
+    staleProcessing: nonnegativeInteger,
+    processed: nonnegativeInteger,
+    failed: nonnegativeInteger,
+    retried: nonnegativeInteger,
+    lastReceivedAt: z.string().nullable(),
+    recentFailures: z.array(
+      z.object({
+        eventId: z.string(),
+        eventType: z.string(),
+        attemptCount: nonnegativeInteger,
+        lastError: z.string(),
+        updatedAt: z.string(),
+      }),
+    ),
+  }),
   ingestion: z.object({
     queuedCount: nonnegativeInteger,
     oldestQueuedAgeMinutes: nonnegativeInteger.nullable(),

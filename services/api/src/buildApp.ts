@@ -42,6 +42,11 @@ import {
   PgBillingFunnelRepository,
 } from './repositories/billingFunnelRepository.js';
 import {
+  type StripeWebhookEventsRepository,
+  MockStripeWebhookEventsRepository,
+  PgStripeWebhookEventsRepository,
+} from './repositories/stripeWebhookEventsRepository.js';
+import {
   type IngestionJobsRepository,
   MockIngestionJobsRepository,
   PgIngestionJobsRepository,
@@ -126,6 +131,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
   let reportSharesRepo: ReportSharesRepository;
   let teamWorkspacesRepo: TeamWorkspacesRepository;
   let billingFunnelRepo: BillingFunnelRepository;
+  let stripeWebhookEventsRepo: StripeWebhookEventsRepository;
   const ingestionWorkerMonitor = createIngestionWorkerMonitor();
   const auditRepo = pgPool ? new PgAuditRepository(pgPool) : new MockAuditRepository();
   const capturePlatformSnapshotForIngestion = (triggerType: 'manual' | 'scheduled') =>
@@ -153,6 +159,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
     savedViewsRepo = new PgSavedViewsRepository(pgPool);
     reportSharesRepo = new PgReportSharesRepository(pgPool);
     billingFunnelRepo = new PgBillingFunnelRepository(pgPool);
+    stripeWebhookEventsRepo = new PgStripeWebhookEventsRepository(pgPool);
     teamWorkspacesRepo = new PgTeamWorkspacesRepository(pgPool, billingFunnelRepo);
     ingestionJobsRepo = new PgIngestionJobsRepository(
       pgPool,
@@ -181,6 +188,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
     savedViewsRepo = new MockSavedViewsRepository();
     reportSharesRepo = new MockReportSharesRepository();
     billingFunnelRepo = new MockBillingFunnelRepository();
+    stripeWebhookEventsRepo = new MockStripeWebhookEventsRepository();
     teamWorkspacesRepo = new MockTeamWorkspacesRepository(
       usersRepo,
       savedViewsRepo,
@@ -213,6 +221,10 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
   server.decorate('reportSharesRepo', reportSharesRepo as ReportSharesRepository);
   server.decorate('teamWorkspacesRepo', teamWorkspacesRepo as TeamWorkspacesRepository);
   server.decorate('billingFunnelRepo', billingFunnelRepo as BillingFunnelRepository);
+  server.decorate(
+    'stripeWebhookEventsRepo',
+    stripeWebhookEventsRepo as StripeWebhookEventsRepository,
+  );
   server.decorate('auditRepo', auditRepo as AuditRepository);
   if (!pgPool) {
     server.log.warn('DATABASE_URL unset; using in-memory mock cases + reviews');
@@ -263,7 +275,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
   await server.register(watchlistRoutes, { prefix: '/v1/watchlist' });
   await server.register(registerAdminRoutes, { prefix: '/v1/admin' });
   if (!process.env.ADMIN_API_KEY) {
-    server.log.warn('ADMIN_API_KEY unset; /v1/admin/* is disabled');
+    server.log.warn('ADMIN_API_KEY unset; named admin sessions remain available');
   }
 
   return server;

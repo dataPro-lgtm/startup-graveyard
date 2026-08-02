@@ -403,6 +403,7 @@ components:
           entitlements,
           workspaceAccess,
           role,
+          adminRole,
           createdAt,
         ]
       properties:
@@ -432,6 +433,10 @@ components:
         role:
           type: string
           enum: [user, admin]
+        adminRole:
+          type: string
+          nullable: true
+          enum: [viewer, editor, operator, owner]
         createdAt: { type: string }
     AuthResponse:
       type: object
@@ -3263,12 +3268,16 @@ paths:
           description: Stripe not configured
   /v1/payments/webhook:
     post:
-      summary: Stripe webhook endpoint for subscription state changes
+      summary: Replay-safe Stripe webhook endpoint for subscription state changes
       responses:
         '200':
-          description: Event accepted
+          description: Event processed or an already processed event acknowledged as a duplicate
         '400':
           description: Missing or invalid Stripe signature
+        '409':
+          description: Another worker holds the event processing lease; Stripe should retry
+        '500':
+          description: Processing failed and the event was persisted for retry
         '503':
           description: Stripe or database unavailable
   /v1/watchlist/me:
@@ -3815,6 +3824,8 @@ paths:
     get:
       summary: List reviews
       security:
+        - BearerAuth: []
+        - CookieAuth: []
         - AdminKey: []
       parameters:
         - in: query
@@ -3834,13 +3845,15 @@ paths:
               schema:
                 $ref: '#/components/schemas/ListReviewsResponse'
         '401':
-          description: When ADMIN_API_KEY is set but missing/invalid
+          description: Missing, expired, or invalid admin credential
         '503':
-          description: Admin API disabled because ADMIN_API_KEY is unset
+          description: Backing service unavailable
   /v1/admin/reviews/{id}/approve:
     post:
       summary: Approve a review
       security:
+        - BearerAuth: []
+        - CookieAuth: []
         - AdminKey: []
       parameters:
         - in: path
@@ -3863,11 +3876,13 @@ paths:
         '401':
           description: Unauthorized
         '503':
-          description: Admin API disabled
+          description: Backing service unavailable
   /v1/admin/reviews/{id}/request-changes:
     post:
       summary: Mark a review as changes requested
       security:
+        - BearerAuth: []
+        - CookieAuth: []
         - AdminKey: []
       parameters:
         - in: path
@@ -3890,11 +3905,13 @@ paths:
         '401':
           description: Unauthorized
         '503':
-          description: Admin API disabled
+          description: Backing service unavailable
   /v1/admin/reviews/{id}/resubmit:
     post:
       summary: Move a changes_requested review back to pending
       security:
+        - BearerAuth: []
+        - CookieAuth: []
         - AdminKey: []
       parameters:
         - in: path
@@ -3911,11 +3928,13 @@ paths:
         '401':
           description: Unauthorized
         '503':
-          description: Admin API disabled
+          description: Backing service unavailable
   /v1/admin/reviews/{id}/reject:
     post:
       summary: Reject a review
       security:
+        - BearerAuth: []
+        - CookieAuth: []
         - AdminKey: []
       parameters:
         - in: path
@@ -3940,11 +3959,13 @@ paths:
         '401':
           description: Unauthorized
         '503':
-          description: Admin API disabled
+          description: Backing service unavailable
   /v1/admin/source-snapshots:
     get:
       summary: List recently captured source snapshots
       security:
+        - BearerAuth: []
+        - CookieAuth: []
         - AdminKey: []
       parameters:
         - in: query
@@ -3963,11 +3984,13 @@ paths:
         '401':
           description: Unauthorized
         '503':
-          description: Admin API disabled
+          description: Backing service unavailable
   /v1/admin/cases:
     post:
       summary: Create draft case and pending review
       security:
+        - BearerAuth: []
+        - CookieAuth: []
         - AdminKey: []
       requestBody:
         required: true
@@ -3998,11 +4021,13 @@ paths:
         '409':
           description: Duplicate slug
         '503':
-          description: Admin API disabled
+          description: Backing service unavailable
   /v1/admin/cases/{caseId}/evidence:
     post:
       summary: Add evidence source to a case
       security:
+        - BearerAuth: []
+        - CookieAuth: []
         - AdminKey: []
       parameters:
         - in: path
@@ -4034,11 +4059,13 @@ paths:
         '404':
           description: Case not found
         '503':
-          description: Admin API disabled
+          description: Backing service unavailable
   /v1/admin/cases/{caseId}/failure-factors:
     post:
       summary: Add failure factor to a case
       security:
+        - BearerAuth: []
+        - CookieAuth: []
         - AdminKey: []
       parameters:
         - in: path
@@ -4068,11 +4095,13 @@ paths:
         '404':
           description: Case not found
         '503':
-          description: Admin API disabled
+          description: Backing service unavailable
   /v1/admin/cases/{caseId}/timeline-events:
     post:
       summary: Add timeline event to a case
       security:
+        - BearerAuth: []
+        - CookieAuth: []
         - AdminKey: []
       parameters:
         - in: path
@@ -4103,11 +4132,13 @@ paths:
         '404':
           description: Case not found
         '503':
-          description: Admin API disabled
+          description: Backing service unavailable
   /v1/admin/cases/{caseId}/analysis:
     patch:
       summary: Update primary failure reason or key lessons for a case
       security:
+        - BearerAuth: []
+        - CookieAuth: []
         - AdminKey: []
       parameters:
         - in: path
@@ -4133,11 +4164,13 @@ paths:
         '404':
           description: Case not found
         '503':
-          description: Admin API disabled
+          description: Backing service unavailable
   /v1/admin/audit:
     get:
       summary: Recent admin audit events
       security:
+        - BearerAuth: []
+        - CookieAuth: []
         - AdminKey: []
       parameters:
         - in: query
@@ -4149,11 +4182,13 @@ paths:
         '401':
           description: Unauthorized
         '503':
-          description: Admin API disabled
+          description: Backing service unavailable
   /v1/admin/stats:
     get:
       summary: Admin dashboard aggregate statistics
       security:
+        - BearerAuth: []
+        - CookieAuth: []
         - AdminKey: []
       responses:
         '200':
@@ -4165,11 +4200,13 @@ paths:
         '401':
           description: Unauthorized
         '503':
-          description: Admin API disabled
+          description: Backing service unavailable
   /v1/admin/stats/platform-snapshot:
     post:
       summary: Capture the current platform diagnostics as a point-in-time snapshot in the admin audit log
       security:
+        - BearerAuth: []
+        - CookieAuth: []
         - AdminKey: []
       responses:
         '200':
@@ -4190,11 +4227,13 @@ paths:
         '401':
           description: Unauthorized
         '503':
-          description: Admin API disabled
+          description: Backing service unavailable
   /v1/admin/stats/platform-snapshot-report.csv:
     get:
       summary: Export platform snapshot summary and rollup diagnostics as CSV
       security:
+        - BearerAuth: []
+        - CookieAuth: []
         - AdminKey: []
       responses:
         '200':
@@ -4206,11 +4245,13 @@ paths:
         '401':
           description: Unauthorized
         '503':
-          description: Admin API disabled
+          description: Backing service unavailable
   /v1/admin/stats/platform-snapshot-brief.md:
     get:
       summary: Export platform snapshot incident brief as Markdown
       security:
+        - BearerAuth: []
+        - CookieAuth: []
         - AdminKey: []
       responses:
         '200':
@@ -4222,11 +4263,13 @@ paths:
         '401':
           description: Unauthorized
         '503':
-          description: Admin API disabled
+          description: Backing service unavailable
   /v1/admin/stats/recovery-queue.csv:
     get:
       summary: Export actionable Team Workspace recovery queue as CSV
       security:
+        - BearerAuth: []
+        - CookieAuth: []
         - AdminKey: []
       responses:
         '200':
@@ -4238,11 +4281,13 @@ paths:
         '401':
           description: Unauthorized
         '503':
-          description: Admin API disabled
+          description: Backing service unavailable
   /v1/admin/stats/recovery-outreach/handoff:
     post:
       summary: Hand off the latest admin recovery outreach to CRM/manual follow-up and snooze auto requeue
       security:
+        - BearerAuth: []
+        - CookieAuth: []
         - AdminKey: []
       requestBody:
         required: true
@@ -4273,11 +4318,13 @@ paths:
         '404':
           description: Workspace or outreach not found
         '503':
-          description: Admin API disabled
+          description: Backing service unavailable
   /v1/admin/stats/recovery-handoffs/export:
     post:
       summary: Export currently handed-off admin recovery outreach rows as CRM CSV and mark them exported
       security:
+        - BearerAuth: []
+        - CookieAuth: []
         - AdminKey: []
       responses:
         '200':
@@ -4289,11 +4336,13 @@ paths:
         '401':
           description: Unauthorized
         '503':
-          description: Admin API disabled
+          description: Backing service unavailable
   /v1/admin/stats/recovery-owner-email:
     post:
       summary: Deliver pending owner recovery outreach rows to the configured SMTP mailer
       security:
+        - BearerAuth: []
+        - CookieAuth: []
         - AdminKey: []
       requestBody:
         required: false
@@ -4321,6 +4370,8 @@ paths:
     post:
       summary: Deliver due fallback member recovery notification emails to the configured SMTP mailer
       security:
+        - BearerAuth: []
+        - CookieAuth: []
         - AdminKey: []
       requestBody:
         required: false
@@ -4348,6 +4399,8 @@ paths:
     post:
       summary: Run the Team Workspace recovery playbook to refresh outreach and fan out owner/member email, CRM sync, webhook, and Slack escalation
       security:
+        - BearerAuth: []
+        - CookieAuth: []
         - AdminKey: []
       requestBody:
         required: false
@@ -4370,11 +4423,13 @@ paths:
         '502':
           description: Recovery playbook finished with at least one failed outbound channel
         '503':
-          description: Admin API disabled
+          description: Backing service unavailable
   /v1/admin/stats/recovery-playbook/rerun-failed:
     post:
       summary: Rerun only the failed steps from a previous Team Workspace recovery playbook run
       security:
+        - BearerAuth: []
+        - CookieAuth: []
         - AdminKey: []
       requestBody:
         required: true
@@ -4407,11 +4462,13 @@ paths:
         '502':
           description: Rerun finished with at least one failed outbound channel
         '503':
-          description: Admin API disabled
+          description: Backing service unavailable
   /v1/admin/stats/recovery-handoffs/crm:
     post:
       summary: Deliver due handed-off CRM recovery outreach rows to the configured CRM API and persist the external case id
       security:
+        - BearerAuth: []
+        - CookieAuth: []
         - AdminKey: []
       requestBody:
         required: false
@@ -4439,6 +4496,8 @@ paths:
     post:
       summary: Deliver due and still-retryable handed-off admin recovery outreach rows to the configured external webhook
       security:
+        - BearerAuth: []
+        - CookieAuth: []
         - AdminKey: []
       requestBody:
         required: false
@@ -4466,6 +4525,8 @@ paths:
     post:
       summary: Deliver dead-letter handed-off admin recovery outreach rows to the configured Ops Slack webhook
       security:
+        - BearerAuth: []
+        - CookieAuth: []
         - AdminKey: []
       requestBody:
         required: false
@@ -4489,6 +4550,8 @@ paths:
     get:
       summary: Get one ingestion job by id
       security:
+        - BearerAuth: []
+        - CookieAuth: []
         - AdminKey: []
       parameters:
         - in: path
@@ -4505,11 +4568,13 @@ paths:
         '404':
           description: Not found
         '503':
-          description: Admin API disabled
+          description: Backing service unavailable
   /v1/admin/ingestion-jobs/{id}/requeue:
     post:
       summary: Requeue a failed job back to queued (audit ingestion.job_requeued)
       security:
+        - BearerAuth: []
+        - CookieAuth: []
         - AdminKey: []
       parameters:
         - in: path
@@ -4526,11 +4591,13 @@ paths:
         '404':
           description: Not failed or not found
         '503':
-          description: Admin API disabled
+          description: Backing service unavailable
   /v1/admin/ingestion-jobs:
     get:
       summary: Recent ingestion jobs
       security:
+        - BearerAuth: []
+        - CookieAuth: []
         - AdminKey: []
       parameters:
         - in: query
@@ -4547,10 +4614,12 @@ paths:
         '401':
           description: Unauthorized
         '503':
-          description: Admin API disabled
+          description: Backing service unavailable
     post:
       summary: Enqueue ingestion job (queued status)
       security:
+        - BearerAuth: []
+        - CookieAuth: []
         - AdminKey: []
       requestBody:
         required: true
@@ -4571,13 +4640,15 @@ paths:
         '401':
           description: Unauthorized
         '503':
-          description: Admin API disabled
+          description: Backing service unavailable
   /v1/admin/ingestion-jobs/reclaim-stale:
     post:
       summary: >-
         Reset ingestion_jobs stuck in running (started_at older than threshold) back to
         queued; audit ingestion.jobs_reclaimed_stale
       security:
+        - BearerAuth: []
+        - CookieAuth: []
         - AdminKey: []
       parameters:
         - in: query
@@ -4591,7 +4662,7 @@ paths:
         '401':
           description: Unauthorized
         '503':
-          description: Admin API disabled
+          description: Backing service unavailable
   /v1/admin/ingestion-jobs/process-next:
     post:
       summary: >-
@@ -4605,6 +4676,8 @@ paths:
         upsert_embedding_stub / noop), then succeeded or failed; audit
         job_succeeded or job_failed
       security:
+        - BearerAuth: []
+        - CookieAuth: []
         - AdminKey: []
       responses:
         '200':
@@ -4613,11 +4686,13 @@ paths:
         '401':
           description: Unauthorized
         '503':
-          description: Admin API disabled
+          description: Backing service unavailable
   /v1/admin/scheduler:
     get:
       summary: List scheduled ingestion/maintenance jobs
       security:
+        - BearerAuth: []
+        - CookieAuth: []
         - AdminKey: []
       responses:
         '200':
@@ -4635,7 +4710,7 @@ paths:
         '401':
           description: Unauthorized
         '503':
-          description: Admin API disabled
+          description: Backing service unavailable
   /v1/admin/scheduler/trigger:
     post:
       summary: >-
@@ -4647,6 +4722,8 @@ paths:
         run_team_workspace_recovery_playbook with optional retryIntervalHours /
         run_copilot_eval_suite)
       security:
+        - BearerAuth: []
+        - CookieAuth: []
         - AdminKey: []
       requestBody:
         required: true
@@ -4684,11 +4761,13 @@ paths:
         '404':
           description: Job not found
         '503':
-          description: Admin API disabled
+          description: Backing service unavailable
   /v1/admin/scheduler/{id}/toggle:
     patch:
       summary: Enable or disable a scheduled job
       security:
+        - BearerAuth: []
+        - CookieAuth: []
         - AdminKey: []
       parameters:
         - in: path
@@ -4710,4 +4789,4 @@ paths:
         '404':
           description: Job not found
         '503':
-          description: Admin API disabled
+          description: Backing service unavailable

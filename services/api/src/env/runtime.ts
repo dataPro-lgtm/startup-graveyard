@@ -35,7 +35,7 @@ function isLoopbackOrigin(value: string): boolean {
 
 export function getRuntimeFeatureFlags(): RuntimeFeatureFlags {
   const dbConfigured = hasValue(process.env.DATABASE_URL);
-  const adminEnabled = hasValue(process.env.ADMIN_API_KEY);
+  const adminEnabled = true;
   const stripeEnabled = (process.env.STRIPE_SECRET_KEY?.trim() ?? '').startsWith('sk_');
   const aiProvider: AiProvider = hasValue(process.env.ANTHROPIC_API_KEY)
     ? 'anthropic'
@@ -61,9 +61,6 @@ export function validateRuntimeEnv(): RuntimeFeatureFlags {
   if (nodeEnv === 'production') {
     if (!features.dbConfigured) {
       errors.push('DATABASE_URL is required in production.');
-    }
-    if (!features.adminEnabled) {
-      errors.push('ADMIN_API_KEY is required in production.');
     }
     if (!hasValue(process.env.JWT_SECRET) || process.env.JWT_SECRET === DEFAULT_JWT_SECRET) {
       errors.push('JWT_SECRET must be set to a non-default value in production.');
@@ -96,8 +93,8 @@ export function validateRuntimeEnv(): RuntimeFeatureFlags {
     if (!features.dbConfigured) {
       warnings.push('DATABASE_URL unset; API will use mock repositories for public data.');
     }
-    if (!features.adminEnabled) {
-      warnings.push('ADMIN_API_KEY unset; admin API endpoints are disabled.');
+    if (!hasValue(process.env.ADMIN_API_KEY)) {
+      warnings.push('ADMIN_API_KEY unset; transitional admin service-key access is disabled.');
     }
     if (features.aiProvider === 'none') {
       warnings.push('No LLM provider configured; Copilot will fall back to rule-based answers.');

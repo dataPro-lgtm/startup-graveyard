@@ -134,7 +134,7 @@ Startup Graveyard 已经具备可运行 alpha 的完整骨架，不再缺“功�
 - 浏览器门禁覆盖公开案例、Pro 交付、移动导航、Copilot 降级、Team owner/member 协作与 Admin 证据门禁发布。
 - 浏览器门禁不向生产 API 增加测试后门；付费权益 fixture 直接作用于隔离测试数据库。
 - GitHub Actions 新增 `Browser Release Gate`，并纳入 `CI OK` 强制依赖。
-- Admin Web 已从公开导航移除，`/admin/*` 必须通过独立 UI 凭据；Web 代理仍使用独立 `ADMIN_API_KEY`。
+- Admin Web 已从公开导航移除；历史 Basic + 共享密钥方案已由具名管理会话和四级 RBAC 替代。
 - 生产 Compose 默认只运行 migration，demo/验收数据由幂等 `prod-seed` 命令显式初始化。
 - Team 成员接受邀请后立即刷新有效权益；Copilot 在 AI provider 故障时减少重复 embedding 请求并收紧精确公司引用。
 
@@ -153,6 +153,10 @@ Startup Graveyard 已经具备可运行 alpha 的完整骨架，不再缺“功�
 ## 10. 阶段 C 当前落地
 
 - CORS 已从反射任意来源改为精确来源白名单，生产启动校验拒绝路径、通配符和非 HTTP(S) 来源。
+- Admin API 已复用用户与可撤销设备会话，按 Viewer/Editor/Operator/Owner 能力授权并记录具名主体。
+- Admin Web 使用独立 Host-only HttpOnly 会话，支持服务端刷新、角色降级即时拒绝与显式退出；Web 不再持有共享管理密钥。
+- Stripe webhook 使用原子事件账本、处理租约、失败重试和 source event 唯一约束；平台指标暴露失败、卡住与重试情况。
+- Stage C 的完整退出标准、上线顺序与回滚边界见 `docs/STAGE_C_CLOSEOUT_PLAN.md`。
 - 认证注册/登录、token refresh、Copilot answer、报告生成、Stripe checkout/portal/webhook 已启用分层限流。
 - 有效登录用户按用户主体限流，匿名和无效凭据按可信客户端 IP 限流；令牌不会进入限流存储键。
 - 安全负向测试覆盖不受信来源无 CORS 授权、认证超频、refresh 独立预算、Copilot 与导出超频。

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { API_BASE_URL } from './api';
+import { adminApiFetch } from './adminApiServer';
 
 const jobItemSchema = z.object({
   id: z.string().uuid(),
@@ -27,15 +27,10 @@ export async function fetchAdminIngestionJobById(id: string): Promise<
       reason: 'no_key' | 'unauthorized' | 'not_found' | 'bad_response';
     }
 > {
-  const key = process.env.ADMIN_API_KEY;
-  if (!key) return { ok: false, reason: 'no_key' };
-
-  const url = `${API_BASE_URL}/v1/admin/ingestion-jobs/${encodeURIComponent(id)}`;
-  const res = await fetch(url, {
-    headers: { 'X-Admin-Key': key },
+  const res = await adminApiFetch(`/v1/admin/ingestion-jobs/${encodeURIComponent(id)}`, {
     cache: 'no-store',
   });
-  if (res.status === 401) return { ok: false, reason: 'unauthorized' };
+  if (res.status === 401 || res.status === 403) return { ok: false, reason: 'unauthorized' };
   if (res.status === 404) return { ok: false, reason: 'not_found' };
   if (!res.ok) return { ok: false, reason: 'bad_response' };
   const json: unknown = await res.json();
@@ -50,15 +45,10 @@ export async function fetchAdminIngestionJobs(
   | { ok: true; data: AdminIngestionList }
   | { ok: false; reason: 'no_key' | 'unauthorized' | 'bad_response' }
 > {
-  const key = process.env.ADMIN_API_KEY;
-  if (!key) return { ok: false, reason: 'no_key' };
-
-  const url = `${API_BASE_URL}/v1/admin/ingestion-jobs${search}`;
-  const res = await fetch(url, {
-    headers: { 'X-Admin-Key': key },
+  const res = await adminApiFetch(`/v1/admin/ingestion-jobs${search}`, {
     cache: 'no-store',
   });
-  if (res.status === 401) return { ok: false, reason: 'unauthorized' };
+  if (res.status === 401 || res.status === 403) return { ok: false, reason: 'unauthorized' };
   if (!res.ok) return { ok: false, reason: 'bad_response' };
   const json: unknown = await res.json();
   const parsed = listSchema.safeParse(json);

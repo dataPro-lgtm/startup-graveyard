@@ -14,8 +14,14 @@ import type { TeamWorkspacesRepository } from '../repositories/teamWorkspacesRep
 import type { SourceSnapshotsRepository } from '../repositories/sourceSnapshotsRepository.js';
 import type { UsersRepository } from '../repositories/usersRepository.js';
 import type { WatchlistsRepository } from '../repositories/watchlistRepository.js';
+import type { AdminPrincipal } from '../plugins/adminRoutes.js';
+import type { StripeWebhookEventsRepository } from '../repositories/stripeWebhookEventsRepository.js';
 
 declare module 'fastify' {
+  interface FastifyRequest {
+    adminPrincipal: AdminPrincipal | null;
+  }
+
   interface FastifyInstance {
     casesRepo: CasesRepository;
     reviewsRepo: ReviewsRepository;
@@ -33,5 +39,6 @@ declare module 'fastify' {
     reportSharesRepo: ReportSharesRepository;
     teamWorkspacesRepo: TeamWorkspacesRepository;
     billingFunnelRepo: BillingFunnelRepository;
+    stripeWebhookEventsRepo: StripeWebhookEventsRepository;
   }
 }

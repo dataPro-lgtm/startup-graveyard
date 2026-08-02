@@ -1,15 +1,8 @@
-import { API_BASE_URL, ADMIN_API_KEY } from '@/lib/api';
+import { adminApiFetch } from '@/lib/adminApiServer';
 
 export async function POST() {
-  if (!ADMIN_API_KEY) {
-    return new Response('admin key unavailable', { status: 500 });
-  }
-
-  const res = await fetch(`${API_BASE_URL}/v1/admin/stats/recovery-handoffs/export`, {
+  const res = await adminApiFetch('/v1/admin/stats/recovery-handoffs/export', {
     method: 'POST',
-    headers: {
-      'x-admin-key': ADMIN_API_KEY,
-    },
     cache: 'no-store',
   });
 

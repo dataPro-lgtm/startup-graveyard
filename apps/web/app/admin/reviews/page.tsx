@@ -155,8 +155,8 @@ export default async function AdminReviewsPage({
       </div>
       <h1 style={{ fontSize: 32, marginBottom: 8 }}>审核队列</h1>
       <p style={{ color: '#c8d0e5', marginBottom: 20 }}>
-        通过 / 驳回会调用 API；需在根目录 <code style={{ color: '#9fb3ff' }}>.env</code> 配置{' '}
-        <code style={{ color: '#9fb3ff' }}>ADMIN_API_KEY</code>（与 API 一致）。
+        通过 / 驳回会调用 API；需在根目录 <code style={{ color: '#9fb3ff' }}>.env</code> 配置 具名
+        Editor 或 Owner 权限。
       </p>
 
       <section
@@ -334,14 +334,10 @@ export default async function AdminReviewsPage({
         <p style={{ color: '#7dffb3', marginBottom: 16 }}>已将失败任务重新入队（queued）。</p>
       ) : null}
       {err === 'config' ? (
-        <p style={{ color: '#ff8a8a', marginBottom: 16 }}>
-          Web 端未配置 ADMIN_API_KEY 或请求异常。
-        </p>
+        <p style={{ color: '#ff8a8a', marginBottom: 16 }}>管理会话不可用或请求异常。</p>
       ) : null}
       {err === 'unauthorized' ? (
-        <p style={{ color: '#ff8a8a', marginBottom: 16 }}>
-          密钥与 API 不一致（检查两端 ADMIN_API_KEY）。
-        </p>
+        <p style={{ color: '#ff8a8a', marginBottom: 16 }}>当前管理会话无权执行该操作。</p>
       ) : null}
       {err === 'approve' || err === 'reject' || err === 'request_changes' || err === 'resubmit' ? (
         <p style={{ color: '#ff8a8a', marginBottom: 16 }}>操作失败，请重试。</p>
@@ -408,15 +404,11 @@ export default async function AdminReviewsPage({
       ) : null}
 
       {result.ok === false && result.reason === 'no_key' ? (
-        <p style={{ color: '#ffb47d', marginBottom: 24 }}>
-          未设置 ADMIN_API_KEY：列表接口无法调用（请在 .env 中配置）。
-        </p>
+        <p style={{ color: '#ffb47d', marginBottom: 24 }}>管理会话不可用：请重新登录。</p>
       ) : null}
 
       {result.ok === false && result.reason === 'unauthorized' ? (
-        <p style={{ color: '#ff8a8a', marginBottom: 24 }}>
-          401：Web 与 API 的 ADMIN_API_KEY 不一致。
-        </p>
+        <p style={{ color: '#ff8a8a', marginBottom: 24 }}>当前管理会话已失效或权限不足。</p>
       ) : null}
 
       {result.ok === false && result.reason === 'bad_response' ? (

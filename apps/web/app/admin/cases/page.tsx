@@ -40,7 +40,7 @@ export default async function AdminCasesHubPage({
         输入已存在案例的 UUID，进入录入页：POST{' '}
         <code style={{ color: '#9fb3ff' }}>/v1/admin/cases/:caseId/evidence</code> 与{' '}
         <code style={{ color: '#9fb3ff' }}>failure-factors</code>，以及时间线 / 分析更新接口。需配置{' '}
-        <code style={{ color: '#9fb3ff' }}>ADMIN_API_KEY</code>。
+        具名 Editor 或 Owner 权限。
       </p>
 
       {err === 'invalid_case' ? (

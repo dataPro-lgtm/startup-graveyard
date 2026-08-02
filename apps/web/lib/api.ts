@@ -3,7 +3,6 @@ const SERVER_API_BASE_URL = process.env.API_BASE_URL ?? PUBLIC_API_BASE_URL;
 
 export const API_BASE_URL =
   typeof window === 'undefined' ? SERVER_API_BASE_URL : PUBLIC_API_BASE_URL;
-export const ADMIN_API_KEY = process.env.ADMIN_API_KEY ?? '';
 
 export function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
   return fetch(`${API_BASE_URL}${path}`, {

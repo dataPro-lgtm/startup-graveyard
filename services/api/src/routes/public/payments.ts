@@ -121,6 +121,144 @@ async function findUserIdFromStripeContext(
   return account?.id ?? null;
 }
 
+export async function processStripeEvent(
+  app: FastifyInstance,
+  stripe: Stripe,
+  event: Stripe.Event,
+): Promise<void> {
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object as Stripe.Checkout.Session;
+    const userId = session.client_reference_id ?? session.metadata?.userId ?? null;
+    const customerId =
+      typeof session.customer === 'string' ? session.customer : (session.customer?.id ?? null);
+    if (userId && customerId) {
+      await app.usersRepo.updateBillingAccount(userId, { stripeCustomerId: customerId });
+    }
+    if (userId && typeof session.subscription === 'string') {
+      const subscription = await stripe.subscriptions.retrieve(session.subscription);
+      const completedPlan = subscriptionFromStripeSubscription(subscription);
+      await applyStripeSubscriptionToUser(app, userId, subscription, customerId);
+      await app.billingFunnelRepo.record({
+        userId,
+        type: 'checkout_completed',
+        source: getBillingFlowSource(session.metadata?.source) ?? 'account_page',
+        plan: completedPlan === 'free' ? null : completedPlan,
+        detail:
+          completedPlan === 'team'
+            ? 'Stripe checkout 已完成，Team 订阅已开通。'
+            : 'Stripe checkout 已完成，Pro 订阅已开通。',
+        sourceEventId: event.id,
+      });
+    }
+  }
+
+  if (
+    event.type === 'customer.subscription.created' ||
+    event.type === 'customer.subscription.updated'
+  ) {
+    const subscription = event.data.object as Stripe.Subscription;
+    const userId = await findUserIdFromStripeContext(
+      app,
+      subscription.customer,
+      subscription.metadata,
+    );
+    const customerId =
+      typeof subscription.customer === 'string'
+        ? subscription.customer
+        : (subscription.customer?.id ?? null);
+    if (userId) {
+      const previousAccount = await app.usersRepo.getBillingAccount(userId);
+      await applyStripeSubscriptionToUser(app, userId, subscription, customerId);
+      const nextBillingStatus = stripeStatusToBillingStatus(subscription.status);
+      const nextPlan = subscriptionFromStripeSubscription(subscription);
+      const recoveredFromRisk =
+        previousAccount &&
+        previousAccount.subscription !== 'free' &&
+        (previousAccount.billingStatus === 'past_due' ||
+          previousAccount.billingStatus === 'canceled' ||
+          previousAccount.cancelAtPeriodEnd) &&
+        (nextBillingStatus === 'active' || nextBillingStatus === 'trialing') &&
+        !subscription.cancel_at_period_end;
+
+      if (recoveredFromRisk) {
+        await app.billingFunnelRepo.record({
+          userId,
+          type: 'subscription_recovered',
+          source: getBillingFlowSource(subscription.metadata?.source) ?? 'account_page',
+          plan: nextPlan === 'free' ? null : nextPlan,
+          detail:
+            nextPlan === 'team' ? 'Team 订阅已恢复到健康状态。' : 'Pro 订阅已恢复到健康状态。',
+          sourceEventId: event.id,
+        });
+      }
+    } else {
+      app.log.warn({ eventId: event.id }, 'subscription event missing identifiable user');
+    }
+  }
+
+  if (event.type === 'customer.subscription.deleted') {
+    const subscription = event.data.object as Stripe.Subscription;
+    const userId = await findUserIdFromStripeContext(
+      app,
+      subscription.customer,
+      subscription.metadata,
+    );
+    const customerId =
+      typeof subscription.customer === 'string'
+        ? subscription.customer
+        : (subscription.customer?.id ?? null);
+    if (userId) {
+      await app.usersRepo.updateBillingAccount(userId, {
+        subscription: 'free',
+        billingStatus: 'canceled',
+        billingInterval: null,
+        stripeCustomerId: customerId,
+        stripeSubscriptionId: null,
+        currentPeriodEnd: null,
+        cancelAtPeriodEnd: false,
+      });
+      await app.teamWorkspacesRepo.reconcileBillingForUser(userId);
+    }
+  }
+}
+
+export type StripeWebhookHandlingResult =
+  | { outcome: 'processed'; attemptCount: number }
+  | { outcome: 'duplicate'; attemptCount: number }
+  | { outcome: 'in_progress'; attemptCount: number };
+
+export async function handleStripeWebhookEvent(
+  app: FastifyInstance,
+  stripe: Stripe,
+  event: Stripe.Event,
+): Promise<StripeWebhookHandlingResult> {
+  const eventObject = event.data.object as { id?: unknown };
+  const claimed = await app.stripeWebhookEventsRepo.claim({
+    eventId: event.id,
+    eventType: event.type,
+    objectId: typeof eventObject.id === 'string' ? eventObject.id : null,
+    livemode: event.livemode,
+  });
+  if (!claimed.acquired) {
+    return {
+      outcome: claimed.reason === 'processed' ? 'duplicate' : 'in_progress',
+      attemptCount: claimed.record.attemptCount,
+    };
+  }
+
+  try {
+    await processStripeEvent(app, stripe, event);
+    if (!(await app.stripeWebhookEventsRepo.markProcessed(event.id, claimed.record.claimToken))) {
+      throw new Error(`stripe event processing lease lost: ${event.id}`);
+    }
+    return { outcome: 'processed', attemptCount: claimed.record.attemptCount };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await app.stripeWebhookEventsRepo.markFailed(event.id, claimed.record.claimToken, message);
+    throw error;
+  }
+}
+
 export async function paymentsRoutes(app: FastifyInstance) {
   app.addContentTypeParser(
     'application/json',
@@ -304,102 +442,25 @@ export async function paymentsRoutes(app: FastifyInstance) {
         return reply.code(400).send({ error: 'webhook_verification_failed', details: message });
       }
 
-      if (event.type === 'checkout.session.completed') {
-        const session = event.data.object as Stripe.Checkout.Session;
-        const userId = session.client_reference_id ?? session.metadata?.userId ?? null;
-        const customerId =
-          typeof session.customer === 'string' ? session.customer : (session.customer?.id ?? null);
-        if (userId && customerId) {
-          await app.usersRepo.updateBillingAccount(userId, {
-            stripeCustomerId: customerId,
+      try {
+        const handled = await handleStripeWebhookEvent(app, stripe, event);
+        if (handled.outcome === 'in_progress') {
+          return reply.code(409).send({
+            received: false,
+            retry: true,
+            reason: 'event_in_progress',
+            attemptCount: handled.attemptCount,
           });
         }
-        if (userId && typeof session.subscription === 'string') {
-          const subscription = await stripe.subscriptions.retrieve(session.subscription);
-          const completedPlan = subscriptionFromStripeSubscription(subscription);
-          await applyStripeSubscriptionToUser(app, userId, subscription, customerId);
-          await app.billingFunnelRepo.record({
-            userId,
-            type: 'checkout_completed',
-            source: getBillingFlowSource(session.metadata?.source) ?? 'account_page',
-            plan: completedPlan === 'free' ? null : completedPlan,
-            detail:
-              completedPlan === 'team'
-                ? 'Stripe checkout 已完成，Team 订阅已开通。'
-                : 'Stripe checkout 已完成，Pro 订阅已开通。',
-          });
-        }
+        return reply.send({
+          received: true,
+          duplicate: handled.outcome === 'duplicate',
+          attemptCount: handled.attemptCount,
+        });
+      } catch (error) {
+        app.log.error({ err: error, eventId: event.id }, 'Stripe webhook processing failed');
+        return reply.code(500).send({ error: 'webhook_processing_failed', retry: true });
       }
-
-      if (
-        event.type === 'customer.subscription.created' ||
-        event.type === 'customer.subscription.updated'
-      ) {
-        const subscription = event.data.object as Stripe.Subscription;
-        const userId = await findUserIdFromStripeContext(
-          app,
-          subscription.customer,
-          subscription.metadata,
-        );
-        const customerId =
-          typeof subscription.customer === 'string'
-            ? subscription.customer
-            : (subscription.customer?.id ?? null);
-        if (userId) {
-          const previousAccount = await app.usersRepo.getBillingAccount(userId);
-          await applyStripeSubscriptionToUser(app, userId, subscription, customerId);
-          const nextBillingStatus = stripeStatusToBillingStatus(subscription.status);
-          const nextPlan = subscriptionFromStripeSubscription(subscription);
-          const recoveredFromRisk =
-            previousAccount &&
-            previousAccount.subscription !== 'free' &&
-            (previousAccount.billingStatus === 'past_due' ||
-              previousAccount.billingStatus === 'canceled' ||
-              previousAccount.cancelAtPeriodEnd) &&
-            (nextBillingStatus === 'active' || nextBillingStatus === 'trialing') &&
-            !subscription.cancel_at_period_end;
-
-          if (recoveredFromRisk) {
-            await app.billingFunnelRepo.record({
-              userId,
-              type: 'subscription_recovered',
-              source: getBillingFlowSource(subscription.metadata?.source) ?? 'account_page',
-              plan: nextPlan === 'free' ? null : nextPlan,
-              detail:
-                nextPlan === 'team' ? 'Team 订阅已恢复到健康状态。' : 'Pro 订阅已恢复到健康状态。',
-            });
-          }
-        } else {
-          app.log.warn({ eventId: event.id }, 'subscription event missing identifiable user');
-        }
-      }
-
-      if (event.type === 'customer.subscription.deleted') {
-        const subscription = event.data.object as Stripe.Subscription;
-        const userId = await findUserIdFromStripeContext(
-          app,
-          subscription.customer,
-          subscription.metadata,
-        );
-        const customerId =
-          typeof subscription.customer === 'string'
-            ? subscription.customer
-            : (subscription.customer?.id ?? null);
-        if (userId) {
-          await app.usersRepo.updateBillingAccount(userId, {
-            subscription: 'free',
-            billingStatus: 'canceled',
-            billingInterval: null,
-            stripeCustomerId: customerId,
-            stripeSubscriptionId: null,
-            currentPeriodEnd: null,
-            cancelAtPeriodEnd: false,
-          });
-          await app.teamWorkspacesRepo.reconcileBillingForUser(userId);
-        }
-      }
-
-      return reply.send({ received: true });
     },
   );
 }

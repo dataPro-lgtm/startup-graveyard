@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
-import type { UserProfile } from '@sg/shared/schemas/auth';
+import type { AdminRole, UserProfile } from '@sg/shared/schemas/auth';
 import {
   type BillingInterval,
   type BillingStatus,
@@ -80,6 +80,7 @@ export interface UsersRepository {
   revokeSession(userId: string, sessionId: string): Promise<boolean>;
   revokeOtherSessions(userId: string, currentSessionId: string): Promise<number>;
   getById(id: string): Promise<UserProfile | null>;
+  setAdminRole(userId: string, adminRole: AdminRole | null): Promise<boolean>;
   getBillingAccount(userId: string): Promise<UserBillingAccount | null>;
   getBillingAccountByStripeCustomerId(customerId: string): Promise<UserBillingAccount | null>;
   getAdminMetrics(): Promise<SubscriptionAdminMetrics>;
@@ -100,6 +101,7 @@ interface UserRow {
   current_period_end: string | null;
   cancel_at_period_end: boolean;
   role: 'user' | 'admin';
+  admin_role: AdminRole | null;
   created_at: string;
 }
 
@@ -122,6 +124,7 @@ const USER_SELECT_COLUMNS = `
   current_period_end,
   cancel_at_period_end,
   role,
+  admin_role,
   created_at
 `;
 
@@ -159,6 +162,7 @@ function rowToProfile(row: UserRow): UserProfile {
       warningCodes: [],
     },
     role: row.role,
+    adminRole: row.admin_role,
     createdAt: row.created_at,
   };
 }
@@ -196,6 +200,7 @@ function createMockUserRecord(input: {
   passwordHash: string;
   displayName: string | null;
   role?: 'user' | 'admin';
+  adminRole?: AdminRole | null;
   subscription?: SubscriptionTier;
   billingStatus?: BillingStatus;
   billingInterval?: BillingInterval | null;
@@ -225,6 +230,7 @@ function createMockUserRecord(input: {
     current_period_end: currentPeriodEnd,
     cancel_at_period_end: cancelAtPeriodEnd,
     role: input.role ?? 'user',
+    admin_role: input.adminRole ?? (input.role === 'admin' ? 'owner' : null),
     created_at: createdAt,
   };
 
@@ -378,6 +384,29 @@ export class MockUsersRepository implements UsersRepository {
     return user ? this.toUserProfile(user) : null;
   }
 
+  async setAdminRole(userId: string, adminRole: AdminRole | null): Promise<boolean> {
+    const current = this.users.get(userId);
+    if (!current) return false;
+    const next = createMockUserRecord({
+      id: current.id,
+      email: current.email,
+      displayName: current.displayName,
+      passwordHash: current.passwordHash,
+      role: adminRole ? 'admin' : 'user',
+      adminRole,
+      subscription: current.subscription,
+      billingStatus: current.billingStatus,
+      billingInterval: current.billingInterval,
+      stripeCustomerId: current.stripeCustomerId,
+      stripeSubscriptionId: current.stripeSubscriptionId,
+      currentPeriodEnd: current.currentPeriodEnd,
+      cancelAtPeriodEnd: current.cancelAtPeriodEnd,
+      createdAt: current.createdAt,
+    });
+    this.users.set(userId, next);
+    return true;
+  }
+
   async getBillingAccount(userId: string): Promise<UserBillingAccount | null> {
     return this.users.get(userId) ?? null;
   }
@@ -431,6 +460,7 @@ export class MockUsersRepository implements UsersRepository {
       displayName: current.displayName,
       passwordHash: current.passwordHash,
       role: current.role,
+      adminRole: current.adminRole,
       subscription: patch.subscription ?? current.subscription,
       billingStatus: patch.billingStatus ?? current.billingStatus,
       billingInterval:
@@ -515,6 +545,7 @@ export class MockUsersRepository implements UsersRepository {
         warningCodes: [],
       },
       role: user.role,
+      adminRole: user.adminRole,
       createdAt: user.createdAt,
     };
   }
@@ -763,6 +794,18 @@ export class PgUsersRepository implements UsersRepository {
       [id],
     );
     return rows.length > 0 ? rowToProfile(rows[0]) : null;
+  }
+
+  async setAdminRole(userId: string, adminRole: AdminRole | null): Promise<boolean> {
+    const { rowCount } = await this.pool.query(
+      `UPDATE users
+       SET role = $2,
+           admin_role = $3,
+           updated_at = NOW()
+       WHERE id = $1`,
+      [userId, adminRole ? 'admin' : 'user', adminRole],
+    );
+    return (rowCount ?? 0) > 0;
   }
 
   async getBillingAccount(userId: string): Promise<UserBillingAccount | null> {

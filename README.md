@@ -169,8 +169,6 @@ WEB_BASE_URL=http://127.0.0.1:3000
 API_BASE_URL=http://127.0.0.1:18080
 NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:18080
 ADMIN_API_KEY=dev-admin-key
-ADMIN_UI_USERNAME=local-admin
-ADMIN_UI_PASSWORD=local-admin-password
 JWT_SECRET=change-me-in-production
 ```
 
@@ -228,7 +226,15 @@ For a production-Compose demo environment, start the stack and then apply the id
 - Cases admin: `http://127.0.0.1:3000/admin/cases`
 - API docs: `http://127.0.0.1:18080/docs`
 
-The `/admin/*` routes require `ADMIN_UI_USERNAME` and `ADMIN_UI_PASSWORD`; privileged Web-to-API calls continue to use the separate `ADMIN_API_KEY`.
+The `/admin/*` routes use a named administrator account and an independent HttpOnly Web session. Register the account normally, then bootstrap its role in PostgreSQL before visiting `/admin/login`:
+
+```sql
+UPDATE users
+SET role = 'admin', admin_role = 'owner', updated_at = NOW()
+WHERE email = 'operator@example.com';
+```
+
+Use `viewer`, `editor`, `operator`, or `owner` according to least privilege. `ADMIN_API_KEY` is optional and reserved for transitional non-browser automation through the explicit `X-Admin-Key` header.
 
 - Health: `http://127.0.0.1:18080/health`
 
