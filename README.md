@@ -1,351 +1,134 @@
 # Startup Graveyard
 
-> Open-source failure intelligence for founders, investors, and researchers.
+Failure intelligence for founders, investors, and research teams.
 
-Startup Graveyard turns startup postmortems into structured, queryable, explainable research assets.
+[![CI](https://github.com/dataPro-lgtm/startup-graveyard/actions/workflows/ci.yml/badge.svg)](https://github.com/dataPro-lgtm/startup-graveyard/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-2563eb.svg)](./LICENSE)
 
-中文辅助理解：把创业失败从“故事阅读”升级成“结构化研究资产”。
+Startup Graveyard turns startup postmortems into structured, comparable research assets. It combines a public case library, grounded analysis, reusable research outputs, and an evidence-gated publishing workflow.
 
-`Runnable alpha` · `Open source` · `40+ published seed cases`
+![Startup Graveyard product overview](./docs/assets/product-home.png)
 
-Visual placeholders and image prompts for the README live under [`docs/assets`](./docs/assets/README.md) and [`docs/IMAGE_PROMPTS.md`](./docs/IMAGE_PROMPTS.md).
+## Product
 
-## Why this exists
+| Area                  | What it provides                                                                                              |
+| --------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Case Explorer         | Filter 40 curated startup failures by industry, geography, business model, closure year, and failure pattern. |
+| Research Hub          | Start with repeatable research topics and compare patterns across cases.                                      |
+| Failure Copilot       | Ask archive-grounded questions with case-level context and graceful provider degradation.                     |
+| Research outputs      | Save views, maintain a watchlist, export Markdown or PDF briefs, and publish shareable links.                 |
+| Team Workspaces       | Share cases and saved views with role-aware workspace access and subscription controls.                       |
+| Publishing operations | Capture sources, attach evidence, normalize signals, review drafts, publish cases, and rebuild indexes.       |
 
-Most startup failure content is still trapped in anecdotal postmortems, scattered news coverage, and founder folklore.
+![Structured case detail with lessons and timeline](./docs/assets/product-case-detail.png)
 
-That format is useful for reading, but weak for research. It is hard to compare cases across sectors, markets, business models, and failure modes. It is even harder to ask practical questions like:
+## Case Lifecycle
 
-- Which failure patterns repeat across adjacent startups?
-- What signals usually show up before a shutdown?
-- How do marketplace, fintech, or climate startups fail differently?
-- What does a founder, investor, or product team need to study before repeating the same path?
-
-Startup Graveyard exists to answer those questions with structure instead of vibes.
-
-## What Startup Graveyard is
-
-Startup Graveyard is an open-source failure intelligence platform.
-
-It combines:
-
-- A structured case library of startup shutdowns and postmortems
-- Research workflows for filtering, saving, exporting, and sharing insight slices
-- Grounded analysis through Failure Copilot
-- Admin workflows for ingestion, review, evidence management, and publication
-- Platform primitives for search, indexing, taxonomy normalization, and research operations
-
-This repository is not a slide deck or static mock. It is a runnable alpha product with a working public surface, admin workflows, and an evolving commercial foundation.
-
-## Who it is for
-
-- Founders who want to study failure patterns before they scale into them
-- Investors who want structured downside pattern recognition, not isolated anecdotes
-- Researchers and analysts who need reusable case intelligence, not one-off reading notes
-- Product, strategy, and operating teams building internal research workflows around startup failure
-
-## What you can do with it
-
-- Explore a structured case dataset with filters across industry, country, business model, closure year, and primary failure reason
-- Open the Research Hub to start from reusable research questions instead of random browsing
-- Ask Failure Copilot grounded questions across the archive
-- Save case filters as reusable research views
-- Export Markdown and PDF research briefs
-- Publish shareable public brief links
-- Collaborate through Team Workspaces, shared saved views, and shared cases
-- Run admin review and ingestion flows from source snapshot to published case
-
-## How it works
+Every published case passes through the same evidence and review path.
 
 ![Startup Graveyard case lifecycle](./docs/assets/readme-case-lifecycle.png)
 
-The product already supports a real content production loop:
+1. Capture a source URL or create a manual draft.
+2. Preserve source snapshots and attach supporting evidence.
+3. Extract and normalize failure signals.
+4. Review evidence quality and publication readiness.
+5. Publish the case and make it available to search, reports, and Copilot.
 
-1. Capture or draft a case.
-2. Attach evidence and snapshots.
-3. Extract and normalize structured signals.
-4. Review and publish.
-5. Index for search, similarity, Copilot, and research outputs.
+## Architecture
 
-## Product architecture
+```mermaid
+flowchart LR
+    Browser["Browser"] --> Web["Next.js 16 Web"]
+    Web --> API["Fastify 5 API"]
+    API --> DB[("PostgreSQL 16 + pgvector")]
+    Worker["Ingestion worker"] --> DB
+    Scheduler["Scheduler"] --> DB
+    Scheduler --> Worker
+    API --> Services["AI, billing, and outbound services"]
+    Worker --> Services
+    API --> Telemetry["OpenTelemetry + Prometheus"]
+    Worker --> Telemetry
+    Scheduler --> Telemetry
+```
 
-The current architecture is organized around three layers.
+The API, ingestion worker, and scheduler run as separate production processes. PostgreSQL is the system of record for cases, identities, workspaces, jobs, runtime heartbeats, and alert delivery state. See the [target architecture](./docs/COMMERCIAL_PRODUCT_ARCHITECTURE.md), [deployment baseline](./docs/DEPLOYMENT.md), and [observability runbook](./docs/OBSERVABILITY_RUNBOOK.md) for operating details.
 
-### Public research surface
-
-- Homepage and case explorer
-- Research Hub
-- Case detail pages
-- Failure Copilot
-- Saved views, report export, and public brief shares
-
-### Admin and operations surface
-
-- Draft and review workflow
-- Evidence and source snapshot management
-- Ingestion handlers and scheduler triggers
-- Team billing recovery, outreach, and recovery playbooks
-- Ops dashboard for research, billing, and recovery workflows
-
-### Platform and data layer
-
-- PostgreSQL with `pgvector`, `pg_trgm`, and `citext`
-- Shared schema and OpenAPI contract layer
-- Search index and embedding pipelines
-- Taxonomy normalization and backfill jobs
-- Eval, telemetry, and commercial operations primitives
-
-## Why it is different
-
-Startup Graveyard is not trying to be a content farm, a meme archive, or a collection of startup horror stories.
-
-Its differentiation is structural:
-
-- The unit of value is a reusable research asset, not a pageview
-- Cases are normalized into comparable entities, factors, timelines, and lessons
-- Copilot is grounded in the case archive instead of free-form speculation
-- Outputs are shareable and operational: saved views, briefs, PDF exports, and team workflows
-- The repo includes both the public product and the operational machinery behind it
-
-## Current status
-
-This project is best described as a runnable alpha.
-
-What is true today:
-
-- The repository contains a working public product, admin surface, and platform workflows
-- The seed dataset includes 40+ published cases
-- Saved views, briefs, PDF exports, Team Workspaces, billing foundations, and recovery operations already exist
-- The system includes structured ingestion, indexing, eval, and operational instrumentation
-- Admin Dashboard now exposes platform diagnostics for runtime state, recent failed ingestion jobs, and derived operational alerts
-- The diagnostics layer also flags stale running ingestion jobs and gives operators a direct reclaim path from the dashboard
-- The platform layer now also exposes ingestion worker health, recent heartbeat history, last tick / last processed job, and stalled or erroring worker alerts
-- API, worker, and scheduler now run as isolated production processes; durable database heartbeats let Admin diagnostics observe the real background instances without coupling public availability to them
-- The dashboard now also shows ingestion queue backlog age and recent throughput, so operators can tell whether the worker is healthy but the queue is still accumulating
-- Operators can now capture point-in-time platform snapshots, keep a short diagnostics history, and also schedule recurring snapshot capture for queue / worker / alert drift
-- The dashboard now also summarizes snapshot trends, so operators can tell whether backlog, alert volume, or worker errors are actually improving over recent captures
-- The dashboard now also rolls those snapshots up into recent hourly windows, so operators can separate sustained degradation from a single noisy spike
-- The diagnostics layer now also flags `snapshot_trend_regressing` when the latest rollup window is measurably worse than the previous one, so operators get an actionable warning instead of just raw history
-- The platform layer now also tracks snapshot cadence, missed intervals, regression streak/severity, and alert suppression, so operators can tell whether a trend warning is new, severe, or already covered by more specific runtime alerts
-- The platform diagnostics now also expose a 24h snapshot metrics surface, including scheduled coverage, cadence adherence, regression-window count, and recent peak queue/alert/worker-error pressure
-- The platform diagnostics now also expose a suppression surface, so operators can see which regression windows were muted by stronger runtime alerts and which suppression reasons dominate recent history
-- Operators can now also export a platform snapshot ops report CSV directly from the dashboard, so the current cadence / regression / rollup state can be handed off outside the app
-- Operators can now also export a Markdown platform incident brief, so the same snapshot state can be handed to humans without reformatting dashboard content
-- API, worker, and scheduler now expose bounded-cardinality Prometheus metrics through private per-process ports and can export traces to an OTLP collector
-- Platform warning and critical alerts can be routed to webhook or Slack with PostgreSQL-backed cooldown, retry, escalation, and recovery state
-
-What is not true today:
-
-- This is not yet a polished production SaaS
-- The dataset is not yet at large-scale coverage
-- Some commercial and operational flows are still maturing behind the scenes
-
-Detailed maturity tracking lives in [`docs/PRODUCT_MATURITY_PLAN.md`](./docs/PRODUCT_MATURITY_PLAN.md).
-
-## Quickstart
+## Quick Start
 
 ### Prerequisites
 
-- Node.js 20+
-- pnpm 9+
-- Docker Desktop
-
-### Install dependencies
+- Node.js 22
+- pnpm 10
+- Docker Desktop or a compatible Docker Engine with Compose
 
 ```bash
+corepack enable
 pnpm install
-```
-
-### Configure environment variables
-
-```bash
 cp .env.example .env
-```
-
-Recommended minimum local setup:
-
-```bash
-NODE_ENV=development
-PORT=18080
-DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5433/sg
-WEB_BASE_URL=http://127.0.0.1:3000
-API_BASE_URL=http://127.0.0.1:18080
-NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:18080
-ADMIN_API_KEY=dev-admin-key
-JWT_SECRET=change-me-in-production
-```
-
-Optional integrations:
-
-- `OPENAI_API_KEY`
-- `ANTHROPIC_API_KEY`
-- `STRIPE_*`
-- recovery outreach / CRM / webhook / Slack env vars from `.env.example`
-- `OTEL_EXPORTER_OTLP_ENDPOINT` plus platform alert webhook / Slack variables from `.env.example`
-
-### Start and initialize the database
-
-Create a clean local database:
-
-```bash
 make db-reset
-```
-
-Or run the pieces separately:
-
-```bash
-make db-up
-make db-migrate
-make db-seed
-```
-
-### Run the product
-
-```bash
 make dev
 ```
 
-Useful variants:
+Open the product at:
 
-```bash
-make dev-api
-make dev-web
-pnpm build
-pnpm --filter @sg/api start
-pnpm --filter @sg/api start:worker
-pnpm --filter @sg/api start:scheduler
-pnpm --filter @sg/web start
-```
-
-Production images and the single-host deployment baseline are documented in [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md).
-
-Production metrics, traces, alert routing, and incident triage are documented in [`docs/OBSERVABILITY_RUNBOOK.md`](./docs/OBSERVABILITY_RUNBOOK.md).
-
-For a production-Compose demo environment, start the stack and then apply the idempotent sample dataset with `make prod-seed`. Normal production startup runs migrations only and never injects demo content.
-
-## Local URLs
-
-- Web home: `http://127.0.0.1:3000/`
+- Web: `http://127.0.0.1:3000`
 - Research Hub: `http://127.0.0.1:3000/research`
 - Failure Copilot: `http://127.0.0.1:3000/copilot`
-- Account: `http://127.0.0.1:3000/auth/account`
-- Ops dashboard: `http://127.0.0.1:3000/admin/dashboard`
-- Review queue: `http://127.0.0.1:3000/admin/reviews`
-- Cases admin: `http://127.0.0.1:3000/admin/cases`
-- API docs: `http://127.0.0.1:18080/docs`
+- API documentation: `http://127.0.0.1:18080/docs`
 
-The `/admin/*` routes use a named administrator account and an independent HttpOnly Web session. Register the account normally, then bootstrap its role in PostgreSQL before visiting `/admin/login`:
+The public research experience works without AI or billing credentials. Add `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` for generated Copilot answers and the relevant `STRIPE_*` values for subscription flows. Production configuration is documented in [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md).
 
-```sql
-UPDATE users
-SET role = 'admin', admin_role = 'owner', updated_at = NOW()
-WHERE email = 'operator@example.com';
+## Repository Map
+
+```text
+apps/web/                 Next.js product and admin interfaces
+services/api/             Fastify API, worker, scheduler, and domain services
+packages/shared/          Shared schemas and domain contracts
+packages/contracts/       OpenAPI specification
+db/migrations/            Ordered PostgreSQL migrations
+db/seed/                  Idempotent demo and evaluation data
+e2e/                      Playwright release journeys
+ops/docker/               Production container definitions
+ops/observability/        Prometheus configuration and alert rules
+docs/                     Architecture, deployment, operations, and roadmap
 ```
 
-Use `viewer`, `editor`, `operator`, or `owner` according to least privilege. `ADMIN_API_KEY` is optional and reserved for transitional non-browser automation through the explicit `X-Admin-Key` header.
+## Quality Gates
 
-- Health: `http://127.0.0.1:18080/health`
-
-## Tech stack
-
-### Web
-
-- Next.js 16 App Router
-- React 19
-- TypeScript
-
-### API
-
-- Fastify 5
-- Zod
-- TypeScript
-
-### Data and contracts
-
-- PostgreSQL 16
-- `pgvector`
-- `pg_trgm`
-- `citext`
-- shared schema package
-- OpenAPI contract package
-
-### AI and research primitives
-
-- OpenAI / Anthropic providers
-- vector indexing
-- eval datasets and replayable regression runs
-- prompt telemetry and cost tracking
-
-## Testing strategy
-
-The test strategy is layered.
-
-- Fast feedback through mock-repository API tests
-- PostgreSQL integration coverage for the main data and workflow paths
-- Playwright release coverage against an isolated PostgreSQL database and production API/Web builds
-- Contract and type safety through shared schemas and OpenAPI alignment
-- Build validation across API and web apps
-
-Common commands:
+Use the fast gate while developing:
 
 ```bash
-pnpm format:check
-pnpm lint
-pnpm typecheck
-pnpm --filter @sg/api test
-pnpm --filter @sg/api test:pg
+make ci
+```
+
+Use the release gate before merging:
+
+```bash
 pnpm exec playwright install chromium
-pnpm test:e2e
-pnpm build
 make ci-full
 ```
 
-`pnpm test:e2e` creates an isolated database, applies the real migrations and seed dataset, builds API/Web with isolated ports, and verifies public research, Pro delivery, mobile navigation, Copilot degradation, Team collaboration, and evidence-gated Admin publishing. Install Chromium once with `pnpm exec playwright install chromium`.
+`make ci-full` adds real PostgreSQL integration tests, production browser journeys, and Prometheus configuration validation. GitHub Actions runs the same release layers and exposes `CI OK` as the aggregate status.
 
-`make ci-full` is the local release gate. GitHub Actions runs the same layers and provisions real `pgvector/PostgreSQL` services for integration and browser coverage.
+## Project Status
 
-## Product maturity roadmap
+Startup Graveyard is a runnable alpha with 40 curated seed cases. The public research journey, evidence-gated publishing, personal research outputs, Team Workspace collaboration, production containers, isolated background runtimes, and operational telemetry are implemented and covered by release tests.
 
-The current roadmap is staged around four layers:
+The current limits are explicit:
 
-- `M1`: trusted data foundation
-- `M2`: research product loop
-- `M3`: commercial product loop
-- `M4`: platform hardening and operational maturity
-  - runtime diagnostics, failed-job visibility, alerting, tracing, runbooks, and production safety rails
+- The dataset is suitable for product validation, not broad market coverage.
+- AI and billing integrations require operator-owned provider accounts and production credentials.
+- The included deployment model is a single-host production baseline, not a managed multi-region platform.
+- Data quality, offline Copilot evaluation, Stripe lifecycle validation, and business SLOs remain active roadmap work.
 
-See the commercial target architecture and maturity scorecard in [`docs/COMMERCIAL_PRODUCT_ARCHITECTURE.md`](./docs/COMMERCIAL_PRODUCT_ARCHITECTURE.md), then follow the current execution plan in [`docs/PRODUCT_EXECUTION_PLAN.md`](./docs/PRODUCT_EXECUTION_PLAN.md). The detailed implementation history remains in [`docs/PRODUCT_MATURITY_PLAN.md`](./docs/PRODUCT_MATURITY_PLAN.md).
-
-## Repository highlights
-
-- [`apps/web/app/page.tsx`](./apps/web/app/page.tsx): homepage and research entry
-- [`apps/web/app/research/page.tsx`](./apps/web/app/research/page.tsx): Research Hub
-- [`apps/web/app/copilot/page.tsx`](./apps/web/app/copilot/page.tsx): Failure Copilot workbench
-- [`apps/web/app/components/SavedViewsManager.tsx`](./apps/web/app/components/SavedViewsManager.tsx): reusable research asset workflows
-- [`services/api/src/ingestion/`](./services/api/src/ingestion): snapshots, extraction, indexing, scheduler handlers
-- [`services/api/src/recoveryOutreach/`](./services/api/src/recoveryOutreach): recovery operations channels and playbooks
-- [`services/api/src/repositories/`](./services/api/src/repositories): mock and PostgreSQL implementations
-- [`packages/contracts/openapi/startup-graveyard.v1.yaml`](./packages/contracts/openapi/startup-graveyard.v1.yaml): API contract
+Current priorities and acceptance criteria are tracked in the [product execution plan](./docs/PRODUCT_EXECUTION_PLAN.md).
 
 ## Contributing
 
-Contributions are welcome, especially in these areas:
+Read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening a pull request. Contributions are particularly useful in case evidence, taxonomy quality, research workflows, evaluation coverage, and reliability.
 
-- New structured cases and evidence
-- Taxonomy, normalization, and labeling quality
-- Research workflows and insight UX
-- Copilot quality, eval coverage, and prompt iteration
-- Platform reliability and local developer experience
+Please report security issues through the private process in [SECURITY.md](./SECURITY.md), not through a public issue.
 
-Before changing outward-facing copy, read:
+## License
 
-- [`docs/README_NARRATIVE_GUIDE.md`](./docs/README_NARRATIVE_GUIDE.md)
-- [`docs/WEBSITE_MESSAGING_GUIDE.md`](./docs/WEBSITE_MESSAGING_GUIDE.md)
-- [`docs/IMAGE_PROMPTS.md`](./docs/IMAGE_PROMPTS.md)
-
-## Limitations
-
-- The dataset is still intentionally small and seed-stage
-- The product is still alpha, even though many flows are already runnable
-- Some internal ops and commercial workflows are more mature than the outward product surface
-- The current public positioning should stay disciplined: open-source, research-oriented, and credible
+Released under the [MIT License](./LICENSE).

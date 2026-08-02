@@ -1,17 +1,11 @@
-# Asset Placeholders
+# README Media
 
-This folder reserves the intended visual assets for the public narrative refactor.
+This directory contains public, repository-owned media used by the root README.
 
-Current files:
+| File                        | Source                                                                           |
+| --------------------------- | -------------------------------------------------------------------------------- |
+| `product-home.png`          | 1440 x 900 screenshot of the production Web image with the idempotent demo seed. |
+| `product-case-detail.png`   | 1440 x 900 screenshot of a seeded published case.                                |
+| `readme-case-lifecycle.png` | Project workflow diagram supplied by the repository owner.                       |
 
-- `readme-case-lifecycle.png` — uploaded workflow image used in the README `How it works` section
-
-Planned files:
-
-- `readme-hero-concept.png`
-- `readme-user-value-map.png`
-- `readme-product-architecture.png`
-
-The generation prompts live in [`../IMAGE_PROMPTS.md`](../IMAGE_PROMPTS.md).
-
-Additional files in this folder can be added over time as the public narrative gains real visual assets instead of placeholders.
+Product screenshots should show a clean seeded environment, contain no personal accounts or credentials, and be replaced when the visible workflow materially changes.

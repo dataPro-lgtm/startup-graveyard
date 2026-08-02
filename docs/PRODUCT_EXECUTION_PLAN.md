@@ -156,7 +156,7 @@ Startup Graveyard 已经具备可运行 alpha 的完整骨架，不再缺“功�
 - Admin API 已复用用户与可撤销设备会话，按 Viewer/Editor/Operator/Owner 能力授权并记录具名主体。
 - Admin Web 使用独立 Host-only HttpOnly 会话，支持服务端刷新、角色降级即时拒绝与显式退出；Web 不再持有共享管理密钥。
 - Stripe webhook 使用原子事件账本、处理租约、失败重试和 source event 唯一约束；平台指标暴露失败、卡住与重试情况。
-- Stage C 的完整退出标准、上线顺序与回滚边界见 `docs/STAGE_C_CLOSEOUT_PLAN.md`。
+- Stage C 的安全退出标准、上线顺序与回滚边界已经落实到发布门禁和 `docs/DEPLOYMENT.md`。
 - 认证注册/登录、token refresh、Copilot answer、报告生成、Stripe checkout/portal/webhook 已启用分层限流。
 - 有效登录用户按用户主体限流，匿名和无效凭据按可信客户端 IP 限流；令牌不会进入限流存储键。
 - 安全负向测试覆盖不受信来源无 CORS 授权、认证超频、refresh 独立预算、Copilot 与导出超频。

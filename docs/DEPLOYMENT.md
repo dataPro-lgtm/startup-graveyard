@@ -2,6 +2,8 @@
 
 The repository ships separate immutable images for database migrations, seed data, API/background runtimes, and Web. The production Compose file is a single-host baseline; use an external TLS ingress and secret manager in a public environment.
 
+The repository is intentionally not connected to Vercel Git deployment. A standalone Vercel Web build does not provide the required API, worker, scheduler, PostgreSQL, migration, or observability runtimes. Do not reconnect automatic Vercel deployments until a supported split-host topology, explicit Web root, backend endpoints, environment ownership, and release promotion path are defined.
+
 ## Required configuration
 
 Create a deployment environment file outside version control with at least:
