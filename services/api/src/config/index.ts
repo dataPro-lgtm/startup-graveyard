@@ -23,6 +23,18 @@ export const config = {
     return { jwtSecret: process.env.JWT_SECRET ?? 'change-me-in-production' };
   },
 
+  get web() {
+    return {
+      baseUrl: (
+        process.env.WEB_BASE_URL ??
+        process.env.NEXT_PUBLIC_APP_URL ??
+        'http://localhost:3000'
+      )
+        .trim()
+        .replace(/\/$/, ''),
+    };
+  },
+
   get openai() {
     return {
       apiKey: process.env.OPENAI_API_KEY?.trim() ?? '',

@@ -29,10 +29,6 @@ function getStripe(): Stripe {
   return new Stripe(config.stripe.secretKey);
 }
 
-function getAppUrl(): string {
-  return process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
-}
-
 function subscriptionFromMetadata(metadata: Stripe.Metadata | null | undefined): CheckoutPlan {
   return metadata?.plan === 'team' ? 'team' : 'pro';
 }
@@ -226,8 +222,8 @@ export async function paymentsRoutes(app: FastifyInstance) {
       subscription_data: {
         metadata: { userId: user.id, plan, source },
       },
-      success_url: `${getAppUrl()}/auth/account?upgraded=${plan}`,
-      cancel_url: `${getAppUrl()}/auth/account`,
+      success_url: `${config.web.baseUrl}/auth/account?upgraded=${plan}`,
+      cancel_url: `${config.web.baseUrl}/auth/account`,
     });
 
     await app.billingFunnelRepo.record({
@@ -273,7 +269,7 @@ export async function paymentsRoutes(app: FastifyInstance) {
     const stripe = getStripe();
     const session = await stripe.billingPortal.sessions.create({
       customer: user.stripeCustomerId,
-      return_url: `${getAppUrl()}/auth/account`,
+      return_url: `${config.web.baseUrl}/auth/account`,
     });
 
     await app.billingFunnelRepo.record({

@@ -9,6 +9,7 @@ export type EmbeddingProvider = 'openai' | 'deterministic';
 
 type CacheEntry = { at: number; vec: number[] };
 const queryCache = new Map<string, CacheEntry>();
+let queryEmbeddingRetryAfter = 0;
 
 function cacheKey(model: string, text: string): string {
   return `${model}\0${text}`;
@@ -48,6 +49,7 @@ export async function embedSearchQuery(text: string): Promise<number[] | null> {
   const trimmed = text.trim();
   if (!trimmed) return null;
   if (!config.hasOpenAI) return null;
+  if (Date.now() < queryEmbeddingRetryAfter) return null;
 
   const model = config.openai.embeddingModel;
   const ck = cacheKey(model, trimmed);
@@ -56,11 +58,15 @@ export async function embedSearchQuery(text: string): Promise<number[] | null> {
 
   try {
     const emb = await fetchEmbedding(trimmed, model);
-    if (!emb) return null;
+    if (!emb) {
+      queryEmbeddingRetryAfter = Date.now() + CACHE_TTL_MS;
+      return null;
+    }
     pruneCache();
     queryCache.set(ck, { at: Date.now(), vec: emb });
     return emb;
   } catch (e) {
+    queryEmbeddingRetryAfter = Date.now() + CACHE_TTL_MS;
     console.warn(`[openaiEmbed] ${e instanceof Error ? e.message : String(e)}`);
     return null;
   }

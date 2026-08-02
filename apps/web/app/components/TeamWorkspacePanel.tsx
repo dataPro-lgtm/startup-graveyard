@@ -122,7 +122,7 @@ function recoveryOutreachAudienceLabel(audience: TeamWorkspaceRecoveryOutreach['
 }
 
 export function TeamWorkspacePanel() {
-  const { user, loading } = useAuth();
+  const { user, loading, refresh } = useAuth();
   const [context, setContext] = useState<TeamWorkspaceContextResponse | null>(null);
   const [fetching, setFetching] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -254,6 +254,7 @@ export function TeamWorkspacePanel() {
       workspace: res.workspace,
       pendingInvites: [],
     });
+    await refresh();
     setMessage('你已经加入团队工作区。');
     notifyTeamWorkspaceUpdated();
   }

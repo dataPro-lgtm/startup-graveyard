@@ -169,6 +169,8 @@ WEB_BASE_URL=http://127.0.0.1:3000
 API_BASE_URL=http://127.0.0.1:18080
 NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:18080
 ADMIN_API_KEY=dev-admin-key
+ADMIN_UI_USERNAME=local-admin
+ADMIN_UI_PASSWORD=local-admin-password
 JWT_SECRET=change-me-in-production
 ```
 
@@ -213,6 +215,8 @@ pnpm --filter @sg/web start
 
 Production images and the single-host deployment baseline are documented in [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md).
 
+For a production-Compose demo environment, start the stack and then apply the idempotent sample dataset with `make prod-seed`. Normal production startup runs migrations only and never injects demo content.
+
 ## Local URLs
 
 - Web home: `http://127.0.0.1:3000/`
@@ -223,6 +227,9 @@ Production images and the single-host deployment baseline are documented in [`do
 - Review queue: `http://127.0.0.1:3000/admin/reviews`
 - Cases admin: `http://127.0.0.1:3000/admin/cases`
 - API docs: `http://127.0.0.1:18080/docs`
+
+The `/admin/*` routes require `ADMIN_UI_USERNAME` and `ADMIN_UI_PASSWORD`; privileged Web-to-API calls continue to use the separate `ADMIN_API_KEY`.
+
 - Health: `http://127.0.0.1:18080/health`
 
 ## Tech stack
@@ -261,6 +268,7 @@ The test strategy is layered.
 
 - Fast feedback through mock-repository API tests
 - PostgreSQL integration coverage for the main data and workflow paths
+- Playwright release coverage against an isolated PostgreSQL database and production API/Web builds
 - Contract and type safety through shared schemas and OpenAPI alignment
 - Build validation across API and web apps
 
@@ -272,11 +280,15 @@ pnpm lint
 pnpm typecheck
 pnpm --filter @sg/api test
 pnpm --filter @sg/api test:pg
+pnpm exec playwright install chromium
+pnpm test:e2e
 pnpm build
 make ci-full
 ```
 
-`make ci-full` is the local release gate. GitHub Actions runs the same layers and provisions a real `pgvector/PostgreSQL` service for migration and integration coverage.
+`pnpm test:e2e` creates an isolated database, applies the real migrations and seed dataset, builds API/Web with isolated ports, and verifies public research, Pro delivery, mobile navigation, Copilot degradation, Team collaboration, and evidence-gated Admin publishing. Install Chromium once with `pnpm exec playwright install chromium`.
+
+`make ci-full` is the local release gate. GitHub Actions runs the same layers and provisions real `pgvector/PostgreSQL` services for integration and browser coverage.
 
 ## Product maturity roadmap
 

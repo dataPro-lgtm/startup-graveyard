@@ -1,0 +1,8 @@
+FROM pgvector/pgvector:pg16
+
+COPY db/seed /seed
+COPY ops/docker/seed.sh /usr/local/bin/sg-seed
+
+RUN chmod 0555 /usr/local/bin/sg-seed
+
+ENTRYPOINT ["/usr/local/bin/sg-seed"]

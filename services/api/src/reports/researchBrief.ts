@@ -7,6 +7,7 @@ import {
   primaryFailureReasonLabel,
 } from '@sg/shared/taxonomy';
 import { buildSavedViewQueryString } from '@sg/shared/schemas/savedViews';
+import { config } from '../config/index.js';
 
 function formatUsd(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return 'N/A';
@@ -40,10 +41,6 @@ function topBuckets(values: Array<string | null | undefined>, labelFor: (key: st
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .slice(0, 3)
     .map(([key, count]) => `${labelFor(key)} (${count})`);
-}
-
-function appBaseUrl(): string {
-  return process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
 }
 
 export type ResearchBriefPayload = {
@@ -93,7 +90,7 @@ export async function buildResearchBrief(
   return {
     title: input.title,
     generatedAt: new Date().toISOString(),
-    sourceViewUrl: `${appBaseUrl()}${sourceViewPath}`,
+    sourceViewUrl: `${config.web.baseUrl}${sourceViewPath}`,
     sourceViewPath,
     filterSummary: summarizeFilters(input.filters),
     totalMatchingCases: result.total,
@@ -157,7 +154,7 @@ export function renderResearchBriefMarkdown(brief: ResearchBriefPayload): string
             : 'N/A'
         }`,
         `- Summary: ${item.summary}`,
-        `- Case URL: ${appBaseUrl()}/cases/s/${encodeURIComponent(item.slug)}`,
+        `- Case URL: ${config.web.baseUrl}/cases/s/${encodeURIComponent(item.slug)}`,
         '',
       ];
     }),

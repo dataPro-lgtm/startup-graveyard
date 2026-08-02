@@ -19,6 +19,8 @@ out/
 # Test coverage
 coverage/
 .playwright-cli/
+playwright-report/
+test-results/
 
 # OS
 .DS_Store
