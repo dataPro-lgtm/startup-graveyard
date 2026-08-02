@@ -98,14 +98,6 @@ jobs:
       - name: Run API tests
         run: pnpm --filter @sg/api test
 
-      - name: Upload coverage
-        uses: actions/upload-artifact@v5
-        if: always()
-        with:
-          name: coverage
-          path: services/api/coverage/
-          retention-days: 7
-
   postgres-integration:
     name: PostgreSQL Integration
     runs-on: ubuntu-latest
@@ -145,6 +137,57 @@ jobs:
         run: pnpm --filter @sg/api test:pg
         env:
           TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+
+  browser-e2e:
+    name: Browser Release Gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run browser release gate
+        run: pnpm test:e2e
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+
+      - name: Upload browser failure artifacts
+        uses: actions/upload-artifact@v5
+        if: failure()
+        with:
+          name: browser-release-gate
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 7
 
   # ─────────────────────────────────────────────────────────────────────────────
   # 4. Production build — validates everything compiles
@@ -207,7 +250,7 @@ jobs:
   ci-ok:
     name: CI OK
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, test, postgres-integration, build, container-build]
+    needs: [lint, typecheck, test, postgres-integration, browser-e2e, build, container-build]
     if: always()
     steps:
       - name: Check all jobs succeeded
@@ -216,6 +259,7 @@ jobs:
                 "${{ needs.typecheck.result }}" != "success" || \
                 "${{ needs.test.result }}" != "success" || \
                 "${{ needs.postgres-integration.result }}" != "success" || \
+                "${{ needs.browser-e2e.result }}" != "success" || \
                 "${{ needs.build.result }}" != "success" || \
                 "${{ needs.container-build.result }}" != "success" ]]; then
             echo "One or more CI jobs failed"

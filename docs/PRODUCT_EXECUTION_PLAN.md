@@ -10,17 +10,17 @@ Startup Graveyard 已经具备可运行 alpha 的完整骨架，不再缺“功�
 
 ## 2. 真实能力矩阵
 
-| 能力域         | 当前状态         | 已有证据                                            | 主要缺口                                                                 |
-| -------------- | ---------------- | --------------------------------------------------- | ------------------------------------------------------------------------ |
-| 公开研究       | Alpha 可用       | 案例检索、详情、Research Hub、Copilot、公开 brief   | 缺少浏览器级主流程发布门禁                                               |
-| 内容生产       | 主链已通         | URL snapshot、信号抽取、审核 gate、发布、索引回填   | PostgreSQL 回归尚未进入 CI；内容质量与覆盖规模仍不足                     |
-| 个人商业化     | 主链已通         | Watchlist、Saved Views、Markdown/PDF、公开分享      | Stripe sandbox 生命周期未形成端到端验收                                  |
-| Team Workspace | 功能较完整       | 邀请、席位、权限继承、共享资产、降级补偿            | 租户隔离与角色权限需要系统化安全回归                                     |
-| 订阅恢复运营   | 后台能力较深     | 恢复队列、邮件、CRM、Webhook、Slack、playbook       | 外部通道缺少 staging 级幂等和失败注入验证                                |
-| 平台运维       | 可观测基线已形成 | worker/queue/snapshot/regression/suppression/report | scheduler/worker 仍在 API 进程内；缺少 OTel 与独立告警出口               |
-| 交付工程       | 部分可靠         | lint、typecheck、mock tests、build、release tag     | 无部署产物、无 staging promotion、无 Web E2E；此前 CI 不跑真实数据库测试 |
-| 安全           | 仅具基础线       | admin 默认关闭、生产环境变量 fail-fast              | token 存 localStorage、CORS 全开放、无统一限流与会话设备治理             |
-| 可维护性       | 风险上升         | shared schema、OpenAPI、repository abstraction      | dashboard、stats、team repository 已形成超大文件；OpenAPI 仍靠人工同步   |
+| 能力域         | 当前状态         | 已有证据                                            | 主要缺口                                                               |
+| -------------- | ---------------- | --------------------------------------------------- | ---------------------------------------------------------------------- |
+| 公开研究       | Alpha 可用       | 案例检索、详情、Research Hub、Copilot、公开 brief   | 需扩充数据覆盖与 Copilot 离线评测                                      |
+| 内容生产       | 发布主链已验收   | URL snapshot、信号抽取、审核 gate、发布、索引回填   | 内容质量与覆盖规模仍不足                                               |
+| 个人商业化     | 浏览器主链已验收 | Watchlist、Saved Views、Markdown/PDF、公开分享      | Stripe sandbox 生命周期未形成端到端验收                                |
+| Team Workspace | 协作主链已验收   | 邀请、席位、权限继承、共享资产、降级补偿            | 租户隔离与角色权限需要系统化安全回归                                   |
+| 订阅恢复运营   | 后台能力较深     | 恢复队列、邮件、CRM、Webhook、Slack、playbook       | 外部通道缺少 staging 级幂等和失败注入验证                              |
+| 平台运维       | 可观测基线已形成 | worker/queue/snapshot/regression/suppression/report | scheduler/worker 仍在 API 进程内；缺少 OTel 与独立告警出口             |
+| 交付工程       | 单机发布可验证   | 生产镜像、真实 PostgreSQL、Playwright、CI 门禁      | 无 staging promotion、备份恢复演练和正式 rollback 验收                 |
+| 安全           | 外部试用前待加固 | Admin Web 边界、生产环境变量 fail-fast              | token 存 localStorage、CORS 全开放、无统一限流与会话设备治理           |
+| 可维护性       | 风险上升         | shared schema、OpenAPI、repository abstraction      | dashboard、stats、team repository 已形成超大文件；OpenAPI 仍靠人工同步 |
 
 ## 3. 业务主流程
 
@@ -124,6 +124,28 @@ Startup Graveyard 已经具备可运行 alpha 的完整骨架，不再缺“功�
 - 新增 migration、API、Web 三类生产镜像及单机生产 Compose 基线；启动顺序与健康检查已固化。
 - 生产 migration runner 已实现单迁移原子提交，并验证首次应用 34 个迁移、二次运行全部幂等跳过。
 - Next Web 已生成 standalone 产物，浏览器 API 地址改为使用 `NEXT_PUBLIC_API_BASE_URL`，不再错误回退到 `localhost:8080`。
-- 生产 Compose 已完成真实浏览器注册验收，客户端请求正确命中独立 API；自动化 Playwright 门禁仍属于阶段 B。
+- 生产 Compose 已完成真实浏览器注册验收，客户端请求正确命中独立 API。
 - 首次真实库门禁发现并修复了 timeline extraction 对 `started rapid expansion` 的误分类与重复事件问题。
-- 阶段 A 剩余工作是把浏览器主链提升为自动化发布门禁；该项作为阶段 B 的首个交付继续推进。
+- 阶段 A 已通过 PR #1 合并；阶段 B 已完成核心用户与内容发布主链验收。
+
+## 8. 阶段 B 当前落地
+
+- 新增一条命令的 Playwright runner：自动创建隔离 PostgreSQL 数据库、执行真实 migration/seed、构建 API/Web 并分配隔离端口。
+- 浏览器门禁覆盖公开案例、Pro 交付、移动导航、Copilot 降级、Team owner/member 协作与 Admin 证据门禁发布。
+- 浏览器门禁不向生产 API 增加测试后门；付费权益 fixture 直接作用于隔离测试数据库。
+- GitHub Actions 新增 `Browser Release Gate`，并纳入 `CI OK` 强制依赖。
+- Admin Web 已从公开导航移除，`/admin/*` 必须通过独立 UI 凭据；Web 代理仍使用独立 `ADMIN_API_KEY`。
+- 生产 Compose 默认只运行 migration，demo/验收数据由幂等 `prod-seed` 命令显式初始化。
+- Team 成员接受邀请后立即刷新有效权益；Copilot 在 AI provider 故障时减少重复 embedding 请求并收紧精确公司引用。
+
+## 9. 2026-08-02 用户角色审计与后续优先级
+
+本轮按匿名访客、Free/Pro 用户、Team owner/member 和内容运营员五类角色走查，阶段 B 退出标准已达成。
+
+| 优先级 | 下一阶段工作                                            | 验收标准                                             |
+| ------ | ------------------------------------------------------- | ---------------------------------------------------- |
+| P0     | 安全 cookie/session、CORS 白名单、auth/Copilot/导出限流 | 凭据不可被页面脚本读取，跨域和超频负向用例进入 CI    |
+| P0     | Team 跨租户读写矩阵与 Admin 应用角色                    | owner/admin/member/非成员对每类资源都有 API 负向测试 |
+| P1     | Stripe sandbox 全生命周期与外部通道失败注入             | checkout、升降级、past-due、恢复、重放均可自动验收   |
+| P1     | worker/scheduler 进程解耦、OTel 与告警出口              | worker 故障不拖垮 API，关键任务有 trace/metric/alert |
+| P2     | 200+ 证据化案例、Copilot offline eval 与 nightly gate   | 引用命中、幻觉、降级和数据质量指标连续达标           |

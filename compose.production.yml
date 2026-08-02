@@ -31,6 +31,18 @@ services:
         condition: service_healthy
     restart: 'no'
 
+  seed:
+    profiles: [demo]
+    build:
+      context: .
+      dockerfile: ops/docker/Dockerfile.seed
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: 'no'
+
   api:
     build:
       context: .
@@ -78,6 +90,8 @@ services:
     environment:
       API_BASE_URL: http://api:18080
       ADMIN_API_KEY: ${ADMIN_API_KEY:?ADMIN_API_KEY is required}
+      ADMIN_UI_USERNAME: ${ADMIN_UI_USERNAME:?ADMIN_UI_USERNAME is required}
+      ADMIN_UI_PASSWORD: ${ADMIN_UI_PASSWORD:?ADMIN_UI_PASSWORD is required}
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://127.0.0.1:18080}
       NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://127.0.0.1:3000}
     ports:

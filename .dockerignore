@@ -1,6 +1,8 @@
 .git
 .github
 .playwright-cli
+playwright-report
+test-results
 .turbo
 **/.DS_Store
 **/.next

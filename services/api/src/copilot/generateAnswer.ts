@@ -1,7 +1,6 @@
 import { COPILOT_PROMPT_VERSION, COPILOT_SYSTEM_PROMPT } from '../ai/copilotPrompt.js';
-import { embedSearchQuery } from '../ai/openaiEmbed.js';
 import { getProvider } from '../ai/llm.js';
-import type { CaseDetail, CasesRepository } from '../repositories/casesRepository.js';
+import type { CaseDetail, CaseListItem, CasesRepository } from '../repositories/casesRepository.js';
 import type { CopilotCitation, CopilotFallbackReason } from '@sg/shared/schemas/copilot';
 
 export type CopilotConversationTurn = {
@@ -81,7 +80,117 @@ function buildConversationHistory(history: CopilotConversationTurn[]): string {
     .join('\n');
 }
 
-function buildFallbackAnswer(question: string, cases: CaseDetail[]): string {
+const RETRIEVAL_HINTS = [
+  '产品市场契合',
+  '共享出行',
+  '流媒体',
+  '创始人',
+  '单位经济',
+  '房地产',
+  '现金流',
+  '监管',
+  '扩张',
+  '硬件',
+  '补贴',
+  '平台',
+  '融资',
+  '竞争',
+  '治理',
+  '电商',
+  '教育',
+] as const;
+
+const ASCII_STOP_WORDS = new Set([
+  'what',
+  'when',
+  'where',
+  'which',
+  'why',
+  'with',
+  'from',
+  'have',
+  'startup',
+  'startups',
+  'failure',
+  'failures',
+]);
+
+function focusedRetrievalQueries(question: string): string[] {
+  const ascii = question.match(/[a-z][a-z0-9.-]{2,}/gi) ?? [];
+  const names = ascii.filter((token) => !ASCII_STOP_WORDS.has(token.toLowerCase()));
+  const topics = RETRIEVAL_HINTS.filter((hint) => question.includes(hint));
+  return [...new Set([...names, ...topics])].slice(0, 4);
+}
+
+function lexicalScore(item: CaseListItem, query: string): number {
+  const normalizedQuery = query.toLowerCase();
+  if (
+    item.companyName.toLowerCase() === normalizedQuery ||
+    item.slug.toLowerCase() === normalizedQuery
+  ) {
+    return 3;
+  }
+  const searchable = `${item.companyName}\n${item.summary}\n${item.keyLessons ?? ''}`.toLowerCase();
+  return searchable.includes(normalizedQuery) ? 2 : 0;
+}
+
+async function retrieveCaseIds(
+  casesRepo: CasesRepository,
+  question: string,
+  topK: number,
+): Promise<string[]> {
+  const focusedQueries = focusedRetrievalQueries(question);
+  const [broad, focused] = await Promise.all([
+    casesRepo.list({ q: question, page: 1, limit: topK, sort: 'relevance' }),
+    Promise.all(
+      focusedQueries.map(async (query) => {
+        const result = await casesRepo.list({
+          q: query,
+          page: 1,
+          limit: Math.max(topK, 6),
+          sort: 'updated_at',
+        });
+        return result.items
+          .map((item) => ({ item, score: lexicalScore(item, query) }))
+          .sort((left, right) => right.score - left.score)
+          .map(({ item }) => item);
+      }),
+    ),
+  ]);
+
+  const focusedItems = focused.flat();
+  const exactAnchor = focusedItems.find((item) =>
+    focusedQueries.some((query) => lexicalScore(item, query) === 3),
+  );
+  const sameIndustry = exactAnchor
+    ? await casesRepo.list({
+        industry: exactAnchor.industry,
+        page: 1,
+        limit: Math.max(topK + 1, 6),
+        sort: 'updated_at',
+      })
+    : null;
+
+  const lexicalMatches = focusedItems.filter((item) =>
+    focusedQueries.some((query) => lexicalScore(item, query) > 0),
+  );
+  const candidates = exactAnchor
+    ? [exactAnchor, ...lexicalMatches, ...(sameIndustry?.items ?? [])]
+    : [...lexicalMatches, ...broad.items];
+
+  return candidates
+    .filter(
+      (item, index, items) => items.findIndex((candidate) => candidate.id === item.id) === index,
+    )
+    .slice(0, topK)
+    .map((item) => item.id);
+}
+
+function buildFallbackAnswer(
+  question: string,
+  cases: CaseDetail[],
+  reason: CopilotFallbackReason,
+): string {
   if (cases.length === 0) {
     return `关于"${question}"，当前知识库中暂未找到高度相关的失败案例。请尝试调整关键词，或先固定几个你想比较的案例后继续提问。`;
   }
@@ -100,7 +209,11 @@ function buildFallbackAnswer(question: string, cases: CaseDetail[]): string {
       )
       .join('\n\n') +
     (reasons.length > 0 ? `\n\n高频失败主因：${reasons.join('、')}。` : '') +
-    `\n\n（注：当前为规则摘要模式，未调用 LLM。配置 OPENAI_API_KEY 可获得更深度的分析。）`
+    `\n\n（注：${
+      reason === 'provider_error'
+        ? 'AI 服务调用失败，本次已自动切换到规则摘要模式。'
+        : '当前未启用可用的 AI 服务，本次使用规则摘要模式。'
+    }）`
   );
 }
 
@@ -126,21 +239,8 @@ export async function generateCopilotAnswer(
   const pinnedCaseIds = [...new Set(input.pinnedCaseIds)];
   const pinnedIdSet = new Set(pinnedCaseIds);
 
-  try {
-    const qVec = await embedSearchQuery(question);
-    void qVec;
-  } catch {
-    // silent degradation to full-text
-  }
-
-  const listResult = await casesRepo.list({
-    q: question,
-    page: 1,
-    limit: topK,
-    sort: 'relevance',
-  });
-
-  const candidateIds = [...new Set([...pinnedCaseIds, ...listResult.items.map((item) => item.id)])];
+  const retrievedIds = await retrieveCaseIds(casesRepo, question, topK);
+  const candidateIds = [...new Set([...pinnedCaseIds, ...retrievedIds])];
   const details = await fetchCaseDetails(casesRepo, candidateIds);
   const citations = buildCitations(details, pinnedIdSet);
   const answerStartedAt = Date.now();
@@ -156,13 +256,13 @@ export async function generateCopilotAnswer(
   let estimatedCostUsd: number | null = null;
 
   if (details.length === 0) {
-    answer = buildFallbackAnswer(question, []);
+    answer = buildFallbackAnswer(question, [], 'no_relevant_cases');
     grounded = false;
     fallbackReason = 'no_relevant_cases';
   } else {
     const provider = getProvider();
     if (!provider) {
-      answer = buildFallbackAnswer(question, details);
+      answer = buildFallbackAnswer(question, details, 'provider_unavailable');
       grounded = false;
       fallbackReason = 'provider_unavailable';
     } else {
@@ -190,7 +290,7 @@ export async function generateCopilotAnswer(
         estimatedCostUsd = completion.usage.estimatedCostUsd;
       } catch (error) {
         input.onProviderError?.(error);
-        answer = buildFallbackAnswer(question, details);
+        answer = buildFallbackAnswer(question, details, 'provider_error');
         grounded = false;
         fallbackReason = 'provider_error';
       }

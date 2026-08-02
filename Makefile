@@ -1,6 +1,6 @@
 # Startup Graveyard — Developer Commands
 # Usage: make <target>
-.PHONY: help dev build test test-pg typecheck lint format validate-migrations containers-build db-up db-down db-migrate db-seed db-reset embed clean ci ci-full
+.PHONY: help dev build test test-pg test-e2e typecheck lint format validate-migrations containers-build prod-seed db-up db-down db-migrate db-seed db-reset embed clean ci ci-full
 
 SHELL := /bin/bash
 
@@ -38,6 +38,9 @@ test: ## Run all tests
 test-pg: ## Run API PostgreSQL integration tests
 	pnpm --filter @sg/api test:pg
 
+test-e2e: ## Run the production browser release gate in an isolated database
+	pnpm test:e2e
+
 typecheck: ## TypeScript type check all packages
 	pnpm typecheck
 
@@ -58,10 +61,13 @@ validate-migrations: ## Validate migration filenames and sequence ownership
 
 ci: format-check validate-migrations lint typecheck test build ## Full CI pipeline (local)
 
-ci-full: ci test-pg ## Full release gate including PostgreSQL integration tests
+ci-full: ci test-pg test-e2e ## Full release gate including PostgreSQL and browser tests
 
-containers-build: ## Build production migration, API, and Web images
+containers-build: ## Build production migration, seed, API, and Web images
 	pnpm containers:build
+
+prod-seed: ## Seed the production Compose database for local demo/acceptance only
+	docker compose -f compose.production.yml --profile demo run --rm seed
 
 # ── Database ──────────────────────────────────────────────────────────────────
 db-up: ## Start Postgres via docker-compose

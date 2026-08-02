@@ -17,6 +17,7 @@ import { buildResearchBrief, renderResearchBriefMarkdown } from '../../reports/r
 import { renderResearchBriefPdf } from '../../reports/renderResearchBriefPdf.js';
 import type { ReportShareItemRecord } from '../../repositories/reportSharesRepository.js';
 import { requireEffectiveUser } from './authedUser.js';
+import { config } from '../../config/index.js';
 
 function slugifyFilename(input: string): string {
   const normalized = input
@@ -27,10 +28,6 @@ function slugifyFilename(input: string): string {
   return normalized || 'research-view';
 }
 
-function appBaseUrl(): string {
-  return process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000';
-}
-
 function sharePath(shareToken: string): string {
   return `/research/brief/${encodeURIComponent(shareToken)}`;
 }
@@ -39,7 +36,7 @@ function toShareItem(item: ReportShareItemRecord) {
   return {
     ...item,
     sharePath: sharePath(item.shareToken),
-    shareUrl: `${appBaseUrl()}${sharePath(item.shareToken)}`,
+    shareUrl: `${config.web.baseUrl}${sharePath(item.shareToken)}`,
   };
 }
 
@@ -190,7 +187,7 @@ export async function reportsRoutes(app: FastifyInstance) {
         ownerDisplayName: share.ownerDisplayName,
         shareToken: share.shareToken,
         sharePath: sharePath(share.shareToken),
-        shareUrl: `${appBaseUrl()}${sharePath(share.shareToken)}`,
+        shareUrl: `${config.web.baseUrl}${sharePath(share.shareToken)}`,
         createdAt: share.createdAt,
         updatedAt: share.updatedAt,
         lastAccessedAt: share.lastAccessedAt,
@@ -216,7 +213,7 @@ export async function reportsRoutes(app: FastifyInstance) {
     });
     const pdfBuffer = await renderResearchBriefPdf(brief, {
       ownerDisplayName: share.ownerDisplayName,
-      shareUrl: `${appBaseUrl()}${sharePath(share.shareToken)}`,
+      shareUrl: `${config.web.baseUrl}${sharePath(share.shareToken)}`,
     });
 
     return reply

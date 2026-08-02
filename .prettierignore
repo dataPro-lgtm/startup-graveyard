@@ -3,6 +3,8 @@ dist
 .next
 coverage
 .playwright-cli
+playwright-report
+test-results
 .turbo
 pnpm-lock.yaml
 *.sql
