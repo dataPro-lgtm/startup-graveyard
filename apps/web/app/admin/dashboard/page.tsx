@@ -569,6 +569,7 @@ function platformAlertSeverityColor(
 
 function workerStatusLabel(status: AdminStats['platform']['worker']['status']): string {
   if (status === 'disabled') return 'Disabled';
+  if (status === 'starting') return 'Starting';
   if (status === 'idle') return 'Idle';
   if (status === 'processing') return 'Processing';
   if (status === 'error') return 'Error';
@@ -985,6 +986,23 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
           }
         />
         <KpiCard
+          label="Scheduler"
+          value={workerStatusLabel(platformStats.scheduler.status)}
+          sub={
+            platformStats.scheduler.lastEnqueuedAt
+              ? `最近派发 ${formatDateTime(platformStats.scheduler.lastEnqueuedAt)}`
+              : '尚未自动派发任务'
+          }
+          color={
+            platformStats.scheduler.status === 'error' ||
+            platformStats.scheduler.consecutiveErrors > 0
+              ? '#fb7185'
+              : platformStats.scheduler.status === 'processing'
+                ? '#f59e0b'
+                : '#22c55e'
+          }
+        />
+        <KpiCard
           label="Runtime"
           value={platformStats.runtime.features.mockMode ? 'Mock' : 'Live'}
           sub={`${platformStats.runtime.env} · ${platformStats.runtime.features.aiProvider}`}
@@ -1063,6 +1081,16 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
                       ? '#f59e0b'
                       : '#22c55e',
                 ],
+                [
+                  'Scheduler',
+                  workerStatusLabel(platformStats.scheduler.status),
+                  platformStats.scheduler.status === 'error' ||
+                  platformStats.scheduler.consecutiveErrors > 0
+                    ? '#fb7185'
+                    : platformStats.scheduler.status === 'processing'
+                      ? '#f59e0b'
+                      : '#22c55e',
+                ],
               ].map(([label, value, color]) => (
                 <div
                   key={label}
@@ -1103,6 +1131,11 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
                   : ''}
               </div>
               <div style={{ color: '#8a96b0', fontSize: 12 }}>
+                source {platformStats.worker.source} · instance{' '}
+                {platformStats.worker.instanceId ?? 'local'} · heartbeat{' '}
+                {formatDateTime(platformStats.worker.heartbeatAt)}
+              </div>
+              <div style={{ color: '#8a96b0', fontSize: 12 }}>
                 启动 {formatDateTime(platformStats.worker.startedAt)} · 最近 tick 开始{' '}
                 {formatDateTime(platformStats.worker.lastTickStartedAt)} · 最近 tick 完成{' '}
                 {formatDateTime(platformStats.worker.lastTickCompletedAt)}
@@ -1118,6 +1151,37 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
               {platformStats.worker.lastError ? (
                 <div style={{ color: '#fecaca', fontSize: 12 }}>
                   最近错误：{platformStats.worker.lastError}
+                </div>
+              ) : null}
+            </div>
+            <div
+              style={{
+                border: '1px solid #24314f',
+                borderRadius: 12,
+                background: '#0d1426',
+                padding: '12px 14px',
+                display: 'grid',
+                gap: 6,
+              }}
+            >
+              <div style={{ fontWeight: 700, fontSize: 13 }}>Scheduler Health</div>
+              <div style={{ color: '#d7deef', fontSize: 13 }}>
+                已派发 {platformStats.scheduler.enqueuedJobs} 条任务 · 状态{' '}
+                {workerStatusLabel(platformStats.scheduler.status)}
+              </div>
+              <div style={{ color: '#8a96b0', fontSize: 12 }}>
+                source {platformStats.scheduler.source} · instance{' '}
+                {platformStats.scheduler.instanceId ?? 'local'} · heartbeat{' '}
+                {formatDateTime(platformStats.scheduler.heartbeatAt)}
+              </div>
+              <div style={{ color: '#8a96b0', fontSize: 12 }}>
+                启动 {formatDateTime(platformStats.scheduler.startedAt)} · 最近 tick{' '}
+                {formatDateTime(platformStats.scheduler.lastTickCompletedAt)} · 最近派发{' '}
+                {formatDateTime(platformStats.scheduler.lastEnqueuedAt)}
+              </div>
+              {platformStats.scheduler.lastError ? (
+                <div style={{ color: '#fecaca', fontSize: 12 }}>
+                  最近错误：{platformStats.scheduler.lastError}
                 </div>
               ) : null}
             </div>

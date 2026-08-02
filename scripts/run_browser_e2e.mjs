@@ -84,7 +84,12 @@ async function main() {
       `[browser-e2e] applied ${migrations.length} migrations and ${seeds.length} seed files`,
     );
 
-    const [apiPort, webPort] = await Promise.all([getAvailablePort(), getAvailablePort()]);
+    const [apiPort, webPort, workerHealthPort, schedulerHealthPort] = await Promise.all([
+      getAvailablePort(),
+      getAvailablePort(),
+      getAvailablePort(),
+      getAvailablePort(),
+    ]);
     const apiBaseUrl = `http://127.0.0.1:${apiPort}`;
     const webBaseUrl = `http://127.0.0.1:${webPort}`;
     const env = {
@@ -94,6 +99,8 @@ async function main() {
       PORT: String(apiPort),
       E2E_API_PORT: String(apiPort),
       E2E_WEB_PORT: String(webPort),
+      E2E_WORKER_HEALTH_PORT: String(workerHealthPort),
+      E2E_SCHEDULER_HEALTH_PORT: String(schedulerHealthPort),
       E2E_API_BASE_URL: apiBaseUrl,
       E2E_WEB_BASE_URL: webBaseUrl,
       API_BASE_URL: apiBaseUrl,

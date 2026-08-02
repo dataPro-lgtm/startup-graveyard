@@ -44,12 +44,14 @@ services:
     restart: 'no'
 
   api:
+    image: startup-graveyard-api:${IMAGE_TAG:-local}
     build:
       context: .
       dockerfile: ops/docker/Dockerfile.api
     restart: unless-stopped
     environment:
       NODE_ENV: production
+      SG_RUNTIME_ROLE: api
       PORT: 18080
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       WEB_BASE_URL: ${WEB_BASE_URL:?WEB_BASE_URL is required}
@@ -90,6 +92,70 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+
+  worker:
+    image: startup-graveyard-api:${IMAGE_TAG:-local}
+    command: ['node', 'services/api/dist/workerProcess.js']
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      SG_RUNTIME_ROLE: worker
+      RUNTIME_HEALTH_PORT: 18081
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      TEAM_WORKSPACE_RECOVERY_EMAIL_SMTP_HOST: ${TEAM_WORKSPACE_RECOVERY_EMAIL_SMTP_HOST:-}
+      TEAM_WORKSPACE_RECOVERY_EMAIL_SMTP_PORT: ${TEAM_WORKSPACE_RECOVERY_EMAIL_SMTP_PORT:-587}
+      TEAM_WORKSPACE_RECOVERY_EMAIL_SMTP_SECURE: ${TEAM_WORKSPACE_RECOVERY_EMAIL_SMTP_SECURE:-false}
+      TEAM_WORKSPACE_RECOVERY_EMAIL_SMTP_USER: ${TEAM_WORKSPACE_RECOVERY_EMAIL_SMTP_USER:-}
+      TEAM_WORKSPACE_RECOVERY_EMAIL_SMTP_PASS: ${TEAM_WORKSPACE_RECOVERY_EMAIL_SMTP_PASS:-}
+      TEAM_WORKSPACE_RECOVERY_EMAIL_FROM: ${TEAM_WORKSPACE_RECOVERY_EMAIL_FROM:-}
+      TEAM_WORKSPACE_RECOVERY_EMAIL_REPLY_TO: ${TEAM_WORKSPACE_RECOVERY_EMAIL_REPLY_TO:-}
+      TEAM_WORKSPACE_RECOVERY_WEBHOOK_URL: ${TEAM_WORKSPACE_RECOVERY_WEBHOOK_URL:-}
+      TEAM_WORKSPACE_RECOVERY_WEBHOOK_BEARER_TOKEN: ${TEAM_WORKSPACE_RECOVERY_WEBHOOK_BEARER_TOKEN:-}
+      TEAM_WORKSPACE_RECOVERY_SLACK_WEBHOOK_URL: ${TEAM_WORKSPACE_RECOVERY_SLACK_WEBHOOK_URL:-}
+      TEAM_WORKSPACE_RECOVERY_CRM_API_URL: ${TEAM_WORKSPACE_RECOVERY_CRM_API_URL:-}
+      TEAM_WORKSPACE_RECOVERY_CRM_API_BEARER_TOKEN: ${TEAM_WORKSPACE_RECOVERY_CRM_API_BEARER_TOKEN:-}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:18081/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      start_period: 15s
+      retries: 5
+
+  scheduler:
+    image: startup-graveyard-api:${IMAGE_TAG:-local}
+    command: ['node', 'services/api/dist/schedulerProcess.js']
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      SG_RUNTIME_ROLE: scheduler
+      RUNTIME_HEALTH_PORT: 18082
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:18082/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      start_period: 15s
+      retries: 5
 
   web:
     build:

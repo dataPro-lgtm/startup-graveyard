@@ -1,6 +1,6 @@
 # Production deployment baseline
 
-The repository ships separate immutable images for database migrations, API, and Web. The production Compose file is a single-host baseline; use an external TLS ingress and secret manager in a public environment.
+The repository ships separate immutable images for database migrations, seed data, API/background runtimes, and Web. The production Compose file is a single-host baseline; use an external TLS ingress and secret manager in a public environment.
 
 ## Required configuration
 
@@ -39,6 +39,8 @@ WHERE email IN ('owner-one@example.com', 'owner-two@example.com');
 
 Migration `0036_stripe_webhook_events.sql` adds the Stripe event ledger and source-event uniqueness for billing funnel side effects. Processed duplicates receive HTTP 200, concurrent leases receive HTTP 409 for retry, and failed processing receives HTTP 500 after the failure is persisted. Monitor `platform.stripeWebhooks` and the `stripe_webhook_failures` platform alert after rollout.
 
+Migration `0037_runtime_process_heartbeats.sql` records worker and scheduler instance health. It is additive and may be retained during rollback. Admin diagnostics use the newest durable heartbeat rather than API process memory.
+
 High-risk API routes are rate-limited by default in production. Defaults use a 60-second window with separate budgets for auth (10), token refresh (30), Copilot (20), report export (10), billing mutations (10), and Stripe webhooks (120). Override the corresponding `RATE_LIMIT_*` variables only after load testing; production startup rejects `RATE_LIMIT_ENABLED=false`.
 
 ## Build and start
@@ -51,9 +53,20 @@ docker compose --env-file /secure/path/startup-graveyard.env \
   -f compose.production.yml up -d
 ```
 
+The production topology runs four long-lived services:
+
+- `api`: HTTP-only Fastify process on port `18080`; it does not start background timers.
+- `worker`: consumes queued ingestion jobs and exposes internal readiness on port `18081`.
+- `scheduler`: claims due schedules and exposes internal readiness on port `18082`.
+- `web`: Next.js application that depends only on API readiness.
+
+API, worker, and scheduler use the same immutable API image digest with different commands. Set `IMAGE_TAG` to the promoted release tag; do not build role-specific application images.
+
 Startup ordering is enforced as:
 
-`PostgreSQL healthy -> migrations complete -> API ready -> Web`
+`PostgreSQL healthy -> migrations complete -> API / worker / scheduler`, then `API ready -> Web`
+
+Worker and scheduler are intentionally not API startup dependencies. Their failure raises Admin alerts without taking the public API offline.
 
 The production database is intentionally not seeded during normal startup. For a disposable demo or acceptance environment only, apply the versioned sample dataset once with:
 
@@ -69,9 +82,34 @@ The seed runner records every applied file in `schema_seeds`, so rerunning the c
 ```bash
 curl --fail https://api.example.com/health/ready
 curl --fail https://app.example.com/
+
+docker compose --env-file /secure/path/startup-graveyard.env \
+  -f compose.production.yml exec worker node -e \
+  "fetch('http://127.0.0.1:18081/health/ready').then(async r=>{console.log(r.status,await r.text());if(!r.ok)process.exit(1)})"
+
+docker compose --env-file /secure/path/startup-graveyard.env \
+  -f compose.production.yml exec scheduler node -e \
+  "fetch('http://127.0.0.1:18082/health/ready').then(async r=>{console.log(r.status,await r.text());if(!r.ok)process.exit(1)})"
 ```
 
 The API refuses to start in production without PostgreSQL, a non-default JWT secret, an exact `WEB_BASE_URL`, and enabled request throttling. Database migrations are append-only and execute before the API starts. `ADMIN_API_KEY` is optional; omit it after every automated caller has moved to a governed workload identity.
+
+The Admin Dashboard must show `runtime_heartbeat` for worker and scheduler, fresh heartbeat timestamps, and no inactive/stalled runtime alert.
+
+## Scale and recover background runtimes
+
+Worker claims use PostgreSQL row locking, so replicas can be scaled independently:
+
+```bash
+docker compose --env-file /secure/path/startup-graveyard.env \
+  -f compose.production.yml up -d --scale worker=2
+```
+
+Keep one scheduler replica by default. Multiple schedulers remain claim-safe through `FOR UPDATE SKIP LOCKED`, but provide little benefit at the current cadence.
+
+If a worker terminates during a job, restart it and use the Admin stale-running recovery action after the configured threshold. Do not edit `ingestion_jobs` manually. Runtime heartbeat rows are operational history and can remain after process exit.
+
+For Stage D rollback, roll back API/Web/worker/scheduler images together and keep migration `0037`; older images ignore the additive table. Never drop the heartbeat table during incident rollback.
 
 ## Operate safely
 
@@ -84,4 +122,4 @@ The API refuses to start in production without PostgreSQL, a non-default JWT sec
 - Back up the PostgreSQL volume before applying new migrations.
 - Build one image revision and promote the same digest between environments.
 - Install Playwright Chromium once locally with `pnpm exec playwright install chromium`, then run `make ci-full` before promotion. CI installs the browser and builds every production image automatically.
-- Treat this Compose topology as a single-host baseline. Multi-node deployments should move PostgreSQL to a managed service and run API/Web/worker as separate workloads.
+- Treat this Compose topology as a single-host baseline. Multi-node deployments should move PostgreSQL to a managed service and run API/Web/worker/scheduler as separate workloads.

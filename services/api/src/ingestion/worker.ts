@@ -5,21 +5,32 @@ export const INGESTION_WORKER_START_DELAY_MS = 5_000;
 export const INGESTION_WORKER_POLL_INTERVAL_MS = 5_000;
 export const INGESTION_WORKER_MAX_JOBS_PER_TICK = 8;
 
+export type IngestionWorkerOptions = {
+  startDelayMs?: number;
+  pollIntervalMs?: number;
+  maxJobsPerTick?: number;
+};
+
 export function startIngestionWorker(
   ingestionRepo: IngestionJobsRepository,
   logger: { info: (msg: string) => void; error: (msg: string, err?: unknown) => void },
   monitor?: IngestionWorkerMonitor,
-): () => void {
+  options: IngestionWorkerOptions = {},
+): () => Promise<void> {
   let stopped = false;
   let timeout: ReturnType<typeof setTimeout>;
+  let activeTick: Promise<void> | null = null;
   const workerMonitor = monitor;
+  const startDelayMs = options.startDelayMs ?? INGESTION_WORKER_START_DELAY_MS;
+  const pollIntervalMs = options.pollIntervalMs ?? INGESTION_WORKER_POLL_INTERVAL_MS;
+  const maxJobsPerTick = options.maxJobsPerTick ?? INGESTION_WORKER_MAX_JOBS_PER_TICK;
 
   if (workerMonitor) {
     workerMonitor.enabled = true;
     workerMonitor.status = 'idle';
-    workerMonitor.startDelayMs = INGESTION_WORKER_START_DELAY_MS;
-    workerMonitor.pollIntervalMs = INGESTION_WORKER_POLL_INTERVAL_MS;
-    workerMonitor.maxJobsPerTick = INGESTION_WORKER_MAX_JOBS_PER_TICK;
+    workerMonitor.startDelayMs = startDelayMs;
+    workerMonitor.pollIntervalMs = pollIntervalMs;
+    workerMonitor.maxJobsPerTick = maxJobsPerTick;
     workerMonitor.startedAt = new Date().toISOString();
     workerMonitor.lastStopAt = null;
     workerMonitor.lastError = null;
@@ -37,7 +48,8 @@ export function startIngestionWorker(
       workerMonitor.lastTickStartedAt = tickStartedAt;
     }
     try {
-      for (let i = 0; i < INGESTION_WORKER_MAX_JOBS_PER_TICK; i++) {
+      for (let i = 0; i < maxJobsPerTick; i++) {
+        if (stopped) break;
         const out = await ingestionRepo.processNext();
         if (!out.ok) break;
         processed += 1;
@@ -92,18 +104,27 @@ export function startIngestionWorker(
       }
       logger.error('ingestion-worker: tick failed', err);
     } finally {
-      if (!stopped) timeout = setTimeout(tick, INGESTION_WORKER_POLL_INTERVAL_MS);
+      if (!stopped) schedule(pollIntervalMs);
     }
   }
 
-  timeout = setTimeout(tick, INGESTION_WORKER_START_DELAY_MS);
+  function schedule(delayMs: number) {
+    timeout = setTimeout(() => {
+      activeTick = tick().finally(() => {
+        activeTick = null;
+      });
+    }, delayMs);
+  }
 
-  return () => {
+  schedule(startDelayMs);
+
+  return async () => {
     stopped = true;
+    clearTimeout(timeout);
+    await activeTick;
     if (workerMonitor) {
       workerMonitor.status = 'stopped';
       workerMonitor.lastStopAt = new Date().toISOString();
     }
-    clearTimeout(timeout);
   };
 }

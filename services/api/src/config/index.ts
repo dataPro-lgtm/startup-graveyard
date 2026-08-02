@@ -19,6 +19,15 @@ export const config = {
     };
   },
 
+  get runtime() {
+    const role = process.env.SG_RUNTIME_ROLE ?? 'api';
+    const defaultHealthPort = role === 'worker' ? 18081 : role === 'scheduler' ? 18082 : 18080;
+    return {
+      role,
+      healthPort: Number(process.env.RUNTIME_HEALTH_PORT ?? defaultHealthPort),
+    };
+  },
+
   get auth() {
     const secure =
       process.env.AUTH_COOKIE_SECURE === 'true' ||

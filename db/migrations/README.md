@@ -13,3 +13,5 @@ Rules:
 The two `0033` files are a historical naming collision. They remain unchanged because deployed databases track migrations by filename; renaming one could cause it to run again. The validation script allows only this exact pair and rejects new collisions.
 
 `0034_device_sessions.sql` is an intentional security boundary migration: it invalidates legacy plaintext refresh sessions, renames the credential column to `refresh_token_hash`, and requires every user to sign in again once after deployment.
+
+`0037_runtime_process_heartbeats.sql` is an additive operations migration. Keep it during application rollback; worker and scheduler instances use it as the shared health source for Admin diagnostics.
