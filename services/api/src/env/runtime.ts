@@ -24,6 +24,19 @@ function isHttpOrigin(value: string): boolean {
   }
 }
 
+function isHttpUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value.trim());
+    return (
+      ['http:', 'https:'].includes(parsed.protocol) &&
+      parsed.username === '' &&
+      parsed.password === ''
+    );
+  } catch {
+    return false;
+  }
+}
+
 function isLoopbackOrigin(value: string): boolean {
   try {
     const hostname = new URL(value).hostname;
@@ -72,6 +85,42 @@ export function validateRuntimeEnv(): RuntimeFeatureFlags {
       Number(process.env.RUNTIME_HEALTH_PORT) > 65535)
   ) {
     errors.push('RUNTIME_HEALTH_PORT must be an integer between 1 and 65535.');
+  }
+  if (
+    process.env.OTEL_EXPORTER_PROMETHEUS_PORT &&
+    (!Number.isInteger(Number(process.env.OTEL_EXPORTER_PROMETHEUS_PORT)) ||
+      Number(process.env.OTEL_EXPORTER_PROMETHEUS_PORT) < 1 ||
+      Number(process.env.OTEL_EXPORTER_PROMETHEUS_PORT) > 65535)
+  ) {
+    errors.push('OTEL_EXPORTER_PROMETHEUS_PORT must be an integer between 1 and 65535.');
+  }
+  if (
+    process.env.OTEL_EXPORTER_PROMETHEUS_PATH &&
+    !process.env.OTEL_EXPORTER_PROMETHEUS_PATH.startsWith('/')
+  ) {
+    errors.push('OTEL_EXPORTER_PROMETHEUS_PATH must start with /.');
+  }
+  for (const key of ['OTEL_EXPORTER_OTLP_ENDPOINT', 'OTEL_EXPORTER_OTLP_TRACES_ENDPOINT']) {
+    const value = process.env[key]?.trim();
+    if (value && !isHttpUrl(value)) {
+      errors.push(`${key} must be an HTTP(S) URL.`);
+    }
+  }
+  for (const key of [
+    'PLATFORM_ALERT_COOLDOWN_MINUTES',
+    'PLATFORM_ALERT_RETRY_MINUTES',
+    'PLATFORM_ALERT_TIMEOUT_MS',
+  ]) {
+    const value = process.env[key];
+    if (value && (!Number.isFinite(Number(value)) || Number(value) <= 0)) {
+      errors.push(`${key} must be a positive number.`);
+    }
+  }
+  for (const key of ['PLATFORM_ALERT_WEBHOOK_URL', 'PLATFORM_ALERT_SLACK_WEBHOOK_URL']) {
+    const value = process.env[key]?.trim();
+    if (value && !isHttpUrl(value)) {
+      errors.push(`${key} must be an HTTP(S) URL without embedded credentials.`);
+    }
   }
 
   if (nodeEnv === 'production') {

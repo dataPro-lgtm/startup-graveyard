@@ -52,6 +52,10 @@ services:
     environment:
       NODE_ENV: production
       SG_RUNTIME_ROLE: api
+      OBSERVABILITY_ENABLED: ${OBSERVABILITY_ENABLED:-true}
+      OTEL_EXPORTER_PROMETHEUS_PORT: 9464
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      RELEASE_VERSION: ${RELEASE_VERSION:-local}
       PORT: 18080
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       WEB_BASE_URL: ${WEB_BASE_URL:?WEB_BASE_URL is required}
@@ -87,6 +91,14 @@ services:
       TEAM_WORKSPACE_RECOVERY_SLACK_WEBHOOK_URL: ${TEAM_WORKSPACE_RECOVERY_SLACK_WEBHOOK_URL:-}
       TEAM_WORKSPACE_RECOVERY_CRM_API_URL: ${TEAM_WORKSPACE_RECOVERY_CRM_API_URL:-}
       TEAM_WORKSPACE_RECOVERY_CRM_API_BEARER_TOKEN: ${TEAM_WORKSPACE_RECOVERY_CRM_API_BEARER_TOKEN:-}
+      PLATFORM_ALERT_COOLDOWN_MINUTES: ${PLATFORM_ALERT_COOLDOWN_MINUTES:-60}
+      PLATFORM_ALERT_RETRY_MINUTES: ${PLATFORM_ALERT_RETRY_MINUTES:-5}
+      PLATFORM_ALERT_TIMEOUT_MS: ${PLATFORM_ALERT_TIMEOUT_MS:-10000}
+      PLATFORM_ALERT_WEBHOOK_URL: ${PLATFORM_ALERT_WEBHOOK_URL:-}
+      PLATFORM_ALERT_WEBHOOK_BEARER_TOKEN: ${PLATFORM_ALERT_WEBHOOK_BEARER_TOKEN:-}
+      PLATFORM_ALERT_SLACK_WEBHOOK_URL: ${PLATFORM_ALERT_SLACK_WEBHOOK_URL:-}
+    expose:
+      - '9464'
     ports:
       - '${API_PORT:-18080}:18080'
     depends_on:
@@ -100,6 +112,10 @@ services:
     environment:
       NODE_ENV: production
       SG_RUNTIME_ROLE: worker
+      OBSERVABILITY_ENABLED: ${OBSERVABILITY_ENABLED:-true}
+      OTEL_EXPORTER_PROMETHEUS_PORT: 9465
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      RELEASE_VERSION: ${RELEASE_VERSION:-local}
       RUNTIME_HEALTH_PORT: 18081
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -116,6 +132,14 @@ services:
       TEAM_WORKSPACE_RECOVERY_SLACK_WEBHOOK_URL: ${TEAM_WORKSPACE_RECOVERY_SLACK_WEBHOOK_URL:-}
       TEAM_WORKSPACE_RECOVERY_CRM_API_URL: ${TEAM_WORKSPACE_RECOVERY_CRM_API_URL:-}
       TEAM_WORKSPACE_RECOVERY_CRM_API_BEARER_TOKEN: ${TEAM_WORKSPACE_RECOVERY_CRM_API_BEARER_TOKEN:-}
+      PLATFORM_ALERT_COOLDOWN_MINUTES: ${PLATFORM_ALERT_COOLDOWN_MINUTES:-60}
+      PLATFORM_ALERT_RETRY_MINUTES: ${PLATFORM_ALERT_RETRY_MINUTES:-5}
+      PLATFORM_ALERT_TIMEOUT_MS: ${PLATFORM_ALERT_TIMEOUT_MS:-10000}
+      PLATFORM_ALERT_WEBHOOK_URL: ${PLATFORM_ALERT_WEBHOOK_URL:-}
+      PLATFORM_ALERT_WEBHOOK_BEARER_TOKEN: ${PLATFORM_ALERT_WEBHOOK_BEARER_TOKEN:-}
+      PLATFORM_ALERT_SLACK_WEBHOOK_URL: ${PLATFORM_ALERT_SLACK_WEBHOOK_URL:-}
+    expose:
+      - '9465'
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -139,8 +163,14 @@ services:
     environment:
       NODE_ENV: production
       SG_RUNTIME_ROLE: scheduler
+      OBSERVABILITY_ENABLED: ${OBSERVABILITY_ENABLED:-true}
+      OTEL_EXPORTER_PROMETHEUS_PORT: 9466
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      RELEASE_VERSION: ${RELEASE_VERSION:-local}
       RUNTIME_HEALTH_PORT: 18082
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+    expose:
+      - '9466'
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -176,5 +206,29 @@ services:
       api:
         condition: service_healthy
 
+  prometheus:
+    profiles: [observability]
+    image: prom/prometheus:v3.12.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}
+      - --web.enable-lifecycle
+    volumes:
+      - ./ops/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./ops/observability/startup-graveyard-alerts.yml:/etc/prometheus/startup-graveyard-alerts.yml:ro
+      - startup_graveyard_prometheus_data:/prometheus
+    ports:
+      - '${PROMETHEUS_PORT:-9090}:9090'
+    depends_on:
+      api:
+        condition: service_healthy
+      worker:
+        condition: service_healthy
+      scheduler:
+        condition: service_healthy
+
 volumes:
   startup_graveyard_pg_data:
+  startup_graveyard_prometheus_data:

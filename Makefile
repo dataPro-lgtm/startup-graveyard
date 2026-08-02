@@ -1,6 +1,6 @@
 # Startup Graveyard — Developer Commands
 # Usage: make <target>
-.PHONY: help dev build test test-pg test-e2e typecheck lint format validate-migrations containers-build prod-seed db-up db-down db-migrate db-seed db-reset embed clean ci ci-full
+.PHONY: help dev build test test-pg test-e2e typecheck lint format validate-migrations observability-check containers-build prod-seed db-up db-down db-migrate db-seed db-reset embed clean ci ci-full
 
 SHELL := /bin/bash
 
@@ -59,9 +59,13 @@ format-check: ## Prettier check (CI mode)
 validate-migrations: ## Validate migration filenames and sequence ownership
 	pnpm validate:migrations
 
+observability-check: ## Validate Prometheus scrape config and alert rules
+	docker run --rm --entrypoint promtool -v "$(CURDIR)/ops/observability:/etc/prometheus:ro" prom/prometheus:v3.12.0 check config /etc/prometheus/prometheus.yml
+	docker run --rm --entrypoint promtool -v "$(CURDIR)/ops/observability:/etc/prometheus:ro" prom/prometheus:v3.12.0 check rules /etc/prometheus/startup-graveyard-alerts.yml
+
 ci: format-check validate-migrations lint typecheck test build ## Full CI pipeline (local)
 
-ci-full: ci test-pg test-e2e ## Full release gate including PostgreSQL and browser tests
+ci-full: ci observability-check test-pg test-e2e ## Full release gate including observability, PostgreSQL, and browser tests
 
 containers-build: ## Build production migration, seed, API, and Web images
 	pnpm containers:build

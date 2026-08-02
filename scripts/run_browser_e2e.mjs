@@ -84,7 +84,18 @@ async function main() {
       `[browser-e2e] applied ${migrations.length} migrations and ${seeds.length} seed files`,
     );
 
-    const [apiPort, webPort, workerHealthPort, schedulerHealthPort] = await Promise.all([
+    const [
+      apiPort,
+      webPort,
+      workerHealthPort,
+      schedulerHealthPort,
+      apiMetricsPort,
+      workerMetricsPort,
+      schedulerMetricsPort,
+    ] = await Promise.all([
+      getAvailablePort(),
+      getAvailablePort(),
+      getAvailablePort(),
       getAvailablePort(),
       getAvailablePort(),
       getAvailablePort(),
@@ -101,6 +112,9 @@ async function main() {
       E2E_WEB_PORT: String(webPort),
       E2E_WORKER_HEALTH_PORT: String(workerHealthPort),
       E2E_SCHEDULER_HEALTH_PORT: String(schedulerHealthPort),
+      E2E_API_METRICS_PORT: String(apiMetricsPort),
+      E2E_WORKER_METRICS_PORT: String(workerMetricsPort),
+      E2E_SCHEDULER_METRICS_PORT: String(schedulerMetricsPort),
       E2E_API_BASE_URL: apiBaseUrl,
       E2E_WEB_BASE_URL: webBaseUrl,
       API_BASE_URL: apiBaseUrl,

@@ -1,4 +1,5 @@
 import type { IngestionJobsRepository } from '../repositories/ingestionJobsRepository.js';
+import type { ObservabilityRuntime } from '../observability/runtime.js';
 import { pushIngestionWorkerTick, type IngestionWorkerMonitor } from './workerMonitor.js';
 
 export const INGESTION_WORKER_START_DELAY_MS = 5_000;
@@ -16,6 +17,7 @@ export function startIngestionWorker(
   logger: { info: (msg: string) => void; error: (msg: string, err?: unknown) => void },
   monitor?: IngestionWorkerMonitor,
   options: IngestionWorkerOptions = {},
+  observability?: ObservabilityRuntime,
 ): () => Promise<void> {
   let stopped = false;
   let timeout: ReturnType<typeof setTimeout>;
@@ -50,8 +52,21 @@ export function startIngestionWorker(
     try {
       for (let i = 0; i < maxJobsPerTick; i++) {
         if (stopped) break;
-        const out = await ingestionRepo.processNext();
+        const processStartedAt = process.hrtime.bigint();
+        const processNext = () => ingestionRepo.processNext();
+        const out = observability
+          ? await observability.withSpan(
+              'ingestion.queue.process_next',
+              { 'messaging.operation.type': 'process' },
+              processNext,
+            )
+          : await processNext();
         if (!out.ok) break;
+        observability?.recordIngestionJob({
+          sourceName: out.job.sourceName,
+          status: out.job.status,
+          durationMs: Number(process.hrtime.bigint() - processStartedAt) / 1_000_000,
+        });
         processed += 1;
         lastJobSourceName = out.job.sourceName;
         lastJobStatus = out.job.status;

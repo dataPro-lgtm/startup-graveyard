@@ -5,6 +5,7 @@ import type {
   RuntimeProcessesRepository,
   RuntimeProcessStatus,
 } from '../repositories/runtimeProcessesRepository.js';
+import type { ObservabilityRuntime } from '../observability/runtime.js';
 
 export const RUNTIME_HEARTBEAT_INTERVAL_MS = 5_000;
 
@@ -36,6 +37,7 @@ export function startRuntimeHeartbeat(input: {
   logger: RuntimeHeartbeatLogger;
   instanceId?: string;
   intervalMs?: number;
+  observability?: ObservabilityRuntime;
 }) {
   const instanceId = input.instanceId ?? createRuntimeInstanceId(input.component);
   const startedAt = input.snapshot().startedAt ?? new Date().toISOString();
@@ -59,7 +61,9 @@ export function startRuntimeHeartbeat(input: {
           metadata: snapshot,
         });
         lastSuccessfulHeartbeatAt = heartbeat.heartbeatAt;
+        input.observability?.recordHeartbeat(input.component, 'ok');
       } catch (error) {
+        input.observability?.recordHeartbeat(input.component, 'error');
         input.logger.error(`${input.component}: failed to persist runtime heartbeat`, error);
       }
     })().finally(() => {

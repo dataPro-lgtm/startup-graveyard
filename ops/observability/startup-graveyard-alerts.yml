@@ -1,0 +1,53 @@
+groups:
+  - name: startup-graveyard-runtime
+    rules:
+      - alert: StartupGraveyardRuntimeDown
+        expr: up{job=~"startup-graveyard-(api|worker|scheduler)"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Startup Graveyard runtime is not scrapeable'
+          description: '{{ $labels.job }} / {{ $labels.instance }} has been down for two minutes.'
+
+      - alert: StartupGraveyardHttp5xxRateHigh
+        expr: |
+          (
+            sum(rate(sg_http_server_requests_total{http_response_status_class="5xx"}[5m]))
+            /
+            clamp_min(sum(rate(sg_http_server_requests_total[5m])), 0.01)
+          ) > 0.05
+          and sum(rate(sg_http_server_requests_total[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Startup Graveyard HTTP 5xx ratio exceeds 5%'
+          description: 'The rolling five-minute API error ratio is above the operating threshold.'
+
+      - alert: StartupGraveyardIngestionJobFailed
+        expr: increase(sg_ingestion_jobs_total{status="failed"}[10m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Startup Graveyard ingestion job failed'
+          description: 'At least one ingestion job failed during the last ten minutes.'
+
+      - alert: StartupGraveyardHeartbeatPersistenceFailed
+        expr: increase(sg_runtime_heartbeat_writes_total{outcome="error"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Runtime heartbeat persistence is failing'
+          description: '{{ $labels.component }} cannot persist its runtime heartbeat.'
+
+      - alert: StartupGraveyardCriticalPlatformAlert
+        expr: sg_platform_alerts{severity="critical"} > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Startup Graveyard platform diagnostics are critical'
+          description: 'The latest scheduled platform snapshot contains active critical alerts.'

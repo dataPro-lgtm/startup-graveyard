@@ -10,17 +10,17 @@ Startup Graveyard 已经具备可运行 alpha 的完整骨架，不再缺“功�
 
 ## 2. 真实能力矩阵
 
-| 能力域         | 当前状态         | 已有证据                                            | 主要缺口                                                               |
-| -------------- | ---------------- | --------------------------------------------------- | ---------------------------------------------------------------------- |
-| 公开研究       | Alpha 可用       | 案例检索、详情、Research Hub、Copilot、公开 brief   | 需扩充数据覆盖与 Copilot 离线评测                                      |
-| 内容生产       | 发布主链已验收   | URL snapshot、信号抽取、审核 gate、发布、索引回填   | 内容质量与覆盖规模仍不足                                               |
-| 个人商业化     | 浏览器主链已验收 | Watchlist、Saved Views、Markdown/PDF、公开分享      | Stripe sandbox 生命周期未形成端到端验收                                |
-| Team Workspace | 协作主链已验收   | 邀请、席位、权限继承、共享资产、降级补偿            | 租户隔离与角色权限需要系统化安全回归                                   |
-| 订阅恢复运营   | 后台能力较深     | 恢复队列、邮件、CRM、Webhook、Slack、playbook       | 外部通道缺少 staging 级幂等和失败注入验证                              |
-| 平台运维       | 可观测基线已形成 | worker/queue/snapshot/regression/suppression/report | scheduler/worker 仍在 API 进程内；缺少 OTel 与独立告警出口             |
-| 交付工程       | 单机发布可验证   | 生产镜像、真实 PostgreSQL、Playwright、CI 门禁      | 无 staging promotion、备份恢复演练和正式 rollback 验收                 |
-| 安全           | 外部试用前待加固 | Admin Web 边界、生产环境变量 fail-fast              | token 存 localStorage、CORS 全开放、无统一限流与会话设备治理           |
-| 可维护性       | 风险上升         | shared schema、OpenAPI、repository abstraction      | dashboard、stats、team repository 已形成超大文件；OpenAPI 仍靠人工同步 |
+| 能力域         | 当前状态         | 已有证据                                             | 主要缺口                                                               |
+| -------------- | ---------------- | ---------------------------------------------------- | ---------------------------------------------------------------------- |
+| 公开研究       | Alpha 可用       | 案例检索、详情、Research Hub、Copilot、公开 brief    | 需扩充数据覆盖与 Copilot 离线评测                                      |
+| 内容生产       | 发布主链已验收   | URL snapshot、信号抽取、审核 gate、发布、索引回填    | 内容质量与覆盖规模仍不足                                               |
+| 个人商业化     | 浏览器主链已验收 | Watchlist、Saved Views、Markdown/PDF、公开分享       | Stripe sandbox 生命周期未形成端到端验收                                |
+| Team Workspace | 协作主链已验收   | 邀请、席位、权限继承、共享资产、降级补偿             | 租户隔离与角色权限需要系统化安全回归                                   |
+| 订阅恢复运营   | 后台能力较深     | 恢复队列、邮件、CRM、Webhook、Slack、playbook        | 外部通道缺少 staging 级幂等和失败注入验证                              |
+| 平台运维       | 生产基线已形成   | 独立 runtime、heartbeat、OTel、Prometheus、持久告警  | 缺业务 SLO、集中 Collector 和正式 incident 演练                        |
+| 交付工程       | 单机发布可验证   | 生产镜像、真实 PostgreSQL、Playwright、CI 门禁       | 无 staging promotion、备份恢复演练和正式 rollback 验收                 |
+| 安全           | 外部试用基线完成 | HttpOnly 会话、CORS 白名单、限流、设备撤销、租户测试 | 仍需密钥轮换、渗透测试、数据保留与删除治理                             |
+| 可维护性       | 风险上升         | shared schema、OpenAPI、repository abstraction       | dashboard、stats、team repository 已形成超大文件；OpenAPI 仍靠人工同步 |
 
 ## 3. 业务主流程
 
@@ -147,7 +147,7 @@ Startup Graveyard 已经具备可运行 alpha 的完整骨架，不再缺“功�
 | P0     | 安全 cookie/session、CORS 白名单、auth/Copilot/导出限流 | 凭据不可被页面脚本读取，跨域和超频负向用例进入 CI    |
 | P0     | Team 跨租户读写矩阵与 Admin 应用角色                    | owner/admin/member/非成员对每类资源都有 API 负向测试 |
 | P1     | Stripe sandbox 全生命周期与外部通道失败注入             | checkout、升降级、past-due、恢复、重放均可自动验收   |
-| P1     | OTel trace/metric exporter 与外部告警出口               | 关键请求和任务可跨服务追踪，严重告警可自动外发       |
+| P1     | 业务 SLO、Collector 与 incident 演练                    | 关键链路有 SLO，告警可定位并按 runbook 恢复          |
 | P2     | 200+ 证据化案例、Copilot offline eval 与 nightly gate   | 引用命中、幻觉、降级和数据质量指标连续达标           |
 
 ## 10. 阶段 C 当前落地
@@ -165,4 +165,13 @@ Startup Graveyard 已经具备可运行 alpha 的完整骨架，不再缺“功�
 - 刷新令牌改为 SHA-256 摘要存储；账户支持最多 10 个设备、活跃会话清单、单设备撤销和退出其他设备。
 - Access token 绑定 session id，被撤销设备的现有 access/refresh 凭据立即失效；登录与刷新会更新 IP、User-Agent 和最近活跃时间。
 - Team 跨租户负向矩阵覆盖 owner/admin/member/non-member 的上下文读取、成员邀请、共享 Saved View 和邀请标识枚举；不属于当前用户的邀请统一返回 not found。
-- 下一切片进入 Admin 应用角色和 Stripe 生命周期幂等。
+- Admin 具名角色、Stripe 事件账本与幂等生命周期基础已经进入发布门禁。
+
+## 11. 阶段 D/E 当前落地
+
+- API、worker、scheduler 已拆为独立进程，共用不可变 API 镜像并通过数据库 heartbeat 暴露真实运行状态。
+- 每个进程拥有独立 OpenTelemetry service identity、私有 Prometheus endpoint 和可选 OTLP trace exporter。
+- HTTP、ingestion、scheduler、heartbeat 与平台快照使用有界标签指标，浏览器门禁会抓取三个 metrics endpoint。
+- `0038` 持久化每个告警和通道的冷却、失败重试、严重度升级与恢复投递状态，多实例只允许一个投递者领取。
+- Prometheus 配置和 5 条基础告警规则进入本地与 CI `promtool` 校验；操作手册见 `docs/OBSERVABILITY_RUNBOOK.md`。
+- 下一阶段转向商业价值验证：业务 SLO、200+ 治理案例、Copilot nightly eval、Stripe sandbox 生命周期和增长漏斗。

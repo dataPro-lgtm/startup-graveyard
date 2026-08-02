@@ -6,6 +6,7 @@ import { resetPool } from './db/pool.js';
 import { createIngestionWorkerMonitor } from './ingestion/workerMonitor.js';
 import { createSchedulerMonitor } from './ingestion/schedulerMonitor.js';
 import { startIngestionWorker } from './ingestion/worker.js';
+import { PgPlatformAlertStatesRepository } from './repositories/platformAlertStatesRepository.js';
 import {
   createTestPool,
   getRequiredTestDatabaseUrl,
@@ -198,6 +199,100 @@ suite('postgres integration', () => {
     expect(secondMonitor.processedJobs).toBe(1);
     expect((await app!.ingestionJobsRepo.getById(firstJob.id))?.status).toBe('succeeded');
     expect((await app!.ingestionJobsRepo.getById(secondJob.id))?.status).toBe('succeeded');
+  });
+
+  it('atomically suppresses duplicate platform alert claims across instances', async () => {
+    const db = pool;
+    if (!db) throw new Error('postgres integration test pool not initialized');
+    const firstRepo = new PgPlatformAlertStatesRepository(db);
+    const secondRepo = new PgPlatformAlertStatesRepository(db);
+    const input = {
+      alertCode: 'ingestion_queue_backlog',
+      channel: 'webhook' as const,
+      severity: 'warning' as const,
+      observedAt: '2026-08-02T10:00:00.000Z',
+      cooldownMs: 60_000,
+      metadata: { title: 'Queue backlog' },
+    };
+
+    const claims = await Promise.all([
+      firstRepo.claimDelivery(input),
+      secondRepo.claimDelivery(input),
+    ]);
+    expect(claims.filter((claim) => claim.claimed)).toHaveLength(1);
+    expect(claims.filter((claim) => claim.reason === 'cooldown')).toHaveLength(1);
+
+    await firstRepo.recordDeliveryResult({
+      alertCode: input.alertCode,
+      channel: input.channel,
+      attemptedAt: input.observedAt,
+      delivered: false,
+      retryAt: '2026-08-02T10:00:05.000Z',
+      error: 'upstream unavailable',
+      deliveryStatus: 'firing',
+    });
+    await expect(
+      secondRepo.claimDelivery({ ...input, observedAt: '2026-08-02T10:00:04.000Z' }),
+    ).resolves.toMatchObject({ claimed: false, reason: 'cooldown' });
+    await expect(
+      secondRepo.claimDelivery({ ...input, observedAt: '2026-08-02T10:00:05.000Z' }),
+    ).resolves.toMatchObject({ claimed: true, reason: 'due' });
+
+    await expect(
+      firstRepo.resolveInactive({
+        channel: 'webhook',
+        activeAlertCodes: [],
+        resolvedAt: '2026-08-02T10:00:10.000Z',
+        retryMs: 5_000,
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        alertCode: input.alertCode,
+        status: 'resolved',
+        resolvedAt: '2026-08-02T10:00:10.000Z',
+      }),
+    ]);
+    await expect(
+      secondRepo.resolveInactive({
+        channel: 'webhook',
+        activeAlertCodes: [],
+        resolvedAt: '2026-08-02T10:00:11.000Z',
+        retryMs: 5_000,
+      }),
+    ).resolves.toEqual([]);
+
+    const resolutionClaims = await Promise.all([
+      firstRepo.resolveInactive({
+        channel: 'webhook',
+        activeAlertCodes: [],
+        resolvedAt: '2026-08-02T10:00:15.000Z',
+        retryMs: 5_000,
+      }),
+      secondRepo.resolveInactive({
+        channel: 'webhook',
+        activeAlertCodes: [],
+        resolvedAt: '2026-08-02T10:00:15.000Z',
+        retryMs: 5_000,
+      }),
+    ]);
+    expect(resolutionClaims.flat()).toHaveLength(1);
+    await firstRepo.recordDeliveryResult({
+      alertCode: input.alertCode,
+      channel: input.channel,
+      attemptedAt: '2026-08-02T10:00:15.000Z',
+      delivered: true,
+      retryAt: null,
+      error: null,
+      deliveryStatus: 'resolved',
+    });
+    await expect(
+      secondRepo.resolveInactive({
+        channel: 'webhook',
+        activeAlertCodes: [],
+        resolvedAt: '2026-08-02T10:00:20.000Z',
+        retryMs: 5_000,
+      }),
+    ).resolves.toEqual([]);
   });
 
   it('stores hashed multi-device sessions and enforces selective revocation against postgres', async () => {

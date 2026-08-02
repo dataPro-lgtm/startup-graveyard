@@ -13,6 +13,7 @@
 import type { Pool } from 'pg';
 import type { IngestionJobsRepository } from '../repositories/ingestionJobsRepository.js';
 import type { SchedulerMonitor } from './schedulerMonitor.js';
+import type { ObservabilityRuntime } from '../observability/runtime.js';
 
 export const SCHEDULER_START_DELAY_MS = 30_000;
 export const SCHEDULER_POLL_INTERVAL_MS = 60_000;
@@ -30,6 +31,7 @@ export function startScheduler(
   ingestionRepo: IngestionJobsRepository,
   logger: { info: (msg: string) => void; error: (msg: string, err?: unknown) => void },
   monitor?: SchedulerMonitor,
+  observability?: ObservabilityRuntime,
 ): () => Promise<void> {
   let stopped = false;
   let timeout: ReturnType<typeof setTimeout>;
@@ -52,50 +54,71 @@ export function startScheduler(
       monitor.status = 'processing';
       monitor.lastTickStartedAt = new Date().toISOString();
     }
-    const client = await pool.connect();
     try {
-      await client.query('BEGIN');
-
-      const { rows } = await client.query<ScheduledJobRow>(
-        `SELECT id, name, source_name, payload, interval_ms
-         FROM scheduled_jobs
-         WHERE enabled = true AND next_run_at <= NOW()
-         FOR UPDATE SKIP LOCKED`,
-      );
-
-      for (const job of rows) {
-        if (stopped) break;
+      const runTick = async () => {
+        const client = await pool.connect();
         try {
-          await ingestionRepo.enqueue({
-            sourceName: job.source_name,
-            triggerType: 'scheduled',
-            payload: job.payload,
-          });
+          await client.query('BEGIN');
 
-          await client.query(
-            `UPDATE scheduled_jobs
-             SET last_run_at = NOW(),
-                 next_run_at = NOW() + ($1 || ' milliseconds')::INTERVAL
-             WHERE id = $2`,
-            [job.interval_ms, job.id],
+          const { rows } = await client.query<ScheduledJobRow>(
+            `SELECT id, name, source_name, payload, interval_ms
+               FROM scheduled_jobs
+               WHERE enabled = true AND next_run_at <= NOW()
+               FOR UPDATE SKIP LOCKED`,
           );
 
-          logger.info(`scheduler: enqueued job "${job.name}" (${job.source_name})`);
-          if (monitor) {
-            monitor.lastEnqueuedAt = new Date().toISOString();
-            monitor.enqueuedJobs += 1;
+          for (const job of rows) {
+            if (stopped) break;
+            try {
+              await ingestionRepo.enqueue({
+                sourceName: job.source_name,
+                triggerType: 'scheduled',
+                payload: job.payload,
+              });
+
+              await client.query(
+                `UPDATE scheduled_jobs
+                   SET last_run_at = NOW(),
+                       next_run_at = NOW() + ($1 || ' milliseconds')::INTERVAL
+                   WHERE id = $2`,
+                [job.interval_ms, job.id],
+              );
+
+              observability?.recordSchedulerEnqueue(job.source_name);
+              logger.info(`scheduler: enqueued job "${job.name}" (${job.source_name})`);
+              if (monitor) {
+                monitor.lastEnqueuedAt = new Date().toISOString();
+                monitor.enqueuedJobs += 1;
+              }
+            } catch (err) {
+              logger.error(`scheduler: failed to enqueue job "${job.name}"`, err);
+              if (monitor) {
+                monitor.lastError = err instanceof Error ? err.message : String(err);
+                monitor.consecutiveErrors += 1;
+              }
+              tickErrors += 1;
+            }
           }
-        } catch (err) {
-          logger.error(`scheduler: failed to enqueue job "${job.name}"`, err);
-          if (monitor) {
-            monitor.lastError = err instanceof Error ? err.message : String(err);
-            monitor.consecutiveErrors += 1;
-          }
-          tickErrors += 1;
+
+          await client.query('COMMIT');
+        } catch (error) {
+          await client.query('ROLLBACK').catch(() => undefined);
+          throw error;
+        } finally {
+          client.release();
         }
+      };
+      if (observability) {
+        await observability.withSpan(
+          'scheduler.tick',
+          { 'messaging.operation.type': 'publish' },
+          runTick,
+        );
+      } else {
+        await runTick();
       }
 
-      await client.query('COMMIT');
+      observability?.recordSchedulerTick(tickErrors > 0 ? 'error' : 'ok');
       if (monitor) {
         monitor.status = tickErrors > 0 ? 'error' : 'idle';
         monitor.lastTickCompletedAt = new Date().toISOString();
@@ -105,7 +128,7 @@ export function startScheduler(
         }
       }
     } catch (err) {
-      await client.query('ROLLBACK').catch(() => undefined);
+      observability?.recordSchedulerTick('error');
       logger.error('scheduler: tick failed', err);
       if (monitor) {
         monitor.status = 'error';
@@ -113,8 +136,6 @@ export function startScheduler(
         monitor.lastError = err instanceof Error ? err.message : String(err);
         monitor.consecutiveErrors += 1;
       }
-    } finally {
-      client.release();
     }
 
     if (!stopped) {

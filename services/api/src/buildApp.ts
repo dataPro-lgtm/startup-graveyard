@@ -107,10 +107,18 @@ import { metaRoutes } from './routes/public/meta.js';
 import { config } from './config/index.js';
 import { resolveCorsAllowedOrigins } from './security/requestSecurity.js';
 import { cookieOriginAllowed } from './auth/cookies.js';
+import { createDisabledObservability, type ObservabilityRuntime } from './observability/runtime.js';
+import {
+  MockPlatformAlertStatesRepository,
+  PgPlatformAlertStatesRepository,
+  type PlatformAlertStatesRepository,
+} from './repositories/platformAlertStatesRepository.js';
+import { PlatformAlertDispatcher } from './observability/platformAlertDispatcher.js';
 
 export type BuildAppOptions = {
   /** 默认 true；测试可关日志 */
   logger?: boolean;
+  observability?: ObservabilityRuntime;
 };
 
 /** 注册路由与仓库，不 listen（供 `inject` 测试与生产启动）。 */
@@ -119,6 +127,9 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
     logger: options.logger ?? true,
     trustProxy: config.security.trustProxy,
   });
+  const observability = options.observability ?? createDisabledObservability();
+  server.decorate('observability', observability);
+  observability.registerHttpInstrumentation(server);
 
   const pgPool = getPool();
 
@@ -138,6 +149,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
   let billingFunnelRepo: BillingFunnelRepository;
   let stripeWebhookEventsRepo: StripeWebhookEventsRepository;
   let runtimeProcessesRepo: RuntimeProcessesRepository;
+  let platformAlertStatesRepo: PlatformAlertStatesRepository;
   const ingestionWorkerMonitor = createIngestionWorkerMonitor();
   const auditRepo = pgPool ? new PgAuditRepository(pgPool) : new MockAuditRepository();
   const capturePlatformSnapshotForIngestion = (triggerType: 'manual' | 'scheduled') =>
@@ -167,6 +179,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
     billingFunnelRepo = new PgBillingFunnelRepository(pgPool);
     stripeWebhookEventsRepo = new PgStripeWebhookEventsRepository(pgPool);
     runtimeProcessesRepo = new PgRuntimeProcessesRepository(pgPool);
+    platformAlertStatesRepo = new PgPlatformAlertStatesRepository(pgPool);
     teamWorkspacesRepo = new PgTeamWorkspacesRepository(pgPool, billingFunnelRepo);
     ingestionJobsRepo = new PgIngestionJobsRepository(
       pgPool,
@@ -197,6 +210,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
     billingFunnelRepo = new MockBillingFunnelRepository();
     stripeWebhookEventsRepo = new MockStripeWebhookEventsRepository();
     runtimeProcessesRepo = new MockRuntimeProcessesRepository();
+    platformAlertStatesRepo = new MockPlatformAlertStatesRepository();
     teamWorkspacesRepo = new MockTeamWorkspacesRepository(
       usersRepo,
       savedViewsRepo,
@@ -235,6 +249,20 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
   );
   server.decorate('runtimeProcessesRepo', runtimeProcessesRepo as RuntimeProcessesRepository);
   server.decorate('auditRepo', auditRepo as AuditRepository);
+  server.decorate('platformAlertStatesRepo', platformAlertStatesRepo);
+  server.decorate(
+    'platformAlertDispatcher',
+    new PlatformAlertDispatcher(
+      platformAlertStatesRepo,
+      auditRepo,
+      observability,
+      config.platformAlerts,
+      {
+        info: (fields, message) => server.log.info(fields, message),
+        error: (fields, message) => server.log.error(fields, message),
+      },
+    ),
+  );
   if (!pgPool) {
     server.log.warn('DATABASE_URL unset; using in-memory mock cases + reviews');
   }

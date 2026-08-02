@@ -482,6 +482,30 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
     });
   });
 
+  it('keeps platform snapshot capture available when alert control plane fails', async () => {
+    vi.spyOn(app.platformAlertDispatcher, 'dispatch').mockRejectedValueOnce(
+      new Error('alert state unavailable'),
+    );
+
+    const captureRes = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/stats/platform-snapshot',
+      headers: { 'x-admin-key': key },
+    });
+
+    expect(captureRes.statusCode).toBe(200);
+    expect(JSON.parse(captureRes.body)).toMatchObject({ ok: true });
+    await expect(
+      app.auditRepo.listRecentByAction('platform.snapshot_captured', 1),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          alertDelivery: expect.objectContaining({ controlPlaneFailures: 1 }),
+        }),
+      }),
+    ]);
+  });
+
   it('POST /v1/admin/scheduler/trigger can run capture_platform_snapshot manually', async () => {
     const triggerRes = await app.inject({
       method: 'POST',

@@ -43,6 +43,19 @@ jobs:
       - name: Validate migrations
         run: pnpm validate:migrations
 
+      - name: Validate Prometheus configuration and alert rules
+        run: |
+          docker run --rm \
+            --entrypoint promtool \
+            -v "$PWD/ops/observability:/etc/prometheus:ro" \
+            prom/prometheus:v3.12.0 \
+            check config /etc/prometheus/prometheus.yml
+          docker run --rm \
+            --entrypoint promtool \
+            -v "$PWD/ops/observability:/etc/prometheus:ro" \
+            prom/prometheus:v3.12.0 \
+            check rules /etc/prometheus/startup-graveyard-alerts.yml
+
       - name: ESLint
         run: pnpm lint
 

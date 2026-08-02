@@ -29,14 +29,14 @@ API, worker, and scheduler are separately deployable processes with database-bac
 
 ## 3. Maturity scorecard
 
-| Dimension                 | Current production baseline                                                       | Commercial exit standard                                                                        |
-| ------------------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| Value and activation      | Public research, Saved Views, exports, Copilot, Team sharing                      | First useful research asset within 10 minutes; activation and retention measured by plan        |
-| Identity and security     | HttpOnly Cookie browser session, bearer compatibility, CORS allowlist, throttling | Device sessions, revocation, tenant matrix, application admin roles, security event audit       |
-| Billing                   | Pro/Team checkout, portal, webhook state sync, recovery workflow                  | Replay-safe Stripe lifecycle tests for upgrade, downgrade, past due, cancellation, and recovery |
-| Reliability               | Isolated API/worker/scheduler, durable heartbeats, CI/PostgreSQL/browser gates    | SLOs, traces, alert routes, backup/restore and rollback exercises                               |
-| Data and AI trust         | Evidence workflow, citations, eval snapshots and regression detection             | 200+ governed cases; nightly quality gate with groundedness, citation and fallback thresholds   |
-| Compliance and operations | Admin audit and deployment baseline                                               | Retention policy, user export/delete, secret rotation, incident runbooks and access reviews     |
+| Dimension                 | Current production baseline                                                          | Commercial exit standard                                                                        |
+| ------------------------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| Value and activation      | Public research, Saved Views, exports, Copilot, Team sharing                         | First useful research asset within 10 minutes; activation and retention measured by plan        |
+| Identity and security     | HttpOnly Cookie browser session, bearer compatibility, CORS allowlist, throttling    | Device sessions, revocation, tenant matrix, application admin roles, security event audit       |
+| Billing                   | Pro/Team checkout, portal, webhook state sync, recovery workflow                     | Replay-safe Stripe lifecycle tests for upgrade, downgrade, past due, cancellation, and recovery |
+| Reliability               | Isolated runtimes, durable heartbeats, OTel traces, Prometheus metrics, alert routes | Business SLOs plus backup/restore, rollback, and incident exercises                             |
+| Data and AI trust         | Evidence workflow, citations, eval snapshots and regression detection                | 200+ governed cases; nightly quality gate with groundedness, citation and fallback thresholds   |
+| Compliance and operations | Admin audit and deployment baseline                                                  | Retention policy, user export/delete, secret rotation, incident runbooks and access reviews     |
 
 ## 4. Delivery sequence
 
@@ -59,7 +59,7 @@ Exit: replay and provider failure injection cannot corrupt entitlements or send 
 ### C3: Runtime reliability
 
 - Keep API, scheduler, and ingestion execution isolated; split specialized eval/outreach workers when workload volume requires it.
-- Add OpenTelemetry traces, RED metrics, queue age, provider latency, and business SLOs.
+- Maintain OpenTelemetry traces, RED metrics, queue age, and durable alert routing; add provider latency and business SLOs.
 - Exercise migration rollback policy, PostgreSQL restore, and degraded-provider operation.
 
 Exit: an unhealthy worker or provider does not take down reads, authentication, or billing state.
