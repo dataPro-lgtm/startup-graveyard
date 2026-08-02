@@ -11,7 +11,6 @@ The root [README](../README.md) is the product and contributor entry point. This
 
 - [Production deployment baseline](./DEPLOYMENT.md): configuration, startup, verification, scaling, and recovery.
 - [Observability runbook](./OBSERVABILITY_RUNBOOK.md): metrics, traces, alert delivery, and incident triage.
-- [Vercel integration cleanup](./VERCEL_INTEGRATION_CLEANUP.md): safe removal of legacy Vercel hooks and checks.
 
 ## Media
 
