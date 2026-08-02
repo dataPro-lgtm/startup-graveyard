@@ -1,82 +1,70 @@
-# Contributing Guide
+# Contributing
 
-## Branch Strategy
+Startup Graveyard accepts focused contributions to product workflows, case quality, evaluation coverage, and platform reliability.
 
-```
-main        ← production (protected, merge via PR only)
-  └─ develop     ← integration branch (protected)
-       ├─ feature/<name>   new features
-       ├─ fix/<name>       bug fixes
-       ├─ refactor/<name>  code improvements
-       └─ db/<name>        migrations / seeds
-```
+## Before You Start
 
-**Workflow:**
+- Search existing issues before opening a new one.
+- Use a security advisory for vulnerabilities; follow [SECURITY.md](./SECURITY.md).
+- Keep pull requests scoped to one problem. Separate unrelated cleanup from functional changes.
+- For material product changes, describe the user workflow and acceptance evidence before implementation.
 
-```bash
-# 1. Branch from develop
-git checkout develop && git pull
-git checkout -b feature/my-feature
+## Development Setup
 
-# 2. Work in small commits
-git add <files>
-git commit -m "feat(scope): description"
-
-# 3. Keep up to date
-git fetch origin
-git rebase origin/develop
-
-# 4. Push and open PR → develop
-git push -u origin feature/my-feature
-
-# 5. After review: Squash merge into develop
-# 6. develop → main: PR for releases
-```
-
-## Commit Convention
-
-Format: `type(scope): subject`
-
-| type       | when                    |
-| ---------- | ----------------------- |
-| `feat`     | new feature             |
-| `fix`      | bug fix                 |
-| `refactor` | neither feature nor fix |
-| `perf`     | performance             |
-| `test`     | tests                   |
-| `docs`     | documentation           |
-| `build`    | deps / build system     |
-| `ci`       | CI/CD config            |
-| `db`       | migrations / seeds      |
-| `infra`    | DevOps / infrastructure |
-| `chore`    | misc                    |
-| `revert`   | rollback                |
-
-Examples:
-
-```
-feat(copilot): stream answer tokens via SSE
-fix(cases): include key_lessons in getById SELECT
-db(users): add sessions table migration
-ci: split lint + typecheck + test + build jobs
-```
-
-## Local Setup
+Prerequisites: Node.js 22, pnpm 10, and Docker with Compose.
 
 ```bash
-# Prerequisites: Node 22, pnpm 10, Docker
-make db-up        # start Postgres
-make db-migrate   # run migrations
-make db-seed      # seed data
-make dev          # start API + Web
+corepack enable
+pnpm install
+cp .env.example .env
+make db-reset
+make dev
+```
 
-# Full CI check
+## Branches and Commits
+
+Create a short-lived branch from the latest `main`:
+
+```bash
+git switch main
+git pull --ff-only
+git switch -c feature/short-description
+```
+
+Use `feature/`, `fix/`, `refactor/`, `docs/`, `test/`, or `infra/` as the branch prefix. All changes target `main` through a pull request.
+
+Commit messages follow Conventional Commits:
+
+```text
+feat(copilot): add citation confidence to answers
+fix(cases): preserve filters when changing pages
+docs: clarify production seed behavior
+```
+
+## Quality Gates
+
+Run the fast gate during development:
+
+```bash
 make ci
 ```
 
-## PR Checklist
+Run the complete release gate for changes that affect migrations, PostgreSQL behavior, browser workflows, containers, or observability:
 
-- [ ] `make ci` passes locally
-- [ ] New tests for new behaviour
-- [ ] No `console.log` left in production code
-- [ ] DB migrations are backwards-compatible
+```bash
+pnpm exec playwright install chromium
+make ci-full
+```
+
+New behavior should include tests at the lowest useful layer. Permission boundaries, database constraints, and user journeys require PostgreSQL or browser coverage; mock tests alone are not sufficient evidence.
+
+## Pull Requests
+
+Every pull request should state:
+
+- The problem and user impact
+- The chosen approach and important tradeoffs
+- Commands run and observed results
+- Migration, security, rollout, or rollback considerations
+
+Do not commit secrets, generated test reports, local environment files, or demo data that cannot be redistributed.

@@ -1,0 +1,40 @@
+name: Feature request
+description: Propose a user outcome or platform improvement.
+title: '[Feature]: '
+labels: [enhancement]
+body:
+  - type: checkboxes
+    attributes:
+      label: Preflight
+      options:
+        - label: I searched existing issues and the product execution plan.
+          required: true
+  - type: textarea
+    attributes:
+      label: Problem
+      description: Describe the user, job, and current limitation. Avoid starting with a preferred implementation.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Desired outcome
+      description: What should become possible, and how would we know it works?
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Proposed approach
+      description: Optional implementation direction, alternatives, and tradeoffs.
+  - type: dropdown
+    attributes:
+      label: Product area
+      options:
+        - Case research
+        - Failure Copilot
+        - Reports and sharing
+        - Team Workspaces
+        - Publishing and evidence
+        - Billing and operations
+        - Platform and developer experience
+    validations:
+      required: true
