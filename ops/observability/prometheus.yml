@@ -1,0 +1,21 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    product: startup-graveyard
+
+rule_files:
+  - /etc/prometheus/startup-graveyard-alerts.yml
+
+scrape_configs:
+  - job_name: startup-graveyard-api
+    static_configs:
+      - targets: ['api:9464']
+
+  - job_name: startup-graveyard-worker
+    static_configs:
+      - targets: ['worker:9465']
+
+  - job_name: startup-graveyard-scheduler
+    static_configs:
+      - targets: ['scheduler:9466']

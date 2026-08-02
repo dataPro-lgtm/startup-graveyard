@@ -25,6 +25,7 @@ export async function runBackgroundProcess(input: {
     logger: {
       error: (message, error) => input.app.log.error(error, message),
     },
+    observability: input.app.observability,
   });
   await heartbeat.initialized;
   const health = await startRuntimeHealthServer({
@@ -46,6 +47,7 @@ export async function runBackgroundProcess(input: {
     await heartbeat.stop();
     await health.close();
     await input.app.close();
+    await input.app.observability.shutdown();
     await input.pool.end();
   };
 

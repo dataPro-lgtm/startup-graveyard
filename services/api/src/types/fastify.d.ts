@@ -17,6 +17,9 @@ import type { WatchlistsRepository } from '../repositories/watchlistRepository.j
 import type { AdminPrincipal } from '../plugins/adminRoutes.js';
 import type { StripeWebhookEventsRepository } from '../repositories/stripeWebhookEventsRepository.js';
 import type { RuntimeProcessesRepository } from '../repositories/runtimeProcessesRepository.js';
+import type { ObservabilityRuntime } from '../observability/runtime.js';
+import type { PlatformAlertStatesRepository } from '../repositories/platformAlertStatesRepository.js';
+import type { PlatformAlertDispatcher } from '../observability/platformAlertDispatcher.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -42,5 +45,8 @@ declare module 'fastify' {
     billingFunnelRepo: BillingFunnelRepository;
     stripeWebhookEventsRepo: StripeWebhookEventsRepository;
     runtimeProcessesRepo: RuntimeProcessesRepository;
+    observability: ObservabilityRuntime;
+    platformAlertStatesRepo: PlatformAlertStatesRepository;
+    platformAlertDispatcher: PlatformAlertDispatcher;
   }
 }

@@ -145,15 +145,31 @@ export async function capturePlatformSnapshot(
 ) {
   const statsPayload = await fetchAdminStatsPayload(app);
   const snapshot = buildPlatformSnapshot(statsPayload.platform, triggerType);
+  app.observability.recordPlatformSnapshot(snapshot);
+  const alertDelivery = await app.platformAlertDispatcher
+    .dispatch(statsPayload.platform.alerts, snapshot.createdAt)
+    .catch((error: unknown) => {
+      app.log.error({ error }, 'Platform alert control plane failed after snapshot capture');
+      return {
+        configuredChannels: app.platformAlertDispatcher.configuredChannels(),
+        delivered: 0,
+        failed: 0,
+        suppressed: 0,
+        resolved: 0,
+        controlPlaneFailures: 1,
+      };
+    });
   const auditItem = await app.auditRepo.record({
     action: 'platform.snapshot_captured',
     metadata: {
       snapshot,
+      alertDelivery,
     },
   });
   return {
     auditId: auditItem.id,
     snapshot,
+    alertDelivery,
   };
 }
 

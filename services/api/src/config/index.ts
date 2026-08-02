@@ -28,6 +28,40 @@ export const config = {
     };
   },
 
+  get observability() {
+    const role = (process.env.SG_RUNTIME_ROLE ?? 'api') as 'api' | 'worker' | 'scheduler';
+    const defaultMetricsPort = role === 'worker' ? 9465 : role === 'scheduler' ? 9466 : 9464;
+    const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT?.trim().replace(/\/$/, '') ?? '';
+    const tracesUrl = process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT?.trim();
+    return {
+      enabled:
+        process.env.OBSERVABILITY_ENABLED === 'true' ||
+        (process.env.OBSERVABILITY_ENABLED !== 'false' && process.env.NODE_ENV === 'production'),
+      role,
+      metricsHost: process.env.OTEL_EXPORTER_PROMETHEUS_HOST?.trim() || '0.0.0.0',
+      metricsPort: Number(process.env.OTEL_EXPORTER_PROMETHEUS_PORT ?? defaultMetricsPort),
+      metricsPath: process.env.OTEL_EXPORTER_PROMETHEUS_PATH?.trim() || '/metrics',
+      otlpTraceUrl: tracesUrl || (endpoint ? `${endpoint}/v1/traces` : null),
+      serviceVersion: process.env.RELEASE_VERSION?.trim() || 'development',
+    };
+  },
+
+  get platformAlerts() {
+    const positiveNumber = (value: string | undefined, fallback: number) => {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+    };
+    return {
+      environment: process.env.NODE_ENV ?? 'development',
+      cooldownMs: positiveNumber(process.env.PLATFORM_ALERT_COOLDOWN_MINUTES, 60) * 60_000,
+      retryMs: positiveNumber(process.env.PLATFORM_ALERT_RETRY_MINUTES, 5) * 60_000,
+      timeoutMs: positiveNumber(process.env.PLATFORM_ALERT_TIMEOUT_MS, 10_000),
+      webhookUrl: process.env.PLATFORM_ALERT_WEBHOOK_URL?.trim() ?? '',
+      webhookBearerToken: process.env.PLATFORM_ALERT_WEBHOOK_BEARER_TOKEN?.trim() ?? '',
+      slackWebhookUrl: process.env.PLATFORM_ALERT_SLACK_WEBHOOK_URL?.trim() ?? '',
+    };
+  },
+
   get auth() {
     const secure =
       process.env.AUTH_COOKIE_SECURE === 'true' ||

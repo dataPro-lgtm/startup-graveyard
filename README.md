@@ -131,6 +131,8 @@ What is true today:
 - The platform diagnostics now also expose a suppression surface, so operators can see which regression windows were muted by stronger runtime alerts and which suppression reasons dominate recent history
 - Operators can now also export a platform snapshot ops report CSV directly from the dashboard, so the current cadence / regression / rollup state can be handed off outside the app
 - Operators can now also export a Markdown platform incident brief, so the same snapshot state can be handed to humans without reformatting dashboard content
+- API, worker, and scheduler now expose bounded-cardinality Prometheus metrics through private per-process ports and can export traces to an OTLP collector
+- Platform warning and critical alerts can be routed to webhook or Slack with PostgreSQL-backed cooldown, retry, escalation, and recovery state
 
 What is not true today:
 
@@ -179,6 +181,7 @@ Optional integrations:
 - `ANTHROPIC_API_KEY`
 - `STRIPE_*`
 - recovery outreach / CRM / webhook / Slack env vars from `.env.example`
+- `OTEL_EXPORTER_OTLP_ENDPOINT` plus platform alert webhook / Slack variables from `.env.example`
 
 ### Start and initialize the database
 
@@ -215,6 +218,8 @@ pnpm --filter @sg/web start
 ```
 
 Production images and the single-host deployment baseline are documented in [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md).
+
+Production metrics, traces, alert routing, and incident triage are documented in [`docs/OBSERVABILITY_RUNBOOK.md`](./docs/OBSERVABILITY_RUNBOOK.md).
 
 For a production-Compose demo environment, start the stack and then apply the idempotent sample dataset with `make prod-seed`. Normal production startup runs migrations only and never injects demo content.
 

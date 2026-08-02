@@ -4,6 +4,9 @@ const apiPort = Number(process.env.E2E_API_PORT ?? 18180);
 const webPort = Number(process.env.E2E_WEB_PORT ?? 3200);
 const workerHealthPort = Number(process.env.E2E_WORKER_HEALTH_PORT ?? 18181);
 const schedulerHealthPort = Number(process.env.E2E_SCHEDULER_HEALTH_PORT ?? 18182);
+const apiMetricsPort = Number(process.env.E2E_API_METRICS_PORT ?? 19464);
+const workerMetricsPort = Number(process.env.E2E_WORKER_METRICS_PORT ?? 19465);
+const schedulerMetricsPort = Number(process.env.E2E_SCHEDULER_METRICS_PORT ?? 19466);
 const apiBaseUrl = process.env.E2E_API_BASE_URL ?? `http://127.0.0.1:${apiPort}`;
 const webBaseUrl = process.env.E2E_WEB_BASE_URL ?? `http://127.0.0.1:${webPort}`;
 
@@ -29,7 +32,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: `RUNTIME_HEALTH_PORT=${workerHealthPort} pnpm --filter @sg/api start:worker`,
+      command: `RUNTIME_HEALTH_PORT=${workerHealthPort} OTEL_EXPORTER_PROMETHEUS_PORT=${workerMetricsPort} pnpm --filter @sg/api start:worker`,
       url: `http://127.0.0.1:${workerHealthPort}/health/ready`,
       reuseExistingServer: false,
       timeout: 120_000,
@@ -37,7 +40,7 @@ export default defineConfig({
       stderr: 'pipe',
     },
     {
-      command: `RUNTIME_HEALTH_PORT=${schedulerHealthPort} pnpm --filter @sg/api start:scheduler`,
+      command: `RUNTIME_HEALTH_PORT=${schedulerHealthPort} OTEL_EXPORTER_PROMETHEUS_PORT=${schedulerMetricsPort} pnpm --filter @sg/api start:scheduler`,
       url: `http://127.0.0.1:${schedulerHealthPort}/health/ready`,
       reuseExistingServer: false,
       timeout: 120_000,
@@ -45,7 +48,7 @@ export default defineConfig({
       stderr: 'pipe',
     },
     {
-      command: 'pnpm --filter @sg/api start',
+      command: `OTEL_EXPORTER_PROMETHEUS_PORT=${apiMetricsPort} pnpm --filter @sg/api start`,
       url: `${apiBaseUrl}/health/ready`,
       reuseExistingServer: false,
       timeout: 120_000,

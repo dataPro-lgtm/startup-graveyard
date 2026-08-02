@@ -41,6 +41,8 @@ Migration `0036_stripe_webhook_events.sql` adds the Stripe event ledger and sour
 
 Migration `0037_runtime_process_heartbeats.sql` records worker and scheduler instance health. It is additive and may be retained during rollback. Admin diagnostics use the newest durable heartbeat rather than API process memory.
 
+Migration `0038_platform_alert_delivery_states.sql` persists cooldown, retry, escalation, and recovery-delivery state per alert/channel. It is additive and must remain during rollback so a restarted or older application revision cannot erase notification history.
+
 High-risk API routes are rate-limited by default in production. Defaults use a 60-second window with separate budgets for auth (10), token refresh (30), Copilot (20), report export (10), billing mutations (10), and Stripe webhooks (120). Override the corresponding `RATE_LIMIT_*` variables only after load testing; production startup rejects `RATE_LIMIT_ENABLED=false`.
 
 ## Build and start
@@ -67,6 +69,17 @@ Startup ordering is enforced as:
 `PostgreSQL healthy -> migrations complete -> API / worker / scheduler`, then `API ready -> Web`
 
 Worker and scheduler are intentionally not API startup dependencies. Their failure raises Admin alerts without taking the public API offline.
+
+API, worker, and scheduler expose Prometheus metrics on internal ports `9464`, `9465`, and `9466`. These ports are not published by the application services. Configure `OTEL_EXPORTER_OTLP_ENDPOINT` with the base URL of an internal OpenTelemetry Collector when traces are required; leaving it empty disables trace export without disabling metrics.
+
+To run the bundled single-host Prometheus baseline:
+
+```bash
+docker compose --env-file /secure/path/startup-graveyard.env \
+  -f compose.production.yml --profile observability up -d
+```
+
+Prometheus is published on `${PROMETHEUS_PORT:-9090}` for operator access. Do not expose it to the public internet; restrict it at the host firewall or ingress. Detailed scrape, alert-routing, and incident procedures live in [`OBSERVABILITY_RUNBOOK.md`](./OBSERVABILITY_RUNBOOK.md).
 
 The production database is intentionally not seeded during normal startup. For a disposable demo or acceptance environment only, apply the versioned sample dataset once with:
 
@@ -109,7 +122,7 @@ Keep one scheduler replica by default. Multiple schedulers remain claim-safe thr
 
 If a worker terminates during a job, restart it and use the Admin stale-running recovery action after the configured threshold. Do not edit `ingestion_jobs` manually. Runtime heartbeat rows are operational history and can remain after process exit.
 
-For Stage D rollback, roll back API/Web/worker/scheduler images together and keep migration `0037`; older images ignore the additive table. Never drop the heartbeat table during incident rollback.
+For Stage E rollback, roll back API/Web/worker/scheduler images together and keep migrations `0037` and `0038`; older images ignore the additive tables. Never drop heartbeat or alert delivery state during incident rollback.
 
 ## Operate safely
 

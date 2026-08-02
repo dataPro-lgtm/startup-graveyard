@@ -69,6 +69,23 @@ async function submitServerAction(page: Page, pathname: string, click: () => Pro
   await Promise.all([response, click()]);
 }
 
+test('isolated API, worker, and scheduler expose Prometheus metrics', async ({ request }) => {
+  const ports = [
+    process.env.E2E_API_METRICS_PORT,
+    process.env.E2E_WORKER_METRICS_PORT,
+    process.env.E2E_SCHEDULER_METRICS_PORT,
+  ];
+  for (const port of ports) {
+    expect(port).toBeTruthy();
+    const response = await request.get(`http://127.0.0.1:${port}/metrics`);
+    expect(response.status()).toBe(200);
+    const body = await response.text();
+    expect(body).toContain('target_info');
+    expect(body).toContain('service_namespace="startup-graveyard"');
+    expect(body).toMatch(/sg_process_uptime\{/);
+  }
+});
+
 test('public research flow discovers and opens a grounded case', async ({ page }) => {
   await page.goto('/');
 
