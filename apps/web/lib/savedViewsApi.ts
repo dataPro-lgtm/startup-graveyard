@@ -1,4 +1,4 @@
-import { API_BASE_URL } from './api';
+import { apiFetch } from './api';
 import {
   createSavedViewResponseSchema,
   deleteSavedViewResponseSchema,
@@ -18,20 +18,12 @@ type ApiError = {
   details?: unknown;
 };
 
-function authHeaders(token: string): Record<string, string> {
-  return {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${token}`,
-  };
-}
-
 export function isApiError(value: unknown): value is ApiError {
   return typeof value === 'object' && value !== null && 'error' in value;
 }
 
-export async function fetchMySavedViews(token: string) {
-  const res = await fetch(`${API_BASE_URL}/v1/saved-views/me`, {
-    headers: { Authorization: `Bearer ${token}` },
+export async function fetchMySavedViews() {
+  const res = await apiFetch('/v1/saved-views/me', {
     cache: 'no-store',
   });
   const json: unknown = await res.json();
@@ -39,13 +31,10 @@ export async function fetchMySavedViews(token: string) {
   return savedViewListResponseSchema.parse(json);
 }
 
-export async function createSavedView(
-  token: string,
-  input: { name: string; filters: SavedViewFilters },
-) {
-  const res = await fetch(`${API_BASE_URL}/v1/saved-views/items`, {
+export async function createSavedView(input: { name: string; filters: SavedViewFilters }) {
+  const res = await apiFetch('/v1/saved-views/items', {
     method: 'POST',
-    headers: authHeaders(token),
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   });
   const json: unknown = await res.json();
@@ -54,31 +43,23 @@ export async function createSavedView(
 }
 
 export async function updateSavedView(
-  token: string,
   savedViewId: string,
   input: { name?: string; filters?: SavedViewFilters },
 ) {
-  const res = await fetch(
-    `${API_BASE_URL}/v1/saved-views/items/${encodeURIComponent(savedViewId)}`,
-    {
-      method: 'PATCH',
-      headers: authHeaders(token),
-      body: JSON.stringify(input),
-    },
-  );
+  const res = await apiFetch(`/v1/saved-views/items/${encodeURIComponent(savedViewId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
   const json: unknown = await res.json();
   if (!res.ok) return json as ApiError;
   return updateSavedViewResponseSchema.parse(json);
 }
 
-export async function deleteSavedView(token: string, savedViewId: string) {
-  const res = await fetch(
-    `${API_BASE_URL}/v1/saved-views/items/${encodeURIComponent(savedViewId)}`,
-    {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${token}` },
-    },
-  );
+export async function deleteSavedView(savedViewId: string) {
+  const res = await apiFetch(`/v1/saved-views/items/${encodeURIComponent(savedViewId)}`, {
+    method: 'DELETE',
+  });
   const json: unknown = await res.json();
   if (!res.ok) return json as ApiError;
   return deleteSavedViewResponseSchema.parse(json);

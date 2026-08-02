@@ -44,10 +44,12 @@ describe('runtime environment', () => {
     process.env.WEB_BASE_URL = 'https://app.example.com/path';
     process.env.CORS_ALLOWED_ORIGINS = 'https://research.example.com,not-a-url';
     process.env.RATE_LIMIT_ENABLED = 'false';
+    process.env.AUTH_COOKIE_SECURE = 'false';
 
     expect(() => validateRuntimeEnv()).toThrow(/WEB_BASE_URL/);
     expect(() => validateRuntimeEnv()).toThrow(/CORS_ALLOWED_ORIGINS/);
     expect(() => validateRuntimeEnv()).toThrow(/RATE_LIMIT_ENABLED/);
+    expect(() => validateRuntimeEnv()).toThrow(/AUTH_COOKIE_SECURE/);
   });
 
   it('emits warnings in development instead of throwing', () => {

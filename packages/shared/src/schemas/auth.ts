@@ -13,7 +13,7 @@ export const loginBodySchema = z.object({
 });
 
 export const refreshBodySchema = z.object({
-  refreshToken: z.string().min(1),
+  refreshToken: z.string().min(1).optional(),
 });
 
 export const subscriptionTierSchema = z.enum(SUBSCRIPTION_TIERS);
@@ -70,8 +70,8 @@ export const userSchema = z.object({
 
 export const authResponseSchema = z.object({
   user: userSchema,
-  accessToken: z.string(),
-  refreshToken: z.string(),
+  accessToken: z.string().optional(),
+  refreshToken: z.string().optional(),
   expiresIn: z.number(), // seconds
 });
 

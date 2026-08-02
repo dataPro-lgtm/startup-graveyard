@@ -1,4 +1,4 @@
-import { API_BASE_URL } from './api';
+import { apiFetch } from './api';
 import {
   teamWorkspaceContextMutationResponseSchema,
   teamWorkspaceContextResponseSchema,
@@ -8,13 +8,6 @@ import {
 export const TEAM_WORKSPACE_REFRESH_EVENT = 'sg-team-workspace-refresh';
 
 type ApiError = { error: string; details?: unknown };
-
-function authHeaders(token: string): Record<string, string> {
-  return {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${token}`,
-  };
-}
 
 export function isApiError(value: unknown): value is ApiError {
   return typeof value === 'object' && value !== null && 'error' in value;
@@ -26,9 +19,8 @@ export function notifyTeamWorkspaceUpdated() {
   }
 }
 
-export async function fetchTeamWorkspaceContext(token: string) {
-  const res = await fetch(`${API_BASE_URL}/v1/team-workspace/me`, {
-    headers: { Authorization: `Bearer ${token}` },
+export async function fetchTeamWorkspaceContext() {
+  const res = await apiFetch('/v1/team-workspace/me', {
     cache: 'no-store',
   });
   const json: unknown = await res.json();
@@ -36,10 +28,10 @@ export async function fetchTeamWorkspaceContext(token: string) {
   return teamWorkspaceContextResponseSchema.parse(json);
 }
 
-export async function createTeamWorkspace(token: string, input: { name: string }) {
-  const res = await fetch(`${API_BASE_URL}/v1/team-workspace`, {
+export async function createTeamWorkspace(input: { name: string }) {
+  const res = await apiFetch('/v1/team-workspace', {
     method: 'POST',
-    headers: authHeaders(token),
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   });
   const json: unknown = await res.json();
@@ -47,13 +39,13 @@ export async function createTeamWorkspace(token: string, input: { name: string }
   return teamWorkspaceContextMutationResponseSchema.parse(json);
 }
 
-export async function inviteTeamWorkspaceMember(
-  token: string,
-  input: { email: string; role: Exclude<TeamWorkspaceRole, 'owner'> },
-) {
-  const res = await fetch(`${API_BASE_URL}/v1/team-workspace/invites`, {
+export async function inviteTeamWorkspaceMember(input: {
+  email: string;
+  role: Exclude<TeamWorkspaceRole, 'owner'>;
+}) {
+  const res = await apiFetch('/v1/team-workspace/invites', {
     method: 'POST',
-    headers: authHeaders(token),
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   });
   const json: unknown = await res.json();
@@ -61,24 +53,21 @@ export async function inviteTeamWorkspaceMember(
   return teamWorkspaceContextMutationResponseSchema.parse(json);
 }
 
-export async function acceptTeamWorkspaceInvite(token: string, inviteId: string) {
-  const res = await fetch(
-    `${API_BASE_URL}/v1/team-workspace/invites/${encodeURIComponent(inviteId)}/accept`,
-    {
-      method: 'POST',
-      headers: authHeaders(token),
-      body: JSON.stringify({}),
-    },
-  );
+export async function acceptTeamWorkspaceInvite(inviteId: string) {
+  const res = await apiFetch(`/v1/team-workspace/invites/${encodeURIComponent(inviteId)}/accept`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
   const json: unknown = await res.json();
   if (!res.ok) return json as ApiError;
   return teamWorkspaceContextMutationResponseSchema.parse(json);
 }
 
-export async function shareSavedViewToWorkspace(token: string, savedViewId: string) {
-  const res = await fetch(`${API_BASE_URL}/v1/team-workspace/shared-saved-views`, {
+export async function shareSavedViewToWorkspace(savedViewId: string) {
+  const res = await apiFetch('/v1/team-workspace/shared-saved-views', {
     method: 'POST',
-    headers: authHeaders(token),
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ savedViewId }),
   });
   const json: unknown = await res.json();
@@ -86,10 +75,10 @@ export async function shareSavedViewToWorkspace(token: string, savedViewId: stri
   return teamWorkspaceContextMutationResponseSchema.parse(json);
 }
 
-export async function shareCaseToWorkspace(token: string, caseId: string) {
-  const res = await fetch(`${API_BASE_URL}/v1/team-workspace/shared-cases`, {
+export async function shareCaseToWorkspace(caseId: string) {
+  const res = await apiFetch('/v1/team-workspace/shared-cases', {
     method: 'POST',
-    headers: authHeaders(token),
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ caseId }),
   });
   const json: unknown = await res.json();

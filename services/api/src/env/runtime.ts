@@ -24,6 +24,15 @@ function isHttpOrigin(value: string): boolean {
   }
 }
 
+function isLoopbackOrigin(value: string): boolean {
+  try {
+    const hostname = new URL(value).hostname;
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+  } catch {
+    return false;
+  }
+}
+
 export function getRuntimeFeatureFlags(): RuntimeFeatureFlags {
   const dbConfigured = hasValue(process.env.DATABASE_URL);
   const adminEnabled = hasValue(process.env.ADMIN_API_KEY);
@@ -71,6 +80,17 @@ export function validateRuntimeEnv(): RuntimeFeatureFlags {
     }
     if (process.env.RATE_LIMIT_ENABLED === 'false') {
       errors.push('RATE_LIMIT_ENABLED cannot be false in production.');
+    }
+    const insecureCookie = process.env.AUTH_COOKIE_SECURE === 'false';
+    if (insecureCookie && !isLoopbackOrigin(process.env.WEB_BASE_URL ?? '')) {
+      errors.push('AUTH_COOKIE_SECURE cannot be false for a public production origin.');
+    }
+    const sameSite = process.env.AUTH_COOKIE_SAME_SITE?.trim().toLowerCase();
+    if (sameSite && !['lax', 'strict', 'none'].includes(sameSite)) {
+      errors.push('AUTH_COOKIE_SAME_SITE must be lax, strict, or none.');
+    }
+    if (sameSite === 'none' && insecureCookie) {
+      errors.push('AUTH_COOKIE_SAME_SITE=none requires secure cookies.');
     }
   } else {
     if (!features.dbConfigured) {

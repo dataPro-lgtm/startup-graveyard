@@ -1,8 +1,15 @@
 import type { FastifyInstance } from 'fastify';
 import { loginBodySchema, registerBodySchema, refreshBodySchema } from '@sg/shared/schemas/auth';
 import { verifyAccessToken } from '../../auth/tokens.js';
-import { extractBearer, resolveEffectiveUser } from './authedUser.js';
+import { resolveEffectiveUser } from './authedUser.js';
 import { routeRateLimit } from '../../security/requestSecurity.js';
+import {
+  accessTokenFromRequest,
+  authResponseBody,
+  clearAuthCookies,
+  refreshTokenFromRequest,
+  setAuthCookies,
+} from '../../auth/cookies.js';
 
 export async function authRoutes(app: FastifyInstance) {
   // ── POST /v1/auth/register ───────────────────────────────────────────────
@@ -27,10 +34,10 @@ export async function authRoutes(app: FastifyInstance) {
         return reply.code(400).send({ error: result.code });
       }
 
-      return reply.code(201).send({
-        ...result,
-        user: await resolveEffectiveUser(app, result.user),
-      });
+      setAuthCookies(reply, result);
+      return reply
+        .code(201)
+        .send(authResponseBody(request, result, await resolveEffectiveUser(app, result.user)));
     },
   );
 
@@ -47,10 +54,10 @@ export async function authRoutes(app: FastifyInstance) {
       return reply.code(401).send({ error: 'invalid_credentials' });
     }
 
-    return reply.send({
-      ...result,
-      user: await resolveEffectiveUser(app, result.user),
-    });
+    setAuthCookies(reply, result);
+    return reply.send(
+      authResponseBody(request, result, await resolveEffectiveUser(app, result.user)),
+    );
   });
 
   // ── POST /v1/auth/refresh ────────────────────────────────────────────────
@@ -61,33 +68,44 @@ export async function authRoutes(app: FastifyInstance) {
       const parsed = refreshBodySchema.safeParse(request.body ?? {});
       if (!parsed.success) return reply.code(400).send({ error: 'invalid_body' });
 
-      const result = await app.usersRepo.refresh(parsed.data.refreshToken);
+      const refreshToken = parsed.data.refreshToken ?? refreshTokenFromRequest(request);
+      if (!refreshToken) return reply.code(401).send({ error: 'refresh_token_required' });
+
+      const result = await app.usersRepo.refresh(refreshToken);
       if (!result.ok) {
+        clearAuthCookies(reply);
         return reply.code(401).send({ error: result.code });
       }
 
-      return reply.send({
-        ...result,
-        user: await resolveEffectiveUser(app, result.user),
-      });
+      setAuthCookies(reply, result);
+      return reply.send(
+        authResponseBody(request, result, await resolveEffectiveUser(app, result.user)),
+      );
     },
   );
 
   // ── POST /v1/auth/logout ─────────────────────────────────────────────────
   app.post('/logout', async (request, reply) => {
-    const token = extractBearer(request.headers.authorization);
-    if (!token) return reply.code(401).send({ error: 'unauthorized' });
+    const token = accessTokenFromRequest(request);
+    const payload = token ? verifyAccessToken(token) : null;
+    let userId = payload?.sub ?? null;
 
-    const payload = verifyAccessToken(token);
-    if (!payload) return reply.code(401).send({ error: 'invalid_token' });
+    if (!userId) {
+      const refreshToken = refreshTokenFromRequest(request);
+      if (refreshToken) {
+        const refreshed = await app.usersRepo.refresh(refreshToken);
+        if (refreshed.ok) userId = refreshed.user.id;
+      }
+    }
 
-    await app.usersRepo.logout(payload.sub);
+    if (userId) await app.usersRepo.logout(userId);
+    clearAuthCookies(reply);
     return reply.send({ ok: true });
   });
 
   // ── GET /v1/auth/me ──────────────────────────────────────────────────────
   app.get('/me', async (request, reply) => {
-    const token = extractBearer(request.headers.authorization);
+    const token = accessTokenFromRequest(request);
     if (!token) return reply.code(401).send({ error: 'unauthorized' });
 
     const payload = verifyAccessToken(token);

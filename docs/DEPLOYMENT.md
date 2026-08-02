@@ -13,6 +13,8 @@ ADMIN_API_KEY=<strong-random-admin-key>
 ADMIN_UI_USERNAME=<non-public-admin-username>
 ADMIN_UI_PASSWORD=<strong-random-admin-password>
 JWT_SECRET=<at-least-48-random-bytes>
+AUTH_COOKIE_SECURE=true
+AUTH_COOKIE_SAME_SITE=lax
 NEXT_PUBLIC_API_BASE_URL=https://api.example.com
 NEXT_PUBLIC_SITE_URL=https://app.example.com
 WEB_BASE_URL=https://app.example.com
@@ -23,6 +25,8 @@ TRUST_PROXY=127.0.0.1,10.0.0.0/8
 Add Stripe, AI provider, email, CRM, webhook, and Slack variables only for integrations enabled in that environment.
 
 `WEB_BASE_URL` is always included in the exact CORS allowlist. Add other browser origins through comma-separated `CORS_ALLOWED_ORIGINS`; paths and wildcard origins are rejected. Configure `TRUST_PROXY` only with the trusted ingress addresses that may supply client IP headers.
+
+Browser authentication uses Host-only HttpOnly access and refresh cookies. Browser-origin login and refresh responses do not expose bearer credentials in JSON. Keep `AUTH_COOKIE_SECURE=true` on every public deployment. Use `SameSite=lax` when Web and API are same-site subdomains; cross-site deployments require `SameSite=none`, Secure cookies, and an explicit CORS origin. Bearer authentication remains available for non-browser API clients.
 
 High-risk API routes are rate-limited by default in production. Defaults use a 60-second window with separate budgets for auth (10), token refresh (30), Copilot (20), report export (10), billing mutations (10), and Stripe webhooks (120). Override the corresponding `RATE_LIMIT_*` variables only after load testing; production startup rejects `RATE_LIMIT_ENABLED=false`.
 
@@ -63,6 +67,7 @@ The API refuses to start in production without PostgreSQL, an admin key, a non-d
 - Terminate TLS and apply a second layer of request limits at the ingress. API limits are process-local, so multi-replica deployments must use a shared edge/Redis limiter to enforce a global budget.
 - Keep `/admin/*` behind the configured Admin UI credentials and an ingress allowlist or identity-aware proxy. HTTP Basic is an interim perimeter; it does not replace application-level admin roles.
 - Use different values for `ADMIN_UI_PASSWORD` and `ADMIN_API_KEY`.
+- Do not store browser access or refresh tokens in Web Storage. Cookie-authenticated mutations are rejected unless their `Origin` is explicitly allowed.
 - Keep PostgreSQL private; `compose.production.yml` does not publish its port.
 - Back up the PostgreSQL volume before applying new migrations.
 - Build one image revision and promote the same digest between environments.

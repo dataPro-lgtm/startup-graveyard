@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
 import sensible from '@fastify/sensible';
 import swagger from '@fastify/swagger';
@@ -95,6 +96,7 @@ import { watchlistRoutes } from './routes/public/watchlist.js';
 import { metaRoutes } from './routes/public/meta.js';
 import { config } from './config/index.js';
 import { resolveCorsAllowedOrigins } from './security/requestSecurity.js';
+import { cookieOriginAllowed } from './auth/cookies.js';
 
 export type BuildAppOptions = {
   /** 默认 true；测试可关日志 */
@@ -217,6 +219,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
   }
 
   const corsAllowedOrigins = resolveCorsAllowedOrigins();
+  await server.register(cookie);
   await server.register(cors, {
     credentials: true,
     origin(origin, callback) {
@@ -231,6 +234,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
       'x-ratelimit-reset': true,
       'retry-after': true,
     },
+  });
+  server.addHook('preHandler', async (request, reply) => {
+    if (!cookieOriginAllowed(request, corsAllowedOrigins)) {
+      return reply.code(403).send({ error: 'invalid_request_origin' });
+    }
   });
   await server.register(sensible);
   await server.register(swagger, {

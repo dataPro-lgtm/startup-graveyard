@@ -156,4 +156,6 @@ Startup Graveyard 已经具备可运行 alpha 的完整骨架，不再缺“功�
 - 认证注册/登录、token refresh、Copilot answer、报告生成、Stripe checkout/portal/webhook 已启用分层限流。
 - 有效登录用户按用户主体限流，匿名和无效凭据按可信客户端 IP 限流；令牌不会进入限流存储键。
 - 安全负向测试覆盖不受信来源无 CORS 授权、认证超频、refresh 独立预算、Copilot 与导出超频。
-- 下一切片迁移 refresh token 到 `HttpOnly + Secure + SameSite` cookie，并保留短时 access token 的渐进兼容窗口。
+- Web access/refresh 凭据已从 localStorage 迁移到 Host-only `HttpOnly + Secure + SameSite` Cookie；浏览器来源响应不再返回 bearer token。
+- Cookie 状态变更增加可信 Origin 校验，非浏览器 bearer 客户端继续兼容，生产公网禁止关闭 Secure Cookie。
+- 下一切片进入 Team 跨租户读写矩阵、Admin 应用角色和会话设备管理。

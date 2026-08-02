@@ -8,7 +8,6 @@ import { industryLabel, primaryFailureReasonLabel } from '@sg/shared/taxonomy';
 import { useAuth } from '@/app/components/AuthProvider';
 import { SavedViewsManager } from '@/app/components/SavedViewsManager';
 import { TeamWorkspacePanel } from '@/app/components/TeamWorkspacePanel';
-import { getAccessToken } from '@/lib/authApi';
 import { caseListHref } from '@/lib/casesApi';
 import {
   createBillingPortalSession,
@@ -60,10 +59,8 @@ export default function AccountPage() {
 
     async function loadWatchlist() {
       if (!user) return;
-      const token = getAccessToken();
-      if (!token) return;
       setWatchlistLoading(true);
-      const res = await fetchMyWatchlist(token);
+      const res = await fetchMyWatchlist();
       if (cancelled) return;
       if (isWatchlistApiError(res)) {
         setWatchlistError(`加载 Watchlist 失败：${res.error}`);
@@ -123,15 +120,10 @@ export default function AccountPage() {
 
   async function handleCheckout(plan: CheckoutPlan) {
     if (!user) return;
-    const token = getAccessToken();
-    if (!token) {
-      router.push('/auth/login');
-      return;
-    }
     setCheckoutPlanLoading(plan);
     setBillingError(null);
     try {
-      const result = await createCheckoutSession(token, user.id, plan);
+      const result = await createCheckoutSession(user.id, plan);
       if (result.status === 503) {
         if (result.data?.error === 'stripe_not_configured') {
           setStripeUnavailable(true);
@@ -151,15 +143,10 @@ export default function AccountPage() {
 
   async function handleManageBilling() {
     if (!user) return;
-    const token = getAccessToken();
-    if (!token) {
-      router.push('/auth/login');
-      return;
-    }
     setPortalLoading(true);
     setBillingError(null);
     try {
-      const result = await createBillingPortalSession(token);
+      const result = await createBillingPortalSession();
       if (result.status === 503) {
         setStripeUnavailable(true);
         setBillingError(paymentErrorMessage({ context: 'portal', response: result.data }));

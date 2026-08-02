@@ -5,6 +5,7 @@ import type { BillingInterval, BillingStatus, SubscriptionTier } from '@sg/share
 import type { BillingFunnelEventSource } from '@sg/shared/schemas/adminStats';
 import { config } from '../../config/index.js';
 import { verifyAccessToken } from '../../auth/tokens.js';
+import { accessTokenFromRequest } from '../../auth/cookies.js';
 
 type CheckoutPlan = Extract<SubscriptionTier, 'pro' | 'team'>;
 type BillingFlowSource = BillingFunnelEventSource;
@@ -19,12 +20,6 @@ type StripeSubscriptionLike = {
     }>;
   };
 };
-
-function extractBearer(authHeader: string | undefined): string | null {
-  if (!authHeader) return null;
-  const match = /^Bearer\s+(.+)$/i.exec(authHeader.trim());
-  return match?.[1] ?? null;
-}
 
 function getStripe(): Stripe {
   return new Stripe(config.stripe.secretKey);
@@ -83,7 +78,7 @@ async function requireAuthedUser(
   request: FastifyRequest,
   reply: FastifyReply,
 ) {
-  const token = extractBearer(request.headers.authorization);
+  const token = accessTokenFromRequest(request);
   if (!token) {
     reply.code(401).send({ error: 'unauthorized' });
     return null;

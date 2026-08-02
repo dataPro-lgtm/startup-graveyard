@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { UserProfile } from '@sg/shared/schemas/auth';
 import { verifyAccessToken } from '../../auth/tokens.js';
+import { accessTokenFromRequest } from '../../auth/cookies.js';
 
 export function extractBearer(authHeader: string | undefined): string | null {
   if (!authHeader) return null;
@@ -20,7 +21,7 @@ export async function requireEffectiveUser(
   request: FastifyRequest,
   reply: FastifyReply,
 ): Promise<UserProfile | null> {
-  const token = extractBearer(request.headers.authorization);
+  const token = accessTokenFromRequest(request);
   if (!token) {
     reply.code(401).send({ error: 'unauthorized' });
     return null;

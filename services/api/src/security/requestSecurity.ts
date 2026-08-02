@@ -1,5 +1,6 @@
 import type { FastifyContextConfig, FastifyRequest } from 'fastify';
 import { verifyAccessToken } from '../auth/tokens.js';
+import { accessTokenFromRequest } from '../auth/cookies.js';
 import { config } from '../config/index.js';
 
 export type RateLimitProfile =
@@ -27,8 +28,7 @@ export function resolveCorsAllowedOrigins(): ReadonlySet<string> {
 }
 
 function authenticatedPrincipalKey(request: FastifyRequest): string {
-  const header = request.headers.authorization?.trim();
-  const token = header?.match(/^Bearer\s+(.+)$/i)?.[1];
+  const token = accessTokenFromRequest(request);
   const payload = token ? verifyAccessToken(token) : null;
   if (payload) return `user:${payload.sub}`;
 

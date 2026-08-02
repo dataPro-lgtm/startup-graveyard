@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/app/components/AuthProvider';
-import { getAccessToken } from '@/lib/authApi';
 import {
   addToWatchlist,
   fetchWatchlistStatus,
@@ -38,9 +37,7 @@ export function WatchlistButton({ caseId }: { caseId: string }) {
         setSummary(null);
         return;
       }
-      const token = getAccessToken();
-      if (!token) return;
-      const res = await fetchWatchlistStatus(token, caseId);
+      const res = await fetchWatchlistStatus(caseId);
       if (cancelled) return;
       if (isApiError(res)) {
         setError(errorMessage(res));
@@ -58,16 +55,13 @@ export function WatchlistButton({ caseId }: { caseId: string }) {
   }, [caseId, user]);
 
   async function handleToggle() {
-    const token = getAccessToken();
-    if (!user || !token) {
+    if (!user) {
       router.push('/auth/login');
       return;
     }
     setPending(true);
     setError(null);
-    const res = saved
-      ? await removeFromWatchlist(token, caseId)
-      : await addToWatchlist(token, caseId);
+    const res = saved ? await removeFromWatchlist(caseId) : await addToWatchlist(caseId);
     if (isApiError(res)) {
       setError(errorMessage(res));
       if (res.error === 'entitlement_required') router.push('/auth/account');

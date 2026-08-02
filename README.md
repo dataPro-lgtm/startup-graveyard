@@ -300,7 +300,7 @@ The current roadmap is staged around four layers:
 - `M4`: platform hardening and operational maturity
   - runtime diagnostics, failed-job visibility, alerting, tracing, runbooks, and production safety rails
 
-See the current execution plan in [`docs/PRODUCT_EXECUTION_PLAN.md`](./docs/PRODUCT_EXECUTION_PLAN.md). The detailed implementation history remains in [`docs/PRODUCT_MATURITY_PLAN.md`](./docs/PRODUCT_MATURITY_PLAN.md).
+See the commercial target architecture and maturity scorecard in [`docs/COMMERCIAL_PRODUCT_ARCHITECTURE.md`](./docs/COMMERCIAL_PRODUCT_ARCHITECTURE.md), then follow the current execution plan in [`docs/PRODUCT_EXECUTION_PLAN.md`](./docs/PRODUCT_EXECUTION_PLAN.md). The detailed implementation history remains in [`docs/PRODUCT_MATURITY_PLAN.md`](./docs/PRODUCT_MATURITY_PLAN.md).
 
 ## Repository highlights
 

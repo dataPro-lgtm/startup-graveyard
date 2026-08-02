@@ -82,6 +82,17 @@ test('pro research flow saves, exports, and publishes a public brief', async ({ 
   await page.getByRole('textbox', { name: '密码（至少 8 位）' }).fill('ReleaseGate123!');
   await page.getByRole('button', { name: '创建账号' }).click();
   await expect(page.getByRole('link', { name: displayName })).toBeVisible();
+  expect(
+    await page.evaluate(() => ({
+      access: window.localStorage.getItem('sg_access'),
+      refresh: window.localStorage.getItem('sg_refresh'),
+    })),
+  ).toEqual({ access: null, refresh: null });
+  const authCookies = (await page.context().cookies()).filter((cookie) =>
+    ['sg_access', 'sg_refresh'].includes(cookie.name),
+  );
+  expect(authCookies).toHaveLength(2);
+  expect(authCookies.every((cookie) => cookie.httpOnly)).toBe(true);
 
   await activateSubscription(email, 'pro');
   await page.reload();

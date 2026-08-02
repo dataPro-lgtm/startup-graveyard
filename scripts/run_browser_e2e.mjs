@@ -104,6 +104,7 @@ async function main() {
       ADMIN_UI_USERNAME: 'release-admin',
       ADMIN_UI_PASSWORD: 'release-admin-password',
       JWT_SECRET: 'browser-e2e-secret-that-is-longer-than-forty-eight-bytes',
+      AUTH_COOKIE_SECURE: 'false',
       OPENAI_API_KEY: '',
       ANTHROPIC_API_KEY: '',
       STRIPE_SECRET_KEY: '',

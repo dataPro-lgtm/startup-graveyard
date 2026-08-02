@@ -20,7 +20,26 @@ export const config = {
   },
 
   get auth() {
-    return { jwtSecret: process.env.JWT_SECRET ?? 'change-me-in-production' };
+    const secure =
+      process.env.AUTH_COOKIE_SECURE === 'true' ||
+      (process.env.AUTH_COOKIE_SECURE !== 'false' && process.env.NODE_ENV === 'production');
+    const configuredSameSite = process.env.AUTH_COOKIE_SAME_SITE?.trim().toLowerCase();
+    const sameSite: 'lax' | 'strict' | 'none' =
+      configuredSameSite === 'strict' ||
+      configuredSameSite === 'none' ||
+      configuredSameSite === 'lax'
+        ? configuredSameSite
+        : 'lax';
+    return {
+      jwtSecret: process.env.JWT_SECRET ?? 'change-me-in-production',
+      cookies: {
+        accessName: secure ? '__Host-sg_access' : 'sg_access',
+        refreshName: secure ? '__Host-sg_refresh' : 'sg_refresh',
+        secure,
+        sameSite,
+        refreshTtlSeconds: 30 * 24 * 60 * 60,
+      },
+    };
   },
 
   get web() {
