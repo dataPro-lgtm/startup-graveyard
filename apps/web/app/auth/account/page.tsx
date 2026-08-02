@@ -8,6 +8,7 @@ import { industryLabel, primaryFailureReasonLabel } from '@sg/shared/taxonomy';
 import { useAuth } from '@/app/components/AuthProvider';
 import { SavedViewsManager } from '@/app/components/SavedViewsManager';
 import { TeamWorkspacePanel } from '@/app/components/TeamWorkspacePanel';
+import { SessionManager } from '@/app/components/SessionManager';
 import { caseListHref } from '@/lib/casesApi';
 import {
   createBillingPortalSession,
@@ -403,6 +404,8 @@ export default function AccountPage() {
           />
         </div>
       </section>
+
+      <SessionManager />
 
       <section
         style={{

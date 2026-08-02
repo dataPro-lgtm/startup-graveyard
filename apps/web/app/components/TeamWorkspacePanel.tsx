@@ -39,7 +39,6 @@ function apiErrorMessage(error: { error: string }) {
   if (error.error === 'workspace_plan_inactive') {
     return '当前 Team 工作区账单未处于可用状态，邀请功能已暂停。';
   }
-  if (error.error === 'email_mismatch') return '邀请邮箱和当前登录账户不一致。';
   if (error.error === 'workspace_not_found') return '当前还没有可操作的团队工作区。';
   if (error.error === 'forbidden') return '当前角色没有成员管理权限。';
   if (error.error === 'invite_not_found') return '邀请不存在，或已经被处理。';

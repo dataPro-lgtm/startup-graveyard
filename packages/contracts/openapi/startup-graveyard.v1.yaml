@@ -14,6 +14,11 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    CookieAuth:
+      type: apiKey
+      in: cookie
+      name: sg_access
+      description: Host-only HttpOnly access cookie; public production uses the configured __Host- cookie name.
   schemas:
     CaseListItem:
       type: object
@@ -430,13 +435,34 @@ components:
         createdAt: { type: string }
     AuthResponse:
       type: object
-      required: [user, accessToken, refreshToken, expiresIn]
+      required: [user, expiresIn]
       properties:
         user:
           $ref: '#/components/schemas/UserProfile'
+        sessionId: { type: string, format: uuid }
         accessToken: { type: string }
         refreshToken: { type: string }
         expiresIn: { type: integer, minimum: 1 }
+    UserSession:
+      type: object
+      required: [id, current, ipAddress, userAgent, createdAt, lastSeenAt, expiresAt]
+      properties:
+        id: { type: string, format: uuid }
+        current: { type: boolean }
+        ipAddress: { type: string, nullable: true }
+        userAgent: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+        lastSeenAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+    UserSessionsResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/UserSession'
     WatchlistSummary:
       type: object
       required:
@@ -2887,12 +2913,11 @@ paths:
     post:
       summary: Rotate refresh token and issue a new access token
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             schema:
               type: object
-              required: [refreshToken]
               properties:
                 refreshToken: { type: string, minLength: 1 }
       responses:
@@ -2911,16 +2936,16 @@ paths:
       summary: Logout current user session
       security:
         - BearerAuth: []
+        - CookieAuth: []
       responses:
         '200':
           description: Logged out
-        '401':
-          description: Unauthorized
   /v1/auth/me:
     get:
       summary: Get current user profile
       security:
         - BearerAuth: []
+        - CookieAuth: []
       responses:
         '200':
           description: Current user profile
@@ -2932,6 +2957,68 @@ paths:
           description: Unauthorized
         '404':
           description: User not found
+  /v1/auth/sessions:
+    get:
+      summary: List active device sessions for the current account
+      security:
+        - BearerAuth: []
+        - CookieAuth: []
+      responses:
+        '200':
+          description: Active sessions ordered by recent activity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserSessionsResponse'
+        '401':
+          description: Unauthorized or session revoked
+  /v1/auth/sessions/{sessionId}:
+    delete:
+      summary: Revoke one device session owned by the current account
+      security:
+        - BearerAuth: []
+        - CookieAuth: []
+      parameters:
+        - in: path
+          name: sessionId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Session revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, currentSessionRevoked]
+                properties:
+                  ok: { type: boolean, const: true }
+                  currentSessionRevoked: { type: boolean }
+        '401':
+          description: Unauthorized or session revoked
+        '404':
+          description: Session not found for this account
+  /v1/auth/sessions/revoke-others:
+    post:
+      summary: Revoke every device except the current session
+      security:
+        - BearerAuth: []
+        - CookieAuth: []
+      responses:
+        '200':
+          description: Other sessions revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, revokedCount]
+                properties:
+                  ok: { type: boolean, const: true }
+                  revokedCount: { type: integer, minimum: 0 }
+        '401':
+          description: Unauthorized or session revoked
+        '409':
+          description: Legacy bearer token has no session context
   /v1/copilot/answer:
     post:
       summary: Grounded failure-intelligence answer within a persisted research session

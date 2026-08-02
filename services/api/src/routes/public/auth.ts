@@ -1,7 +1,15 @@
-import type { FastifyInstance } from 'fastify';
-import { loginBodySchema, registerBodySchema, refreshBodySchema } from '@sg/shared/schemas/auth';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
+import {
+  loginBodySchema,
+  registerBodySchema,
+  refreshBodySchema,
+  revokeOtherSessionsResponseSchema,
+  revokeSessionResponseSchema,
+  userSessionParamsSchema,
+  userSessionsResponseSchema,
+} from '@sg/shared/schemas/auth';
 import { verifyAccessToken } from '../../auth/tokens.js';
-import { resolveEffectiveUser } from './authedUser.js';
+import { requireAccessPayload, resolveEffectiveUser } from './authedUser.js';
 import { routeRateLimit } from '../../security/requestSecurity.js';
 import {
   accessTokenFromRequest,
@@ -10,6 +18,13 @@ import {
   refreshTokenFromRequest,
   setAuthCookies,
 } from '../../auth/cookies.js';
+
+function sessionContext(request: FastifyRequest) {
+  return {
+    ipAddress: request.ip,
+    userAgent: request.headers['user-agent']?.slice(0, 512) ?? null,
+  };
+}
 
 export async function authRoutes(app: FastifyInstance) {
   // ── POST /v1/auth/register ───────────────────────────────────────────────
@@ -26,6 +41,7 @@ export async function authRoutes(app: FastifyInstance) {
         parsed.data.email,
         parsed.data.password,
         parsed.data.displayName,
+        sessionContext(request),
       );
       if (!result.ok) {
         if (result.code === 'email_taken') {
@@ -48,7 +64,11 @@ export async function authRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'invalid_body' });
     }
 
-    const result = await app.usersRepo.login(parsed.data.email, parsed.data.password);
+    const result = await app.usersRepo.login(
+      parsed.data.email,
+      parsed.data.password,
+      sessionContext(request),
+    );
     if (!result.ok) {
       // Return 401 for both 'not found' and 'wrong password' — avoid enumeration
       return reply.code(401).send({ error: 'invalid_credentials' });
@@ -71,7 +91,7 @@ export async function authRoutes(app: FastifyInstance) {
       const refreshToken = parsed.data.refreshToken ?? refreshTokenFromRequest(request);
       if (!refreshToken) return reply.code(401).send({ error: 'refresh_token_required' });
 
-      const result = await app.usersRepo.refresh(refreshToken);
+      const result = await app.usersRepo.refresh(refreshToken, sessionContext(request));
       if (!result.ok) {
         clearAuthCookies(reply);
         return reply.code(401).send({ error: result.code });
@@ -88,28 +108,64 @@ export async function authRoutes(app: FastifyInstance) {
   app.post('/logout', async (request, reply) => {
     const token = accessTokenFromRequest(request);
     const payload = token ? verifyAccessToken(token) : null;
-    let userId = payload?.sub ?? null;
-
-    if (!userId) {
-      const refreshToken = refreshTokenFromRequest(request);
-      if (refreshToken) {
-        const refreshed = await app.usersRepo.refresh(refreshToken);
-        if (refreshed.ok) userId = refreshed.user.id;
-      }
-    }
-
-    if (userId) await app.usersRepo.logout(userId);
+    const refreshToken = refreshTokenFromRequest(request);
+    if (payload) await app.usersRepo.logout(payload.sub, payload.sid);
+    else if (refreshToken) await app.usersRepo.logoutByRefreshToken(refreshToken);
     clearAuthCookies(reply);
     return reply.send({ ok: true });
   });
 
+  app.get('/sessions', async (request, reply) => {
+    const payload = await requireAccessPayload(app, request, reply);
+    if (!payload) return reply;
+
+    const sessions = await app.usersRepo.listSessions(payload.sub);
+    return userSessionsResponseSchema.parse({
+      items: sessions.map((session) => ({
+        ...session,
+        current: session.id === payload.sid,
+      })),
+    });
+  });
+
+  app.delete('/sessions/:sessionId', async (request, reply) => {
+    const payload = await requireAccessPayload(app, request, reply);
+    if (!payload) return reply;
+    const parsed = userSessionParamsSchema.safeParse(request.params);
+    if (!parsed.success) return reply.code(400).send({ error: 'invalid_params' });
+
+    const revoked = await app.usersRepo.revokeSession(payload.sub, parsed.data.sessionId);
+    if (!revoked) return reply.code(404).send({ error: 'session_not_found' });
+    const currentSessionRevoked = parsed.data.sessionId === payload.sid;
+    if (currentSessionRevoked) clearAuthCookies(reply);
+    await app.auditRepo.record({
+      action: 'auth.session_revoked',
+      metadata: {
+        actorUserId: payload.sub,
+        sessionId: parsed.data.sessionId,
+        currentSessionRevoked,
+      },
+    });
+    return revokeSessionResponseSchema.parse({ ok: true, currentSessionRevoked });
+  });
+
+  app.post('/sessions/revoke-others', async (request, reply) => {
+    const payload = await requireAccessPayload(app, request, reply);
+    if (!payload) return reply;
+    if (!payload.sid) return reply.code(409).send({ error: 'session_context_required' });
+
+    const revokedCount = await app.usersRepo.revokeOtherSessions(payload.sub, payload.sid);
+    await app.auditRepo.record({
+      action: 'auth.other_sessions_revoked',
+      metadata: { actorUserId: payload.sub, currentSessionId: payload.sid, revokedCount },
+    });
+    return revokeOtherSessionsResponseSchema.parse({ ok: true, revokedCount });
+  });
+
   // ── GET /v1/auth/me ──────────────────────────────────────────────────────
   app.get('/me', async (request, reply) => {
-    const token = accessTokenFromRequest(request);
-    if (!token) return reply.code(401).send({ error: 'unauthorized' });
-
-    const payload = verifyAccessToken(token);
-    if (!payload) return reply.code(401).send({ error: 'invalid_token' });
+    const payload = await requireAccessPayload(app, request, reply);
+    if (!payload) return reply;
 
     const user = await app.usersRepo.getById(payload.sub);
     if (!user) return reply.code(404).send({ error: 'user_not_found' });

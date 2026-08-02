@@ -4,8 +4,7 @@ import Stripe from 'stripe';
 import type { BillingInterval, BillingStatus, SubscriptionTier } from '@sg/shared/billing';
 import type { BillingFunnelEventSource } from '@sg/shared/schemas/adminStats';
 import { config } from '../../config/index.js';
-import { verifyAccessToken } from '../../auth/tokens.js';
-import { accessTokenFromRequest } from '../../auth/cookies.js';
+import { requireAccessPayload } from './authedUser.js';
 
 type CheckoutPlan = Extract<SubscriptionTier, 'pro' | 'team'>;
 type BillingFlowSource = BillingFunnelEventSource;
@@ -78,17 +77,8 @@ async function requireAuthedUser(
   request: FastifyRequest,
   reply: FastifyReply,
 ) {
-  const token = accessTokenFromRequest(request);
-  if (!token) {
-    reply.code(401).send({ error: 'unauthorized' });
-    return null;
-  }
-
-  const payload = verifyAccessToken(token);
-  if (!payload) {
-    reply.code(401).send({ error: 'invalid_token' });
-    return null;
-  }
+  const payload = await requireAccessPayload(app, request, reply);
+  if (!payload) return null;
 
   const user = await app.usersRepo.getBillingAccount(payload.sub);
   if (!user) {

@@ -5,6 +5,7 @@ import { config } from '../config/index.js';
 
 export interface AccessTokenPayload {
   sub: string; // user id
+  sid?: string; // session id; optional for legacy service bearer tokens
   email: string;
   role: 'user' | 'admin';
   subscription: SubscriptionTier;
@@ -32,6 +33,10 @@ export function verifyAccessToken(token: string): AccessTokenPayload | null {
 
 export function generateRefreshToken(): string {
   return crypto.randomBytes(48).toString('hex');
+}
+
+export function hashRefreshToken(token: string): string {
+  return crypto.createHash('sha256').update(token).digest('hex');
 }
 
 export function refreshTokenExpiresAt(): Date {

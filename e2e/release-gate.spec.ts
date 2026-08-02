@@ -107,6 +107,9 @@ test('pro research flow saves, exports, and publishes a public brief', async ({ 
   await expect(page.getByText('Current research view saved.')).toBeVisible();
 
   await page.goto('/auth/account#saved-views');
+  await expect(page.getByRole('heading', { name: '登录设备与会话' })).toBeVisible();
+  await expect(page.getByText('当前设备', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '退出当前设备' })).toBeVisible();
   await expect(page.getByRole('link', { name: viewName, exact: true })).toBeVisible();
 
   const downloadPromise = page.waitForEvent('download');

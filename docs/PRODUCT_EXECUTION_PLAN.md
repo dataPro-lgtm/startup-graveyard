@@ -122,7 +122,7 @@ Startup Graveyard 已经具备可运行 alpha 的完整骨架，不再缺“功�
 - GitHub Actions 已增加独立 PostgreSQL + pgvector integration job，并纳入 `CI OK`。
 - 本地新增 `make ci-full`，migration 文件新增自动校验与历史 `0033` 冲突说明。
 - 新增 migration、API、Web 三类生产镜像及单机生产 Compose 基线；启动顺序与健康检查已固化。
-- 生产 migration runner 已实现单迁移原子提交，并验证首次应用 34 个迁移、二次运行全部幂等跳过。
+- 生产 migration runner 已实现单迁移原子提交，并验证完整迁移集与二次运行幂等跳过。
 - Next Web 已生成 standalone 产物，浏览器 API 地址改为使用 `NEXT_PUBLIC_API_BASE_URL`，不再错误回退到 `localhost:8080`。
 - 生产 Compose 已完成真实浏览器注册验收，客户端请求正确命中独立 API。
 - 首次真实库门禁发现并修复了 timeline extraction 对 `started rapid expansion` 的误分类与重复事件问题。
@@ -158,4 +158,7 @@ Startup Graveyard 已经具备可运行 alpha 的完整骨架，不再缺“功�
 - 安全负向测试覆盖不受信来源无 CORS 授权、认证超频、refresh 独立预算、Copilot 与导出超频。
 - Web access/refresh 凭据已从 localStorage 迁移到 Host-only `HttpOnly + Secure + SameSite` Cookie；浏览器来源响应不再返回 bearer token。
 - Cookie 状态变更增加可信 Origin 校验，非浏览器 bearer 客户端继续兼容，生产公网禁止关闭 Secure Cookie。
-- 下一切片进入 Team 跨租户读写矩阵、Admin 应用角色和会话设备管理。
+- 刷新令牌改为 SHA-256 摘要存储；账户支持最多 10 个设备、活跃会话清单、单设备撤销和退出其他设备。
+- Access token 绑定 session id，被撤销设备的现有 access/refresh 凭据立即失效；登录与刷新会更新 IP、User-Agent 和最近活跃时间。
+- Team 跨租户负向矩阵覆盖 owner/admin/member/non-member 的上下文读取、成员邀请、共享 Saved View 和邀请标识枚举；不属于当前用户的邀请统一返回 not found。
+- 下一切片进入 Admin 应用角色和 Stripe 生命周期幂等。

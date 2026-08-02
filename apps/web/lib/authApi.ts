@@ -1,5 +1,5 @@
 import { apiFetch } from './api';
-import type { AuthResponse, UserProfile } from '@sg/shared/schemas/auth';
+import type { AuthResponse, UserProfile, UserSession } from '@sg/shared/schemas/auth';
 
 // ── API calls ────────────────────────────────────────────────────────────────
 type ApiError = { error: string; details?: unknown };
@@ -42,4 +42,24 @@ export async function apiMe(): Promise<UserProfile | ApiError> {
   return res.json() as Promise<UserProfile | ApiError>;
 }
 
-export type { AuthResponse, UserProfile };
+export async function apiSessions(): Promise<{ items: UserSession[] } | ApiError> {
+  const res = await apiFetch('/v1/auth/sessions');
+  return res.json() as Promise<{ items: UserSession[] } | ApiError>;
+}
+
+export async function apiRevokeSession(
+  sessionId: string,
+): Promise<{ ok: true; currentSessionRevoked: boolean } | ApiError> {
+  const res = await apiFetch(`/v1/auth/sessions/${encodeURIComponent(sessionId)}`, {
+    method: 'DELETE',
+  });
+  return res.json() as Promise<{ ok: true; currentSessionRevoked: boolean } | ApiError>;
+}
+
+export async function apiRevokeOtherSessions(): Promise<
+  { ok: true; revokedCount: number } | ApiError
+> {
+  return post('/v1/auth/sessions/revoke-others', {});
+}
+
+export type { AuthResponse, UserProfile, UserSession };

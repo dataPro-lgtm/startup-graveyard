@@ -83,9 +83,6 @@ export async function teamWorkspaceRoutes(app: FastifyInstance) {
     if (result === 'invite_not_found') {
       return reply.code(404).send({ error: 'invite_not_found' });
     }
-    if (result === 'email_mismatch') {
-      return reply.code(403).send({ error: 'email_mismatch' });
-    }
     if (result === 'already_in_workspace') {
       return reply.code(409).send({ error: 'already_in_workspace' });
     }

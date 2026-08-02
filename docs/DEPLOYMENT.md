@@ -28,6 +28,8 @@ Add Stripe, AI provider, email, CRM, webhook, and Slack variables only for integ
 
 Browser authentication uses Host-only HttpOnly access and refresh cookies. Browser-origin login and refresh responses do not expose bearer credentials in JSON. Keep `AUTH_COOKIE_SECURE=true` on every public deployment. Use `SameSite=lax` when Web and API are same-site subdomains; cross-site deployments require `SameSite=none`, Secure cookies, and an explicit CORS origin. Bearer authentication remains available for non-browser API clients.
 
+Migration `0034_device_sessions.sql` intentionally invalidates existing sessions once, because legacy refresh tokens were stored in plaintext. After deployment, users must sign in again. New refresh credentials are persisted only as SHA-256 digests; accounts can keep up to 10 devices and selectively revoke them from the account security panel.
+
 High-risk API routes are rate-limited by default in production. Defaults use a 60-second window with separate budgets for auth (10), token refresh (30), Copilot (20), report export (10), billing mutations (10), and Stripe webhooks (120). Override the corresponding `RATE_LIMIT_*` variables only after load testing; production startup rejects `RATE_LIMIT_ENABLED=false`.
 
 ## Build and start
@@ -68,6 +70,7 @@ The API refuses to start in production without PostgreSQL, an admin key, a non-d
 - Keep `/admin/*` behind the configured Admin UI credentials and an ingress allowlist or identity-aware proxy. HTTP Basic is an interim perimeter; it does not replace application-level admin roles.
 - Use different values for `ADMIN_UI_PASSWORD` and `ADMIN_API_KEY`.
 - Do not store browser access or refresh tokens in Web Storage. Cookie-authenticated mutations are rejected unless their `Origin` is explicitly allowed.
+- Review active devices after credential or staff changes. Selective revocation invalidates both access and refresh use immediately; security events are written to the audit stream.
 - Keep PostgreSQL private; `compose.production.yml` does not publish its port.
 - Back up the PostgreSQL volume before applying new migrations.
 - Build one image revision and promote the same digest between environments.

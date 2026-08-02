@@ -59,6 +59,62 @@ suite('postgres integration', () => {
     else process.env.OPENAI_API_KEY = previousEnv.openAiApiKey;
   });
 
+  it('stores hashed multi-device sessions and enforces selective revocation against postgres', async () => {
+    const db = pool;
+    if (!db) throw new Error('postgres integration test pool not initialized');
+    const email = `pg-sessions-${Date.now()}@example.com`;
+
+    const registeredRes = await app!.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      headers: { 'user-agent': 'PG Device A' },
+      payload: { email, password: 'secure-password-123' },
+    });
+    expect(registeredRes.statusCode).toBe(201);
+    const deviceA = registeredRes.json() as {
+      user: { id: string };
+      sessionId: string;
+      accessToken: string;
+      refreshToken: string;
+    };
+
+    const loginRes = await app!.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      headers: { 'user-agent': 'PG Device B' },
+      payload: { email, password: 'secure-password-123' },
+    });
+    expect(loginRes.statusCode).toBe(200);
+    const deviceB = loginRes.json() as { accessToken: string };
+
+    const stored = await db.query<{ refresh_token_hash: string; user_agent: string | null }>(
+      `SELECT refresh_token_hash, user_agent
+       FROM user_sessions
+       WHERE user_id = $1
+       ORDER BY created_at`,
+      [deviceA.user.id],
+    );
+    expect(stored.rows).toHaveLength(2);
+    expect(stored.rows.map((row) => row.user_agent)).toEqual(['PG Device A', 'PG Device B']);
+    expect(stored.rows.every((row) => /^[a-f0-9]{64}$/.test(row.refresh_token_hash))).toBe(true);
+    expect(stored.rows.some((row) => row.refresh_token_hash === deviceA.refreshToken)).toBe(false);
+
+    const revokeRes = await app!.inject({
+      method: 'DELETE',
+      url: `/v1/auth/sessions/${deviceA.sessionId}`,
+      headers: { authorization: `Bearer ${deviceB.accessToken}` },
+    });
+    expect(revokeRes.statusCode).toBe(200);
+
+    const revokedAccessRes = await app!.inject({
+      method: 'GET',
+      url: '/v1/auth/me',
+      headers: { authorization: `Bearer ${deviceA.accessToken}` },
+    });
+    expect(revokedAccessRes.statusCode).toBe(401);
+    expect(revokedAccessRes.json()).toEqual({ error: 'session_revoked' });
+  });
+
   it('persists copilot run stats and exposes them via session detail against postgres', async () => {
     const db = pool;
     if (!db) throw new Error('postgres integration test pool not initialized');
