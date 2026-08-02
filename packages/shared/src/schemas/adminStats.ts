@@ -189,6 +189,7 @@ export const platformRecentSucceededIngestionJobSchema = z.object({
 
 export const platformWorkerStatusSchema = z.enum([
   'disabled',
+  'starting',
   'idle',
   'processing',
   'error',
@@ -329,6 +330,9 @@ export const platformWorkerRecentTickSchema = z.object({
 });
 
 export const platformWorkerMonitorSchema = z.object({
+  source: z.enum(['local', 'runtime_heartbeat']),
+  instanceId: z.string().nullable(),
+  heartbeatAt: z.string().nullable(),
   enabled: z.boolean(),
   status: platformWorkerStatusSchema,
   startDelayMs: nonnegativeInteger,
@@ -348,6 +352,23 @@ export const platformWorkerMonitorSchema = z.object({
   recentTicks: z.array(platformWorkerRecentTickSchema),
 });
 
+export const platformSchedulerMonitorSchema = z.object({
+  source: z.enum(['local', 'runtime_heartbeat']),
+  instanceId: z.string().nullable(),
+  heartbeatAt: z.string().nullable(),
+  enabled: z.boolean(),
+  status: platformWorkerStatusSchema,
+  pollIntervalMs: nonnegativeInteger,
+  startedAt: z.string().nullable(),
+  lastTickStartedAt: z.string().nullable(),
+  lastTickCompletedAt: z.string().nullable(),
+  lastEnqueuedAt: z.string().nullable(),
+  enqueuedJobs: nonnegativeInteger,
+  consecutiveErrors: nonnegativeInteger,
+  lastError: z.string().nullable(),
+  lastStopAt: z.string().nullable(),
+});
+
 export const platformAlertSeveritySchema = z.enum(['info', 'warning', 'critical']);
 
 export const platformAlertCodeSchema = z.enum([
@@ -361,6 +382,9 @@ export const platformAlertCodeSchema = z.enum([
   'ingestion_worker_inactive',
   'ingestion_worker_stalled',
   'ingestion_worker_erroring',
+  'ingestion_scheduler_inactive',
+  'ingestion_scheduler_stalled',
+  'ingestion_scheduler_erroring',
   'snapshot_cadence_overdue',
   'snapshot_cadence_adherence_low',
   'snapshot_trend_regressing',
@@ -606,6 +630,7 @@ export const platformAdminMetricsSchema = z.object({
     features: platformRuntimeFeatureFlagsSchema,
   }),
   worker: platformWorkerMonitorSchema,
+  scheduler: platformSchedulerMonitorSchema,
   recentSnapshots: z.array(platformSnapshotSchema),
   snapshotCadence: platformSnapshotCadenceSchema,
   snapshotTrend: platformSnapshotTrendSchema,
@@ -746,6 +771,7 @@ export type PlatformSnapshotMetricsSurface = z.infer<typeof platformSnapshotMetr
 export type PlatformWorkerStatus = z.infer<typeof platformWorkerStatusSchema>;
 export type PlatformWorkerRecentTick = z.infer<typeof platformWorkerRecentTickSchema>;
 export type PlatformWorkerMonitor = z.infer<typeof platformWorkerMonitorSchema>;
+export type PlatformSchedulerMonitor = z.infer<typeof platformSchedulerMonitorSchema>;
 export type PlatformAlertSeverity = z.infer<typeof platformAlertSeveritySchema>;
 export type PlatformAlertCode = z.infer<typeof platformAlertCodeSchema>;
 export type PlatformAlert = z.infer<typeof platformAlertSchema>;

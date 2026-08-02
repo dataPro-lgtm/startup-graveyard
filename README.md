@@ -120,6 +120,7 @@ What is true today:
 - Admin Dashboard now exposes platform diagnostics for runtime state, recent failed ingestion jobs, and derived operational alerts
 - The diagnostics layer also flags stale running ingestion jobs and gives operators a direct reclaim path from the dashboard
 - The platform layer now also exposes ingestion worker health, recent heartbeat history, last tick / last processed job, and stalled or erroring worker alerts
+- API, worker, and scheduler now run as isolated production processes; durable database heartbeats let Admin diagnostics observe the real background instances without coupling public availability to them
 - The dashboard now also shows ingestion queue backlog age and recent throughput, so operators can tell whether the worker is healthy but the queue is still accumulating
 - Operators can now capture point-in-time platform snapshots, keep a short diagnostics history, and also schedule recurring snapshot capture for queue / worker / alert drift
 - The dashboard now also summarizes snapshot trends, so operators can tell whether backlog, alert volume, or worker errors are actually improving over recent captures
@@ -208,6 +209,8 @@ make dev-api
 make dev-web
 pnpm build
 pnpm --filter @sg/api start
+pnpm --filter @sg/api start:worker
+pnpm --filter @sg/api start:scheduler
 pnpm --filter @sg/web start
 ```
 

@@ -13,6 +13,11 @@ import type {
   PlatformSnapshotSuppressionSurface,
   PlatformSnapshotTrend,
 } from '@sg/shared/schemas/adminStats';
+import {
+  platformSchedulerMonitorSchema,
+  platformWorkerMonitorSchema,
+} from '@sg/shared/schemas/adminStats';
+import { createSchedulerMonitor } from '../../ingestion/schedulerMonitor.js';
 import type {
   TeamWorkspaceRecoveryPlaybookRun,
   TeamWorkspaceRecoveryPlaybookStepName,
@@ -44,6 +49,57 @@ interface ContentStatsResult {
 const STALE_RUNNING_THRESHOLD_MINUTES = 30;
 const DEFAULT_PLATFORM_SNAPSHOT_INTERVAL_MINUTES = 30;
 const PLATFORM_SNAPSHOT_METRICS_WINDOW_HOURS = 24;
+const RUNTIME_HEARTBEAT_STALE_MS = 20_000;
+
+function resolveWorkerMonitor(
+  local: FastifyInstance['ingestionWorkerMonitor'],
+  heartbeat: Awaited<ReturnType<FastifyInstance['runtimeProcessesRepo']['getLatest']>>,
+): PlatformAdminMetrics['worker'] {
+  const fallback = platformWorkerMonitorSchema.parse({
+    ...local,
+    source: 'local',
+    instanceId: null,
+    heartbeatAt: local.lastTickCompletedAt ?? local.lastTickStartedAt,
+  });
+  if (!heartbeat) return fallback;
+  const parsed = platformWorkerMonitorSchema.safeParse({
+    ...local,
+    ...heartbeat.metadata,
+    enabled: heartbeat.status !== 'stopped',
+    status: heartbeat.status,
+    lastError: heartbeat.lastError,
+    lastStopAt: heartbeat.stoppedAt,
+    source: 'runtime_heartbeat',
+    instanceId: heartbeat.instanceId,
+    heartbeatAt: heartbeat.heartbeatAt,
+  });
+  return parsed.success ? parsed.data : fallback;
+}
+
+function resolveSchedulerMonitor(
+  heartbeat: Awaited<ReturnType<FastifyInstance['runtimeProcessesRepo']['getLatest']>>,
+): PlatformAdminMetrics['scheduler'] {
+  const local = createSchedulerMonitor();
+  const fallback = platformSchedulerMonitorSchema.parse({
+    ...local,
+    source: 'local',
+    instanceId: null,
+    heartbeatAt: null,
+  });
+  if (!heartbeat) return fallback;
+  const parsed = platformSchedulerMonitorSchema.safeParse({
+    ...local,
+    ...heartbeat.metadata,
+    enabled: heartbeat.status !== 'stopped',
+    status: heartbeat.status,
+    lastError: heartbeat.lastError,
+    lastStopAt: heartbeat.stoppedAt,
+    source: 'runtime_heartbeat',
+    instanceId: heartbeat.instanceId,
+    heartbeatAt: heartbeat.heartbeatAt,
+  });
+  return parsed.success ? parsed.data : fallback;
+}
 
 const recoveryWebhookDeliveryBodySchema = z.object({
   retryIntervalHours: z
@@ -967,7 +1023,6 @@ async function fetchPlatformStats(
   const features = getRuntimeFeatureFlags();
   const generatedAt = new Date().toISOString();
   const queueStats = input.contentStats.ingestionStats;
-  const worker = app.ingestionWorkerMonitor;
   const [
     recentFailedJobs,
     runningJobs,
@@ -976,6 +1031,8 @@ async function fetchPlatformStats(
     recentSucceededJobs,
     recentSnapshotAuditItems,
     stripeWebhookMetrics,
+    workerHeartbeat,
+    schedulerHeartbeat,
   ] = await Promise.all([
     app.ingestionJobsRepo.listRecent({
       limit: 25,
@@ -1000,7 +1057,11 @@ async function fetchPlatformStats(
     }),
     app.auditRepo.listRecentByAction('platform.snapshot_captured', 72),
     app.stripeWebhookEventsRepo.getMetrics(),
+    app.runtimeProcessesRepo.getLatest('worker'),
+    app.runtimeProcessesRepo.getLatest('scheduler'),
   ]);
+  const worker = resolveWorkerMonitor(app.ingestionWorkerMonitor, workerHeartbeat);
+  const scheduler = resolveSchedulerMonitor(schedulerHeartbeat);
   const snapshotSamples = recentSnapshotAuditItems
     .map((item) => parsePlatformSnapshotMetadata(item.metadata))
     .filter((item): item is PlatformSnapshot => item != null);
@@ -1041,14 +1102,25 @@ async function fetchPlatformStats(
     worker.pollIntervalMs * 3,
     worker.startDelayMs + worker.pollIntervalMs,
   );
-  const lastWorkerTouchAt = worker.lastTickCompletedAt ?? worker.lastTickStartedAt;
+  const lastWorkerTouchAt =
+    worker.heartbeatAt ?? worker.lastTickCompletedAt ?? worker.lastTickStartedAt;
   const workerIsStalled =
     worker.enabled &&
     worker.status !== 'stopped' &&
     !!lastWorkerTouchAt &&
-    Date.now() - new Date(lastWorkerTouchAt).getTime() > workerStallThresholdMs;
+    Date.now() - new Date(lastWorkerTouchAt).getTime() >
+      Math.min(workerStallThresholdMs, RUNTIME_HEARTBEAT_STALE_MS);
   const workerIsErroring =
     worker.enabled && (worker.status === 'error' || worker.consecutiveErrors > 0);
+  const schedulerIsStalled =
+    scheduler.enabled &&
+    scheduler.status !== 'stopped' &&
+    !!scheduler.heartbeatAt &&
+    Date.now() - new Date(scheduler.heartbeatAt).getTime() > RUNTIME_HEARTBEAT_STALE_MS;
+  const schedulerIsErroring =
+    scheduler.enabled && (scheduler.status === 'error' || scheduler.consecutiveErrors > 0);
+  const isolatedRuntimeExpected =
+    process.env.NODE_ENV === 'production' || process.env.SG_RUNTIME_REQUIRE_BACKGROUND === 'true';
   const recoveryOutreach = input.commercialStats.teamWorkspaces.recoveryOutreach;
   const deliveryFailures =
     recoveryOutreach.failedEmail +
@@ -1142,8 +1214,7 @@ async function fetchPlatformStats(
       severity: 'critical',
       code: 'ingestion_worker_inactive',
       title: 'Ingestion worker 未启动',
-      detail:
-        '当前数据库已启用，但 API 进程没有挂载 ingestion worker，队列只能依赖人工 process-next。',
+      detail: '当前数据库已启用，但没有发现 worker 运行时心跳，队列不会被自动消费。',
       href: '/admin/dashboard',
     });
   }
@@ -1166,6 +1237,38 @@ async function fetchPlatformStats(
       detail: worker.lastError
         ? `当前 worker 已连续报错 ${worker.consecutiveErrors} 次，最近错误是：${worker.lastError}`
         : `当前 worker 状态为 error，且最近已累计连续报错 ${worker.consecutiveErrors} 次。`,
+      href: '/admin/dashboard',
+    });
+  }
+
+  if (features.dbConfigured && isolatedRuntimeExpected && !scheduler.enabled) {
+    alerts.push({
+      severity: 'critical',
+      code: 'ingestion_scheduler_inactive',
+      title: 'Ingestion scheduler 未启动',
+      detail: '没有发现 scheduler 运行时心跳，周期任务不会被自动派发。',
+      href: '/admin/dashboard',
+    });
+  }
+
+  if (features.dbConfigured && isolatedRuntimeExpected && schedulerIsStalled) {
+    alerts.push({
+      severity: 'warning',
+      code: 'ingestion_scheduler_stalled',
+      title: 'Ingestion scheduler 心跳已过期',
+      detail: `scheduler 实例 ${scheduler.instanceId ?? 'unknown'} 的最近心跳是 ${scheduler.heartbeatAt}。`,
+      href: '/admin/dashboard',
+    });
+  }
+
+  if (features.dbConfigured && isolatedRuntimeExpected && schedulerIsErroring) {
+    alerts.push({
+      severity: scheduler.consecutiveErrors >= 3 ? 'critical' : 'warning',
+      code: 'ingestion_scheduler_erroring',
+      title: 'Ingestion scheduler 正在报错',
+      detail: scheduler.lastError
+        ? `scheduler 已连续报错 ${scheduler.consecutiveErrors} 次：${scheduler.lastError}`
+        : `scheduler 状态为 error，连续错误 ${scheduler.consecutiveErrors} 次。`,
       href: '/admin/dashboard',
     });
   }
@@ -1218,6 +1321,9 @@ async function fetchPlatformStats(
           'ingestion_worker_inactive',
           'ingestion_worker_stalled',
           'ingestion_worker_erroring',
+          'ingestion_scheduler_inactive',
+          'ingestion_scheduler_stalled',
+          'ingestion_scheduler_erroring',
           'snapshot_cadence_overdue',
           'snapshot_cadence_adherence_low',
           'stripe_webhook_failures',
@@ -1294,25 +1400,8 @@ async function fetchPlatformStats(
       uptimeSeconds: Math.max(0, Math.round(process.uptime())),
       features,
     },
-    worker: {
-      enabled: worker.enabled,
-      status: worker.status,
-      startDelayMs: worker.startDelayMs,
-      pollIntervalMs: worker.pollIntervalMs,
-      maxJobsPerTick: worker.maxJobsPerTick,
-      startedAt: worker.startedAt,
-      lastTickStartedAt: worker.lastTickStartedAt,
-      lastTickCompletedAt: worker.lastTickCompletedAt,
-      lastProcessedAt: worker.lastProcessedAt,
-      lastProcessedJobId: worker.lastProcessedJobId,
-      lastProcessedSourceName: worker.lastProcessedSourceName,
-      lastProcessedJobStatus: worker.lastProcessedJobStatus,
-      processedJobs: worker.processedJobs,
-      consecutiveErrors: worker.consecutiveErrors,
-      lastError: worker.lastError,
-      lastStopAt: worker.lastStopAt,
-      recentTicks: worker.recentTicks,
-    },
+    worker,
+    scheduler,
     recentSnapshots,
     snapshotCadence,
     snapshotTrend,

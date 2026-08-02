@@ -25,7 +25,7 @@ flowchart LR
   A --> OB["Logs / metrics / traces / audit"]
 ```
 
-API, worker, and scheduler must become separately deployable processes. PostgreSQL remains the transactional source of truth; external provider calls are idempotent side effects driven by durable jobs.
+API, worker, and scheduler are separately deployable processes with database-backed runtime heartbeats. PostgreSQL remains the transactional source of truth; external provider calls are idempotent side effects driven by durable jobs.
 
 ## 3. Maturity scorecard
 
@@ -34,7 +34,7 @@ API, worker, and scheduler must become separately deployable processes. PostgreS
 | Value and activation      | Public research, Saved Views, exports, Copilot, Team sharing                      | First useful research asset within 10 minutes; activation and retention measured by plan        |
 | Identity and security     | HttpOnly Cookie browser session, bearer compatibility, CORS allowlist, throttling | Device sessions, revocation, tenant matrix, application admin roles, security event audit       |
 | Billing                   | Pro/Team checkout, portal, webhook state sync, recovery workflow                  | Replay-safe Stripe lifecycle tests for upgrade, downgrade, past due, cancellation, and recovery |
-| Reliability               | CI, PostgreSQL and browser release gates, health endpoints                        | Separate workers, SLOs, traces, alert routes, backup/restore and rollback exercises             |
+| Reliability               | Isolated API/worker/scheduler, durable heartbeats, CI/PostgreSQL/browser gates    | SLOs, traces, alert routes, backup/restore and rollback exercises                               |
 | Data and AI trust         | Evidence workflow, citations, eval snapshots and regression detection             | 200+ governed cases; nightly quality gate with groundedness, citation and fallback thresholds   |
 | Compliance and operations | Admin audit and deployment baseline                                               | Retention policy, user export/delete, secret rotation, incident runbooks and access reviews     |
 
@@ -58,7 +58,7 @@ Exit: replay and provider failure injection cannot corrupt entitlements or send 
 
 ### C3: Runtime reliability
 
-- Split API, scheduler, ingestion, eval, and outreach workers.
+- Keep API, scheduler, and ingestion execution isolated; split specialized eval/outreach workers when workload volume requires it.
 - Add OpenTelemetry traces, RED metrics, queue age, provider latency, and business SLOs.
 - Exercise migration rollback policy, PostgreSQL restore, and degraded-provider operation.
 

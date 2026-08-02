@@ -52,6 +52,27 @@ describe('runtime environment', () => {
     expect(() => validateRuntimeEnv()).toThrow(/AUTH_COOKIE_SECURE/);
   });
 
+  it('validates background roles without requiring API credentials', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.SG_RUNTIME_ROLE = 'worker';
+    process.env.DATABASE_URL = 'postgresql://localhost/sg';
+    delete process.env.JWT_SECRET;
+    delete process.env.WEB_BASE_URL;
+
+    expect(() => validateRuntimeEnv()).not.toThrow();
+
+    delete process.env.DATABASE_URL;
+    expect(() => validateRuntimeEnv()).toThrow(/worker runtime requires DATABASE_URL/);
+  });
+
+  it('rejects unknown runtime roles and invalid health ports', () => {
+    process.env.SG_RUNTIME_ROLE = 'sidecar';
+    process.env.RUNTIME_HEALTH_PORT = '70000';
+
+    expect(() => validateRuntimeEnv()).toThrow(/SG_RUNTIME_ROLE/);
+    expect(() => validateRuntimeEnv()).toThrow(/RUNTIME_HEALTH_PORT/);
+  });
+
   it('emits warnings in development instead of throwing', () => {
     process.env.NODE_ENV = 'development';
     delete process.env.DATABASE_URL;

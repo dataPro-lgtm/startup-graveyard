@@ -12,8 +12,10 @@
 
 import type { Pool } from 'pg';
 import type { IngestionJobsRepository } from '../repositories/ingestionJobsRepository.js';
+import type { SchedulerMonitor } from './schedulerMonitor.js';
 
-const POLL_INTERVAL_MS = 60_000; // 1 minute
+export const SCHEDULER_START_DELAY_MS = 30_000;
+export const SCHEDULER_POLL_INTERVAL_MS = 60_000;
 
 interface ScheduledJobRow {
   id: string;
@@ -27,12 +29,29 @@ export function startScheduler(
   pool: Pool,
   ingestionRepo: IngestionJobsRepository,
   logger: { info: (msg: string) => void; error: (msg: string, err?: unknown) => void },
-): () => void {
+  monitor?: SchedulerMonitor,
+): () => Promise<void> {
   let stopped = false;
   let timeout: ReturnType<typeof setTimeout>;
+  let activeTick: Promise<void> | null = null;
+
+  if (monitor) {
+    monitor.enabled = true;
+    monitor.status = 'starting';
+    monitor.pollIntervalMs = SCHEDULER_POLL_INTERVAL_MS;
+    monitor.startedAt = new Date().toISOString();
+    monitor.lastStopAt = null;
+    monitor.lastError = null;
+    monitor.consecutiveErrors = 0;
+  }
 
   async function tick() {
     if (stopped) return;
+    let tickErrors = 0;
+    if (monitor) {
+      monitor.status = 'processing';
+      monitor.lastTickStartedAt = new Date().toISOString();
+    }
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -45,6 +64,7 @@ export function startScheduler(
       );
 
       for (const job of rows) {
+        if (stopped) break;
         try {
           await ingestionRepo.enqueue({
             sourceName: job.source_name,
@@ -61,29 +81,65 @@ export function startScheduler(
           );
 
           logger.info(`scheduler: enqueued job "${job.name}" (${job.source_name})`);
+          if (monitor) {
+            monitor.lastEnqueuedAt = new Date().toISOString();
+            monitor.enqueuedJobs += 1;
+          }
         } catch (err) {
           logger.error(`scheduler: failed to enqueue job "${job.name}"`, err);
+          if (monitor) {
+            monitor.lastError = err instanceof Error ? err.message : String(err);
+            monitor.consecutiveErrors += 1;
+          }
+          tickErrors += 1;
         }
       }
 
       await client.query('COMMIT');
+      if (monitor) {
+        monitor.status = tickErrors > 0 ? 'error' : 'idle';
+        monitor.lastTickCompletedAt = new Date().toISOString();
+        if (tickErrors === 0) {
+          monitor.lastError = null;
+          monitor.consecutiveErrors = 0;
+        }
+      }
     } catch (err) {
       await client.query('ROLLBACK').catch(() => undefined);
       logger.error('scheduler: tick failed', err);
+      if (monitor) {
+        monitor.status = 'error';
+        monitor.lastTickCompletedAt = new Date().toISOString();
+        monitor.lastError = err instanceof Error ? err.message : String(err);
+        monitor.consecutiveErrors += 1;
+      }
     } finally {
       client.release();
     }
 
     if (!stopped) {
-      timeout = setTimeout(tick, POLL_INTERVAL_MS);
+      schedule(SCHEDULER_POLL_INTERVAL_MS);
     }
   }
 
-  // Start after 30s so the app has time to finish startup
-  timeout = setTimeout(tick, 30_000);
+  function schedule(delayMs: number) {
+    timeout = setTimeout(() => {
+      activeTick = tick().finally(() => {
+        activeTick = null;
+      });
+    }, delayMs);
+  }
 
-  return () => {
+  // Start after 30s so the app has time to finish startup.
+  schedule(SCHEDULER_START_DELAY_MS);
+
+  return async () => {
     stopped = true;
     clearTimeout(timeout);
+    await activeTick;
+    if (monitor) {
+      monitor.status = 'stopped';
+      monitor.lastStopAt = new Date().toISOString();
+    }
   };
 }

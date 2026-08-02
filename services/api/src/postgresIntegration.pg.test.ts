@@ -3,6 +3,9 @@ import type { Pool } from 'pg';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from './buildApp.js';
 import { resetPool } from './db/pool.js';
+import { createIngestionWorkerMonitor } from './ingestion/workerMonitor.js';
+import { createSchedulerMonitor } from './ingestion/schedulerMonitor.js';
+import { startIngestionWorker } from './ingestion/worker.js';
 import {
   createTestPool,
   getRequiredTestDatabaseUrl,
@@ -12,6 +15,19 @@ import {
 const ADMIN_KEY = 'pg-integration-admin-key';
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL?.trim();
 const suite = TEST_DATABASE_URL ? describe : describe.skip;
+
+async function waitFor(
+  predicate: () => Promise<boolean>,
+  timeoutMs = 3_000,
+  intervalMs = 20,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  throw new Error(`Condition was not met within ${timeoutMs}ms`);
+}
 
 suite('postgres integration', () => {
   let app: FastifyInstance | null = null;
@@ -57,6 +73,131 @@ suite('postgres integration', () => {
     else process.env.DATABASE_URL = previousEnv.databaseUrl;
     if (previousEnv.openAiApiKey === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = previousEnv.openAiApiKey;
+  });
+
+  it('selects the latest durable runtime heartbeat across process instances', async () => {
+    const oldWorker = createIngestionWorkerMonitor({
+      enabled: true,
+      status: 'idle',
+      startedAt: '2026-08-02T00:00:00.000Z',
+      lastTickCompletedAt: '2026-08-02T00:00:05.000Z',
+      processedJobs: 2,
+    });
+    const currentWorker = createIngestionWorkerMonitor({
+      enabled: true,
+      status: 'processing',
+      startedAt: '2026-08-02T00:01:00.000Z',
+      lastTickStartedAt: '2026-08-02T00:01:10.000Z',
+      processedJobs: 7,
+    });
+    const scheduler = createSchedulerMonitor({
+      enabled: true,
+      status: 'idle',
+      startedAt: '2026-08-02T00:01:00.000Z',
+      lastTickCompletedAt: '2026-08-02T00:01:08.000Z',
+      enqueuedJobs: 3,
+    });
+
+    await app!.runtimeProcessesRepo.recordHeartbeat({
+      component: 'worker',
+      instanceId: 'worker-old',
+      status: 'idle',
+      startedAt: oldWorker.startedAt!,
+      heartbeatAt: '2026-08-02T00:00:05.000Z',
+      lastError: null,
+      metadata: oldWorker,
+    });
+    await app!.runtimeProcessesRepo.recordHeartbeat({
+      component: 'worker',
+      instanceId: 'worker-current',
+      status: 'processing',
+      startedAt: currentWorker.startedAt!,
+      heartbeatAt: '2026-08-02T00:01:10.000Z',
+      lastError: null,
+      metadata: currentWorker,
+    });
+    await app!.runtimeProcessesRepo.recordHeartbeat({
+      component: 'scheduler',
+      instanceId: 'scheduler-current',
+      status: 'idle',
+      startedAt: scheduler.startedAt!,
+      heartbeatAt: '2026-08-02T00:01:11.000Z',
+      lastError: null,
+      metadata: scheduler,
+    });
+
+    expect(await app!.runtimeProcessesRepo.getLatest('worker')).toMatchObject({
+      instanceId: 'worker-current',
+      status: 'processing',
+      metadata: { processedJobs: 7 },
+    });
+
+    const statsResponse = await app!.inject({
+      method: 'GET',
+      url: '/v1/admin/stats',
+      headers: { 'x-admin-key': ADMIN_KEY },
+    });
+    expect(statsResponse.statusCode).toBe(200);
+    expect(statsResponse.json()).toMatchObject({
+      platform: {
+        worker: {
+          source: 'runtime_heartbeat',
+          instanceId: 'worker-current',
+          status: 'processing',
+          processedJobs: 7,
+        },
+        scheduler: {
+          source: 'runtime_heartbeat',
+          instanceId: 'scheduler-current',
+          status: 'idle',
+          enqueuedJobs: 3,
+        },
+      },
+    });
+  });
+
+  it('continues queue consumption after a worker instance restart', async () => {
+    const firstJob = await app!.ingestionJobsRepo.enqueue({
+      sourceName: 'cleanup_sessions',
+      triggerType: 'runtime_restart_test',
+      payload: {},
+    });
+    const firstMonitor = createIngestionWorkerMonitor();
+    const stopFirst = startIngestionWorker(
+      app!.ingestionJobsRepo,
+      { info: () => undefined, error: () => undefined },
+      firstMonitor,
+      { startDelayMs: 5, pollIntervalMs: 10, maxJobsPerTick: 1 },
+    );
+    await waitFor(
+      async () => (await app!.ingestionJobsRepo.getById(firstJob.id))?.status === 'succeeded',
+    );
+    await stopFirst();
+
+    const secondJob = await app!.ingestionJobsRepo.enqueue({
+      sourceName: 'cleanup_sessions',
+      triggerType: 'runtime_restart_test',
+      payload: {},
+    });
+    const secondMonitor = createIngestionWorkerMonitor();
+    const stopSecond = startIngestionWorker(
+      app!.ingestionJobsRepo,
+      { info: () => undefined, error: () => undefined },
+      secondMonitor,
+      { startDelayMs: 5, pollIntervalMs: 10, maxJobsPerTick: 1 },
+    );
+    try {
+      await waitFor(
+        async () => (await app!.ingestionJobsRepo.getById(secondJob.id))?.status === 'succeeded',
+      );
+    } finally {
+      await stopSecond();
+    }
+
+    expect(firstMonitor.processedJobs).toBe(1);
+    expect(secondMonitor.processedJobs).toBe(1);
+    expect((await app!.ingestionJobsRepo.getById(firstJob.id))?.status).toBe('succeeded');
+    expect((await app!.ingestionJobsRepo.getById(secondJob.id))?.status).toBe('succeeded');
   });
 
   it('stores hashed multi-device sessions and enforces selective revocation against postgres', async () => {

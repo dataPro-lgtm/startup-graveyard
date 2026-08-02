@@ -147,7 +147,7 @@ Startup Graveyard 已经具备可运行 alpha 的完整骨架，不再缺“功�
 | P0     | 安全 cookie/session、CORS 白名单、auth/Copilot/导出限流 | 凭据不可被页面脚本读取，跨域和超频负向用例进入 CI    |
 | P0     | Team 跨租户读写矩阵与 Admin 应用角色                    | owner/admin/member/非成员对每类资源都有 API 负向测试 |
 | P1     | Stripe sandbox 全生命周期与外部通道失败注入             | checkout、升降级、past-due、恢复、重放均可自动验收   |
-| P1     | worker/scheduler 进程解耦、OTel 与告警出口              | worker 故障不拖垮 API，关键任务有 trace/metric/alert |
+| P1     | OTel trace/metric exporter 与外部告警出口               | 关键请求和任务可跨服务追踪，严重告警可自动外发       |
 | P2     | 200+ 证据化案例、Copilot offline eval 与 nightly gate   | 引用命中、幻觉、降级和数据质量指标连续达标           |
 
 ## 10. 阶段 C 当前落地

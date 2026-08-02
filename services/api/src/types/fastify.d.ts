@@ -16,6 +16,7 @@ import type { UsersRepository } from '../repositories/usersRepository.js';
 import type { WatchlistsRepository } from '../repositories/watchlistRepository.js';
 import type { AdminPrincipal } from '../plugins/adminRoutes.js';
 import type { StripeWebhookEventsRepository } from '../repositories/stripeWebhookEventsRepository.js';
+import type { RuntimeProcessesRepository } from '../repositories/runtimeProcessesRepository.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -40,5 +41,6 @@ declare module 'fastify' {
     teamWorkspacesRepo: TeamWorkspacesRepository;
     billingFunnelRepo: BillingFunnelRepository;
     stripeWebhookEventsRepo: StripeWebhookEventsRepository;
+    runtimeProcessesRepo: RuntimeProcessesRepository;
   }
 }

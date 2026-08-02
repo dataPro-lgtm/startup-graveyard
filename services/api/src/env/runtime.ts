@@ -54,52 +54,70 @@ export function getRuntimeFeatureFlags(): RuntimeFeatureFlags {
 
 export function validateRuntimeEnv(): RuntimeFeatureFlags {
   const nodeEnv = process.env.NODE_ENV ?? 'development';
+  const runtimeRole = process.env.SG_RUNTIME_ROLE ?? 'api';
   const features = getRuntimeFeatureFlags();
   const errors: string[] = [];
   const warnings: string[] = [];
+
+  if (!['api', 'worker', 'scheduler'].includes(runtimeRole)) {
+    errors.push('SG_RUNTIME_ROLE must be api, worker, or scheduler.');
+  }
+  if (runtimeRole !== 'api' && !features.dbConfigured) {
+    errors.push(`${runtimeRole} runtime requires DATABASE_URL.`);
+  }
+  if (
+    process.env.RUNTIME_HEALTH_PORT &&
+    (!Number.isInteger(Number(process.env.RUNTIME_HEALTH_PORT)) ||
+      Number(process.env.RUNTIME_HEALTH_PORT) < 1 ||
+      Number(process.env.RUNTIME_HEALTH_PORT) > 65535)
+  ) {
+    errors.push('RUNTIME_HEALTH_PORT must be an integer between 1 and 65535.');
+  }
 
   if (nodeEnv === 'production') {
     if (!features.dbConfigured) {
       errors.push('DATABASE_URL is required in production.');
     }
-    if (!hasValue(process.env.JWT_SECRET) || process.env.JWT_SECRET === DEFAULT_JWT_SECRET) {
-      errors.push('JWT_SECRET must be set to a non-default value in production.');
-    }
-    if (!hasValue(process.env.WEB_BASE_URL) || !isHttpOrigin(process.env.WEB_BASE_URL ?? '')) {
-      errors.push('WEB_BASE_URL must be set to an exact HTTP(S) origin in production.');
-    }
-    const additionalOrigins = (process.env.CORS_ALLOWED_ORIGINS ?? '')
-      .split(',')
-      .map((item) => item.trim())
-      .filter(Boolean);
-    if (additionalOrigins.some((origin) => !isHttpOrigin(origin))) {
-      errors.push('CORS_ALLOWED_ORIGINS must contain only comma-separated HTTP(S) origins.');
-    }
-    if (process.env.RATE_LIMIT_ENABLED === 'false') {
-      errors.push('RATE_LIMIT_ENABLED cannot be false in production.');
-    }
-    const insecureCookie = process.env.AUTH_COOKIE_SECURE === 'false';
-    if (insecureCookie && !isLoopbackOrigin(process.env.WEB_BASE_URL ?? '')) {
-      errors.push('AUTH_COOKIE_SECURE cannot be false for a public production origin.');
-    }
-    const sameSite = process.env.AUTH_COOKIE_SAME_SITE?.trim().toLowerCase();
-    if (sameSite && !['lax', 'strict', 'none'].includes(sameSite)) {
-      errors.push('AUTH_COOKIE_SAME_SITE must be lax, strict, or none.');
-    }
-    if (sameSite === 'none' && insecureCookie) {
-      errors.push('AUTH_COOKIE_SAME_SITE=none requires secure cookies.');
+    if (runtimeRole === 'api') {
+      if (!hasValue(process.env.JWT_SECRET) || process.env.JWT_SECRET === DEFAULT_JWT_SECRET) {
+        errors.push('JWT_SECRET must be set to a non-default value in production.');
+      }
+      if (!hasValue(process.env.WEB_BASE_URL) || !isHttpOrigin(process.env.WEB_BASE_URL ?? '')) {
+        errors.push('WEB_BASE_URL must be set to an exact HTTP(S) origin in production.');
+      }
+      const additionalOrigins = (process.env.CORS_ALLOWED_ORIGINS ?? '')
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean);
+      if (additionalOrigins.some((origin) => !isHttpOrigin(origin))) {
+        errors.push('CORS_ALLOWED_ORIGINS must contain only comma-separated HTTP(S) origins.');
+      }
+      if (process.env.RATE_LIMIT_ENABLED === 'false') {
+        errors.push('RATE_LIMIT_ENABLED cannot be false in production.');
+      }
+      const insecureCookie = process.env.AUTH_COOKIE_SECURE === 'false';
+      if (insecureCookie && !isLoopbackOrigin(process.env.WEB_BASE_URL ?? '')) {
+        errors.push('AUTH_COOKIE_SECURE cannot be false for a public production origin.');
+      }
+      const sameSite = process.env.AUTH_COOKIE_SAME_SITE?.trim().toLowerCase();
+      if (sameSite && !['lax', 'strict', 'none'].includes(sameSite)) {
+        errors.push('AUTH_COOKIE_SAME_SITE must be lax, strict, or none.');
+      }
+      if (sameSite === 'none' && insecureCookie) {
+        errors.push('AUTH_COOKIE_SAME_SITE=none requires secure cookies.');
+      }
     }
   } else {
     if (!features.dbConfigured) {
       warnings.push('DATABASE_URL unset; API will use mock repositories for public data.');
     }
-    if (!hasValue(process.env.ADMIN_API_KEY)) {
+    if (runtimeRole === 'api' && !hasValue(process.env.ADMIN_API_KEY)) {
       warnings.push('ADMIN_API_KEY unset; transitional admin service-key access is disabled.');
     }
     if (features.aiProvider === 'none') {
       warnings.push('No LLM provider configured; Copilot will fall back to rule-based answers.');
     }
-    if (!features.stripeEnabled) {
+    if (runtimeRole === 'api' && !features.stripeEnabled) {
       warnings.push('Stripe is not configured; paid subscription checkout is disabled.');
     }
   }

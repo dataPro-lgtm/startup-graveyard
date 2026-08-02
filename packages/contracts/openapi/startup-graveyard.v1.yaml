@@ -2195,6 +2195,9 @@ components:
       type: object
       required:
         [
+          source,
+          instanceId,
+          heartbeatAt,
           enabled,
           status,
           startDelayMs,
@@ -2214,10 +2217,15 @@ components:
           recentTicks,
         ]
       properties:
+        source:
+          type: string
+          enum: [local, runtime_heartbeat]
+        instanceId: { type: string, nullable: true }
+        heartbeatAt: { type: string, nullable: true }
         enabled: { type: boolean }
         status:
           type: string
-          enum: [disabled, idle, processing, error, stopped]
+          enum: [disabled, starting, idle, processing, error, stopped]
         startDelayMs: { type: integer, minimum: 0 }
         pollIntervalMs: { type: integer, minimum: 0 }
         maxJobsPerTick: { type: integer, minimum: 0 }
@@ -2256,6 +2264,44 @@ components:
               lastJobSourceName: { type: string, nullable: true }
               lastJobStatus: { type: string, nullable: true }
               error: { type: string, nullable: true }
+    PlatformSchedulerMonitor:
+      type: object
+      required:
+        [
+          source,
+          instanceId,
+          heartbeatAt,
+          enabled,
+          status,
+          pollIntervalMs,
+          startedAt,
+          lastTickStartedAt,
+          lastTickCompletedAt,
+          lastEnqueuedAt,
+          enqueuedJobs,
+          consecutiveErrors,
+          lastError,
+          lastStopAt,
+        ]
+      properties:
+        source:
+          type: string
+          enum: [local, runtime_heartbeat]
+        instanceId: { type: string, nullable: true }
+        heartbeatAt: { type: string, nullable: true }
+        enabled: { type: boolean }
+        status:
+          type: string
+          enum: [disabled, starting, idle, processing, error, stopped]
+        pollIntervalMs: { type: integer, minimum: 0 }
+        startedAt: { type: string, nullable: true }
+        lastTickStartedAt: { type: string, nullable: true }
+        lastTickCompletedAt: { type: string, nullable: true }
+        lastEnqueuedAt: { type: string, nullable: true }
+        enqueuedJobs: { type: integer, minimum: 0 }
+        consecutiveErrors: { type: integer, minimum: 0 }
+        lastError: { type: string, nullable: true }
+        lastStopAt: { type: string, nullable: true }
     PlatformSnapshot:
       type: object
       required:
@@ -2295,7 +2341,7 @@ components:
         infoAlertCount: { type: integer, minimum: 0 }
         workerStatus:
           type: string
-          enum: [disabled, idle, processing, error, stopped]
+          enum: [disabled, starting, idle, processing, error, stopped]
         workerConsecutiveErrors: { type: integer, minimum: 0 }
         workerLastProcessedAt: { type: string, nullable: true }
     PlatformSnapshotTrend:
@@ -2505,12 +2551,16 @@ components:
               mock_mode_active,
               ai_provider_unconfigured,
               stripe_disabled,
+              stripe_webhook_failures,
               failed_ingestion_jobs,
               stale_running_jobs,
               ingestion_queue_backlog,
               ingestion_worker_inactive,
               ingestion_worker_stalled,
               ingestion_worker_erroring,
+              ingestion_scheduler_inactive,
+              ingestion_scheduler_stalled,
+              ingestion_scheduler_erroring,
               snapshot_cadence_overdue,
               snapshot_cadence_adherence_low,
               snapshot_trend_regressing,
@@ -2527,6 +2577,7 @@ components:
         [
           runtime,
           worker,
+          scheduler,
           recentSnapshots,
           snapshotCadence,
           snapshotTrend,
@@ -2552,6 +2603,8 @@ components:
               $ref: '#/components/schemas/PlatformRuntimeFeatureFlags'
         worker:
           $ref: '#/components/schemas/PlatformWorkerMonitor'
+        scheduler:
+          $ref: '#/components/schemas/PlatformSchedulerMonitor'
         recentSnapshots:
           type: array
           items:

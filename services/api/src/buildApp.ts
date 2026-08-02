@@ -47,6 +47,11 @@ import {
   PgStripeWebhookEventsRepository,
 } from './repositories/stripeWebhookEventsRepository.js';
 import {
+  type RuntimeProcessesRepository,
+  MockRuntimeProcessesRepository,
+  PgRuntimeProcessesRepository,
+} from './repositories/runtimeProcessesRepository.js';
+import {
   type IngestionJobsRepository,
   MockIngestionJobsRepository,
   PgIngestionJobsRepository,
@@ -132,6 +137,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
   let teamWorkspacesRepo: TeamWorkspacesRepository;
   let billingFunnelRepo: BillingFunnelRepository;
   let stripeWebhookEventsRepo: StripeWebhookEventsRepository;
+  let runtimeProcessesRepo: RuntimeProcessesRepository;
   const ingestionWorkerMonitor = createIngestionWorkerMonitor();
   const auditRepo = pgPool ? new PgAuditRepository(pgPool) : new MockAuditRepository();
   const capturePlatformSnapshotForIngestion = (triggerType: 'manual' | 'scheduled') =>
@@ -160,6 +166,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
     reportSharesRepo = new PgReportSharesRepository(pgPool);
     billingFunnelRepo = new PgBillingFunnelRepository(pgPool);
     stripeWebhookEventsRepo = new PgStripeWebhookEventsRepository(pgPool);
+    runtimeProcessesRepo = new PgRuntimeProcessesRepository(pgPool);
     teamWorkspacesRepo = new PgTeamWorkspacesRepository(pgPool, billingFunnelRepo);
     ingestionJobsRepo = new PgIngestionJobsRepository(
       pgPool,
@@ -189,6 +196,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
     reportSharesRepo = new MockReportSharesRepository();
     billingFunnelRepo = new MockBillingFunnelRepository();
     stripeWebhookEventsRepo = new MockStripeWebhookEventsRepository();
+    runtimeProcessesRepo = new MockRuntimeProcessesRepository();
     teamWorkspacesRepo = new MockTeamWorkspacesRepository(
       usersRepo,
       savedViewsRepo,
@@ -225,6 +233,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
     'stripeWebhookEventsRepo',
     stripeWebhookEventsRepo as StripeWebhookEventsRepository,
   );
+  server.decorate('runtimeProcessesRepo', runtimeProcessesRepo as RuntimeProcessesRepository);
   server.decorate('auditRepo', auditRepo as AuditRepository);
   if (!pgPool) {
     server.log.warn('DATABASE_URL unset; using in-memory mock cases + reviews');
