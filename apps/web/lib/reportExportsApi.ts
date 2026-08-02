@@ -1,4 +1,4 @@
-import { API_BASE_URL } from './api';
+import { apiFetch } from './api';
 import {
   exportResearchReportPdfResponseSchema,
   exportResearchReportResponseSchema,
@@ -11,15 +11,11 @@ export function isApiError(value: unknown): value is ApiError {
   return typeof value === 'object' && value !== null && 'error' in value;
 }
 
-export async function exportResearchReport(
-  token: string,
-  input: { name: string; filters: SavedViewFilters },
-) {
-  const res = await fetch(`${API_BASE_URL}/v1/reports/exports/markdown`, {
+export async function exportResearchReport(input: { name: string; filters: SavedViewFilters }) {
+  const res = await apiFetch('/v1/reports/exports/markdown', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify(input),
   });
@@ -28,15 +24,11 @@ export async function exportResearchReport(
   return exportResearchReportResponseSchema.parse(json);
 }
 
-export async function exportResearchReportPdf(
-  token: string,
-  input: { name: string; filters: SavedViewFilters },
-) {
-  const res = await fetch(`${API_BASE_URL}/v1/reports/exports/pdf`, {
+export async function exportResearchReportPdf(input: { name: string; filters: SavedViewFilters }) {
+  const res = await apiFetch('/v1/reports/exports/pdf', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify(input),
   });

@@ -13,7 +13,7 @@ export const loginBodySchema = z.object({
 });
 
 export const refreshBodySchema = z.object({
-  refreshToken: z.string().min(1),
+  refreshToken: z.string().min(1).optional(),
 });
 
 export const subscriptionTierSchema = z.enum(SUBSCRIPTION_TIERS);
@@ -27,6 +27,7 @@ export const workspaceAccessWarningSchema = z.enum([
   'cancel_at_period_end',
   'seat_limit_reached',
 ]);
+export const adminRoleSchema = z.enum(['viewer', 'editor', 'operator', 'owner']);
 
 export const userEntitlementsSchema = z.object({
   watchlistLimit: z.number().int().nonnegative(),
@@ -65,14 +66,44 @@ export const userSchema = z.object({
   entitlements: userEntitlementsSchema,
   workspaceAccess: workspaceAccessSchema,
   role: z.enum(['user', 'admin']),
+  adminRole: adminRoleSchema.nullable(),
   createdAt: z.string(),
 });
 
 export const authResponseSchema = z.object({
   user: userSchema,
-  accessToken: z.string(),
-  refreshToken: z.string(),
+  sessionId: z.string().uuid().optional(),
+  accessToken: z.string().optional(),
+  refreshToken: z.string().optional(),
   expiresIn: z.number(), // seconds
+});
+
+export const userSessionSchema = z.object({
+  id: z.string().uuid(),
+  current: z.boolean(),
+  ipAddress: z.string().nullable(),
+  userAgent: z.string().nullable(),
+  createdAt: z.string(),
+  lastSeenAt: z.string(),
+  expiresAt: z.string(),
+});
+
+export const userSessionsResponseSchema = z.object({
+  items: z.array(userSessionSchema),
+});
+
+export const userSessionParamsSchema = z.object({
+  sessionId: z.string().uuid(),
+});
+
+export const revokeOtherSessionsResponseSchema = z.object({
+  ok: z.literal(true),
+  revokedCount: z.number().int().nonnegative(),
+});
+
+export const revokeSessionResponseSchema = z.object({
+  ok: z.literal(true),
+  currentSessionRevoked: z.boolean(),
 });
 
 export const meResponseSchema = userSchema;
@@ -81,5 +112,7 @@ export type RegisterBody = z.infer<typeof registerBodySchema>;
 export type LoginBody = z.infer<typeof loginBodySchema>;
 export type AuthResponse = z.infer<typeof authResponseSchema>;
 export type UserProfile = z.infer<typeof userSchema>;
+export type AdminRole = z.infer<typeof adminRoleSchema>;
 export type UserEntitlements = z.infer<typeof userEntitlementsSchema>;
 export type WorkspaceAccess = z.infer<typeof workspaceAccessSchema>;
+export type UserSession = z.infer<typeof userSessionSchema>;

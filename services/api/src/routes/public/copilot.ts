@@ -25,6 +25,7 @@ import {
   copilotSessionsQuerySchema,
   copilotVisitorIdSchema,
 } from '../../schemas/copilot.js';
+import { routeRateLimit } from '../../security/requestSecurity.js';
 
 type SessionDetail = Awaited<ReturnType<FastifyInstance['copilotSessionsRepo']['getSession']>>;
 
@@ -151,63 +152,67 @@ export async function copilotRoutes(app: FastifyInstance) {
     });
   });
 
-  app.post('/answer', async (request, reply) => {
-    const parsed = copilotAnswerBodySchema.safeParse(request.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: 'invalid_body', details: parsed.error.flatten() });
-    }
+  app.post(
+    '/answer',
+    { config: { rateLimit: routeRateLimit('copilot') } },
+    async (request, reply) => {
+      const parsed = copilotAnswerBodySchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.code(400).send({ error: 'invalid_body', details: parsed.error.flatten() });
+      }
 
-    const {
-      question,
-      topK,
-      visitorId,
-      sessionId,
-      pinnedCaseIds: initialPinnedCaseIds,
-    } = parsed.data;
+      const {
+        question,
+        topK,
+        visitorId,
+        sessionId,
+        pinnedCaseIds: initialPinnedCaseIds,
+      } = parsed.data;
 
-    const existingSession = sessionId
-      ? await app.copilotSessionsRepo.getSession(visitorId, sessionId)
-      : null;
-    if (sessionId && !existingSession) {
-      return reply.code(404).send({ error: 'session_not_found' });
-    }
+      const existingSession = sessionId
+        ? await app.copilotSessionsRepo.getSession(visitorId, sessionId)
+        : null;
+      if (sessionId && !existingSession) {
+        return reply.code(404).send({ error: 'session_not_found' });
+      }
 
-    const pinnedCaseIds = existingSession?.pinnedCaseIds ?? initialPinnedCaseIds ?? [];
-    const generated = await generateCopilotAnswer({
-      casesRepo: app.casesRepo,
-      question,
-      topK,
-      pinnedCaseIds,
-      history: existingSession?.messages.map((message) => ({
-        role: message.role,
-        content: message.content,
-      })),
-      onProviderError: (error) => {
-        app.log.warn({ err: error }, 'LLM call failed, falling back to rule-based');
-      },
-    });
+      const pinnedCaseIds = existingSession?.pinnedCaseIds ?? initialPinnedCaseIds ?? [];
+      const generated = await generateCopilotAnswer({
+        casesRepo: app.casesRepo,
+        question,
+        topK,
+        pinnedCaseIds,
+        history: existingSession?.messages.map((message) => ({
+          role: message.role,
+          content: message.content,
+        })),
+        onProviderError: (error) => {
+          app.log.warn({ err: error }, 'LLM call failed, falling back to rule-based');
+        },
+      });
 
-    const saved = await app.copilotSessionsRepo.saveAnswerTurn({
-      visitorId,
-      sessionId,
-      question,
-      answer: generated.answer,
-      citations: generated.citations,
-      grounded: generated.grounded,
-      model: generated.model,
-      initialPinnedCaseIds,
-      run: generated.run,
-    });
-    if (!saved) return reply.code(404).send({ error: 'session_not_found' });
+      const saved = await app.copilotSessionsRepo.saveAnswerTurn({
+        visitorId,
+        sessionId,
+        question,
+        answer: generated.answer,
+        citations: generated.citations,
+        grounded: generated.grounded,
+        model: generated.model,
+        initialPinnedCaseIds,
+        run: generated.run,
+      });
+      if (!saved) return reply.code(404).send({ error: 'session_not_found' });
 
-    return copilotAnswerResponseSchema.parse({
-      sessionId: saved.session.session.id,
-      userMessageId: saved.userMessageId,
-      assistantMessageId: saved.assistantMessageId,
-      answer: generated.answer,
-      citations: generated.citations,
-      model: generated.model,
-      grounded: generated.grounded,
-    });
-  });
+      return copilotAnswerResponseSchema.parse({
+        sessionId: saved.session.session.id,
+        userMessageId: saved.userMessageId,
+        assistantMessageId: saved.assistantMessageId,
+        answer: generated.answer,
+        citations: generated.citations,
+        model: generated.model,
+        grounded: generated.grounded,
+      });
+    },
+  );
 }

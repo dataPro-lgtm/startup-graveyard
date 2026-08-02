@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { API_BASE_URL } from './api';
+import { adminApiFetch } from './adminApiServer';
 
 const listSchema = z.object({
   items: z.array(
@@ -9,6 +9,10 @@ const listSchema = z.object({
       reviewId: z.string().uuid().nullable(),
       caseId: z.string().uuid().nullable(),
       metadata: z.record(z.string(), z.unknown()),
+      actorUserId: z.string().uuid().nullable(),
+      actorEmail: z.string().email().nullable(),
+      actorAdminRole: z.enum(['viewer', 'editor', 'operator', 'owner']).nullable(),
+      actorAuthType: z.enum(['user_session', 'service_key', 'system']).nullable(),
       createdAt: z.string(),
     }),
   ),
@@ -22,15 +26,10 @@ export async function fetchAdminAudit(
   | { ok: true; data: AdminAuditList }
   | { ok: false; reason: 'no_key' | 'unauthorized' | 'bad_response' }
 > {
-  const key = process.env.ADMIN_API_KEY;
-  if (!key) return { ok: false, reason: 'no_key' };
-
-  const url = `${API_BASE_URL}/v1/admin/audit?limit=${limit}`;
-  const res = await fetch(url, {
-    headers: { 'X-Admin-Key': key },
+  const res = await adminApiFetch(`/v1/admin/audit?limit=${limit}`, {
     cache: 'no-store',
   });
-  if (res.status === 401) return { ok: false, reason: 'unauthorized' };
+  if (res.status === 401 || res.status === 403) return { ok: false, reason: 'unauthorized' };
   if (!res.ok) return { ok: false, reason: 'bad_response' };
   const json: unknown = await res.json();
   const parsed = listSchema.safeParse(json);

@@ -16,7 +16,6 @@ import {
   isApiError,
   updateSavedView,
 } from '@/lib/savedViewsApi';
-import { getAccessToken } from '@/lib/authApi';
 import { casesListPath, type CasesSearchParams } from '@/lib/casesApi';
 import {
   exportResearchReport,
@@ -132,12 +131,10 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
         setReportShares([]);
         return;
       }
-      const token = getAccessToken();
-      if (!token) return;
       setFetching(true);
       const [savedViewsRes, shareRes] = await Promise.all([
-        fetchMySavedViews(token),
-        mode === 'full' ? fetchMyReportShares(token) : Promise.resolve({ items: [] }),
+        fetchMySavedViews(),
+        mode === 'full' ? fetchMyReportShares() : Promise.resolve({ items: [] }),
       ]);
       if (cancelled) return;
       if (isApiError(savedViewsRes)) {
@@ -167,9 +164,7 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
         setTeamWorkspaceContext(null);
         return;
       }
-      const token = getAccessToken();
-      if (!token) return;
-      const res = await fetchTeamWorkspaceContext(token);
+      const res = await fetchTeamWorkspaceContext();
       if (cancelled) return;
       if (isTeamWorkspaceApiError(res)) {
         setTeamWorkspaceContext(null);
@@ -214,12 +209,10 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
 
   async function handleCreate() {
     if (!user || !currentFilters) return;
-    const token = getAccessToken();
-    if (!token) return;
     setSaving(true);
     setError(null);
     setMessage(null);
-    const res = await createSavedView(token, {
+    const res = await createSavedView({
       name: name.trim() || suggestedName || 'All Cases',
       filters: currentFilters,
     });
@@ -239,11 +232,9 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
 
   async function handleRename(savedViewId: string) {
     if (!user || !editName.trim()) return;
-    const token = getAccessToken();
-    if (!token) return;
     setSaving(true);
     setError(null);
-    const res = await updateSavedView(token, savedViewId, { name: editName.trim() });
+    const res = await updateSavedView(savedViewId, { name: editName.trim() });
     setSaving(false);
     if (isApiError(res)) {
       setError(apiErrorMessage(res));
@@ -257,11 +248,9 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
 
   async function handleDelete(savedViewId: string) {
     if (!user) return;
-    const token = getAccessToken();
-    if (!token) return;
     setDeletingId(savedViewId);
     setError(null);
-    const res = await deleteSavedView(token, savedViewId);
+    const res = await deleteSavedView(savedViewId);
     setDeletingId(null);
     if (isApiError(res)) {
       setError(apiErrorMessage(res));
@@ -280,16 +269,14 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
     format: 'markdown' | 'pdf',
   ) {
     if (!user) return;
-    const token = getAccessToken();
-    if (!token) return;
     const exportingToken = `${key}:${format}`;
     setExportingKey(exportingToken);
     setError(null);
     setMessage(null);
     const res =
       format === 'markdown'
-        ? await exportResearchReport(token, { name: exportName, filters })
-        : await exportResearchReportPdf(token, { name: exportName, filters });
+        ? await exportResearchReport({ name: exportName, filters })
+        : await exportResearchReportPdf({ name: exportName, filters });
     setExportingKey(null);
     if (isReportApiError(res)) {
       setError(apiErrorMessage(res));
@@ -311,12 +298,10 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
 
   async function handleShare(savedViewId: string) {
     if (!user) return;
-    const token = getAccessToken();
-    if (!token) return;
     setSharingId(savedViewId);
     setError(null);
     setMessage(null);
-    const res = await shareSavedViewToWorkspace(token, savedViewId);
+    const res = await shareSavedViewToWorkspace(savedViewId);
     setSharingId(null);
     if (isTeamWorkspaceApiError(res)) {
       setError(`Could not share the saved view: ${res.error}`);
@@ -346,12 +331,10 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
 
   async function handlePublishShare(savedView: SavedViewItem) {
     if (!user) return;
-    const token = getAccessToken();
-    if (!token) return;
     setPublishingId(savedView.id);
     setError(null);
     setMessage(null);
-    const res = await createReportShare(token, savedView.id);
+    const res = await createReportShare(savedView.id);
     setPublishingId(null);
     if (isReportShareApiError(res)) {
       setError(`Could not publish the brief share: ${res.error}`);
@@ -372,12 +355,10 @@ export function SavedViewsManager({ mode, currentFilters, suggestedName }: Saved
 
   async function handleDeleteShare(shareId: string, savedViewId: string) {
     if (!user) return;
-    const token = getAccessToken();
-    if (!token) return;
     setRemovingShareId(shareId);
     setError(null);
     setMessage(null);
-    const res = await deleteReportShare(token, shareId);
+    const res = await deleteReportShare(shareId);
     setRemovingShareId(null);
     if (isReportShareApiError(res)) {
       setError(`Could not stop the public share: ${res.error}`);

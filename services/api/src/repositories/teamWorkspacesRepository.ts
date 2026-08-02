@@ -1459,11 +1459,7 @@ export interface TeamWorkspacesRepository {
     user: UserProfile,
     inviteId: string,
   ): Promise<
-    | TeamWorkspace
-    | 'invite_not_found'
-    | 'email_mismatch'
-    | 'already_in_workspace'
-    | 'workspace_plan_inactive'
+    TeamWorkspace | 'invite_not_found' | 'already_in_workspace' | 'workspace_plan_inactive'
   >;
   shareSavedView(
     actorUserId: string,
@@ -2387,16 +2383,12 @@ export class MockTeamWorkspacesRepository implements TeamWorkspacesRepository {
     user: UserProfile,
     inviteId: string,
   ): Promise<
-    | TeamWorkspace
-    | 'invite_not_found'
-    | 'email_mismatch'
-    | 'already_in_workspace'
-    | 'workspace_plan_inactive'
+    TeamWorkspace | 'invite_not_found' | 'already_in_workspace' | 'workspace_plan_inactive'
   > {
     if (this.membershipByUserId.has(user.id)) return 'already_in_workspace';
     const invite = this.invites.get(inviteId);
     if (!invite) return 'invite_not_found';
-    if (invite.email !== user.email.toLowerCase()) return 'email_mismatch';
+    if (invite.email !== user.email.toLowerCase()) return 'invite_not_found';
     if (invite.status !== 'pending') {
       return invite.revokedReason === 'billing_inactive'
         ? 'workspace_plan_inactive'
@@ -4461,11 +4453,7 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
     user: UserProfile,
     inviteId: string,
   ): Promise<
-    | TeamWorkspace
-    | 'invite_not_found'
-    | 'email_mismatch'
-    | 'already_in_workspace'
-    | 'workspace_plan_inactive'
+    TeamWorkspace | 'invite_not_found' | 'already_in_workspace' | 'workspace_plan_inactive'
   > {
     if (await this.findMembership(user.id)) return 'already_in_workspace';
 
@@ -4489,7 +4477,7 @@ export class PgTeamWorkspacesRepository implements TeamWorkspacesRepository {
     );
     const invite = rows[0];
     if (!invite) return 'invite_not_found';
-    if (invite.email.toLowerCase() !== user.email.toLowerCase()) return 'email_mismatch';
+    if (invite.email.toLowerCase() !== user.email.toLowerCase()) return 'invite_not_found';
     if (invite.status !== 'pending') {
       return invite.revoked_reason === 'billing_inactive'
         ? 'workspace_plan_inactive'

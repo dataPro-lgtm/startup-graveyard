@@ -56,13 +56,13 @@ describe('admin API (mock DB + ADMIN_API_KEY)', () => {
     expect(Array.isArray(body.items)).toBe(true);
   });
 
-  it('GET /v1/admin/ingestion-jobs with Authorization Bearer', async () => {
+  it('does not accept the shared admin key as a bearer token', async () => {
     const res = await app.inject({
       method: 'GET',
       url: '/v1/admin/ingestion-jobs?limit=3',
       headers: { authorization: `Bearer ${key}` },
     });
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode).toBe(401);
   });
 
   it('POST /v1/admin/cases creates draft', async () => {

@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/app/components/AuthProvider';
-import { getAccessToken } from '@/lib/authApi';
 import {
   TEAM_WORKSPACE_REFRESH_EVENT,
   fetchTeamWorkspaceContext,
@@ -35,10 +34,8 @@ export function TeamWorkspaceShareButton({ caseId }: { caseId: string }) {
         setContext(null);
         return;
       }
-      const token = getAccessToken();
-      if (!token) return;
       setFetching(true);
-      const res = await fetchTeamWorkspaceContext(token);
+      const res = await fetchTeamWorkspaceContext();
       if (cancelled) return;
       if (isApiError(res)) {
         setError(apiErrorMessage(res));
@@ -61,12 +58,10 @@ export function TeamWorkspaceShareButton({ caseId }: { caseId: string }) {
   }, [user]);
 
   async function handleShare() {
-    const token = getAccessToken();
-    if (!token) return;
     setSharing(true);
     setMessage(null);
     setError(null);
-    const res = await shareCaseToWorkspace(token, caseId);
+    const res = await shareCaseToWorkspace(caseId);
     setSharing(false);
     if (isApiError(res)) {
       setError(apiErrorMessage(res));

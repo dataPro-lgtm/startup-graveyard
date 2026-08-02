@@ -1,5 +1,7 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import cookie from '@fastify/cookie';
+import rateLimit from '@fastify/rate-limit';
 import sensible from '@fastify/sensible';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
@@ -39,6 +41,11 @@ import {
   MockBillingFunnelRepository,
   PgBillingFunnelRepository,
 } from './repositories/billingFunnelRepository.js';
+import {
+  type StripeWebhookEventsRepository,
+  MockStripeWebhookEventsRepository,
+  PgStripeWebhookEventsRepository,
+} from './repositories/stripeWebhookEventsRepository.js';
 import {
   type IngestionJobsRepository,
   MockIngestionJobsRepository,
@@ -92,6 +99,9 @@ import { savedViewsRoutes } from './routes/public/savedViews.js';
 import { teamWorkspaceRoutes } from './routes/public/teamWorkspace.js';
 import { watchlistRoutes } from './routes/public/watchlist.js';
 import { metaRoutes } from './routes/public/meta.js';
+import { config } from './config/index.js';
+import { resolveCorsAllowedOrigins } from './security/requestSecurity.js';
+import { cookieOriginAllowed } from './auth/cookies.js';
 
 export type BuildAppOptions = {
   /** 默认 true；测试可关日志 */
@@ -100,7 +110,10 @@ export type BuildAppOptions = {
 
 /** 注册路由与仓库，不 listen（供 `inject` 测试与生产启动）。 */
 export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnType<typeof Fastify>> {
-  const server = Fastify({ logger: options.logger ?? true });
+  const server = Fastify({
+    logger: options.logger ?? true,
+    trustProxy: config.security.trustProxy,
+  });
 
   const pgPool = getPool();
 
@@ -118,6 +131,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
   let reportSharesRepo: ReportSharesRepository;
   let teamWorkspacesRepo: TeamWorkspacesRepository;
   let billingFunnelRepo: BillingFunnelRepository;
+  let stripeWebhookEventsRepo: StripeWebhookEventsRepository;
   const ingestionWorkerMonitor = createIngestionWorkerMonitor();
   const auditRepo = pgPool ? new PgAuditRepository(pgPool) : new MockAuditRepository();
   const capturePlatformSnapshotForIngestion = (triggerType: 'manual' | 'scheduled') =>
@@ -145,6 +159,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
     savedViewsRepo = new PgSavedViewsRepository(pgPool);
     reportSharesRepo = new PgReportSharesRepository(pgPool);
     billingFunnelRepo = new PgBillingFunnelRepository(pgPool);
+    stripeWebhookEventsRepo = new PgStripeWebhookEventsRepository(pgPool);
     teamWorkspacesRepo = new PgTeamWorkspacesRepository(pgPool, billingFunnelRepo);
     ingestionJobsRepo = new PgIngestionJobsRepository(
       pgPool,
@@ -173,6 +188,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
     savedViewsRepo = new MockSavedViewsRepository();
     reportSharesRepo = new MockReportSharesRepository();
     billingFunnelRepo = new MockBillingFunnelRepository();
+    stripeWebhookEventsRepo = new MockStripeWebhookEventsRepository();
     teamWorkspacesRepo = new MockTeamWorkspacesRepository(
       usersRepo,
       savedViewsRepo,
@@ -205,12 +221,37 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
   server.decorate('reportSharesRepo', reportSharesRepo as ReportSharesRepository);
   server.decorate('teamWorkspacesRepo', teamWorkspacesRepo as TeamWorkspacesRepository);
   server.decorate('billingFunnelRepo', billingFunnelRepo as BillingFunnelRepository);
+  server.decorate(
+    'stripeWebhookEventsRepo',
+    stripeWebhookEventsRepo as StripeWebhookEventsRepository,
+  );
   server.decorate('auditRepo', auditRepo as AuditRepository);
   if (!pgPool) {
     server.log.warn('DATABASE_URL unset; using in-memory mock cases + reviews');
   }
 
-  await server.register(cors, { origin: true });
+  const corsAllowedOrigins = resolveCorsAllowedOrigins();
+  await server.register(cookie);
+  await server.register(cors, {
+    credentials: true,
+    origin(origin, callback) {
+      callback(null, !origin || corsAllowedOrigins.has(origin));
+    },
+  });
+  await server.register(rateLimit, {
+    global: false,
+    addHeaders: {
+      'x-ratelimit-limit': true,
+      'x-ratelimit-remaining': true,
+      'x-ratelimit-reset': true,
+      'retry-after': true,
+    },
+  });
+  server.addHook('preHandler', async (request, reply) => {
+    if (!cookieOriginAllowed(request, corsAllowedOrigins)) {
+      return reply.code(403).send({ error: 'invalid_request_origin' });
+    }
+  });
   await server.register(sensible);
   await server.register(swagger, {
     openapi: {
@@ -234,7 +275,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
   await server.register(watchlistRoutes, { prefix: '/v1/watchlist' });
   await server.register(registerAdminRoutes, { prefix: '/v1/admin' });
   if (!process.env.ADMIN_API_KEY) {
-    server.log.warn('ADMIN_API_KEY unset; /v1/admin/* is disabled');
+    server.log.warn('ADMIN_API_KEY unset; named admin sessions remain available');
   }
 
   return server;

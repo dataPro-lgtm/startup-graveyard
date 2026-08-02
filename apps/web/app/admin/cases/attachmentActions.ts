@@ -2,15 +2,9 @@
 
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { API_BASE_URL } from '@/lib/api';
+import { adminApiFetch } from '@/lib/adminApiServer';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function adminHeaders(): HeadersInit {
-  const k = process.env.ADMIN_API_KEY;
-  if (!k) throw new Error('ADMIN_API_KEY missing');
-  return { 'X-Admin-Key': k };
-}
 
 function pickStr(formData: FormData, key: string): string | undefined {
   const v = formData.get(key);
@@ -31,13 +25,6 @@ export async function addCaseEvidence(caseId: string, formData: FormData) {
   if (!UUID_RE.test(caseId)) {
     redirect('/admin/cases?err=invalid_case');
   }
-  let h: HeadersInit;
-  try {
-    h = adminHeaders();
-  } catch {
-    redirect(`/admin/cases/${caseId}?err=config`);
-  }
-
   const credibilityRaw = pickStr(formData, 'credibilityLevel');
   const credibilityLevel =
     credibilityRaw === 'low' || credibilityRaw === 'high' ? credibilityRaw : 'medium';
@@ -56,9 +43,9 @@ export async function addCaseEvidence(caseId: string, formData: FormData) {
     redirect(`/admin/cases/${caseId}?err=evidence_fields`);
   }
 
-  const res = await fetch(`${API_BASE_URL}/v1/admin/cases/${encodeURIComponent(caseId)}/evidence`, {
+  const res = await adminApiFetch(`/v1/admin/cases/${encodeURIComponent(caseId)}/evidence`, {
     method: 'POST',
-    headers: { ...h, 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   revalidatePath(`/admin/cases/${caseId}`);
@@ -80,13 +67,6 @@ export async function addCaseFailureFactor(caseId: string, formData: FormData) {
   if (!UUID_RE.test(caseId)) {
     redirect('/admin/cases?err=invalid_case');
   }
-  let h: HeadersInit;
-  try {
-    h = adminHeaders();
-  } catch {
-    redirect(`/admin/cases/${caseId}?err=config`);
-  }
-
   const weightRaw = pickStr(formData, 'weight');
   const weight = weightRaw !== undefined ? Number(weightRaw) : 1;
   if (!Number.isFinite(weight) || weight < 0 || weight > 100) {
@@ -105,14 +85,11 @@ export async function addCaseFailureFactor(caseId: string, formData: FormData) {
     redirect(`/admin/cases/${caseId}?err=factor_fields`);
   }
 
-  const res = await fetch(
-    `${API_BASE_URL}/v1/admin/cases/${encodeURIComponent(caseId)}/failure-factors`,
-    {
-      method: 'POST',
-      headers: { ...h, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    },
-  );
+  const res = await adminApiFetch(`/v1/admin/cases/${encodeURIComponent(caseId)}/failure-factors`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
   revalidatePath(`/admin/cases/${caseId}`);
   revalidatePath(`/cases/${caseId}`);
   revalidatePath('/');
@@ -132,13 +109,6 @@ export async function addCaseTimelineEvent(caseId: string, formData: FormData) {
   if (!UUID_RE.test(caseId)) {
     redirect('/admin/cases?err=invalid_case');
   }
-  let h: HeadersInit;
-  try {
-    h = adminHeaders();
-  } catch {
-    redirect(`/admin/cases/${caseId}?err=config`);
-  }
-
   const amountUsdRaw = pickStr(formData, 'amountUsd');
   const sortOrderRaw = pickStr(formData, 'sortOrder');
   const amountUsd = amountUsdRaw !== undefined ? Number(amountUsdRaw) : undefined;
@@ -164,14 +134,11 @@ export async function addCaseTimelineEvent(caseId: string, formData: FormData) {
     redirect(`/admin/cases/${caseId}?err=timeline_fields`);
   }
 
-  const res = await fetch(
-    `${API_BASE_URL}/v1/admin/cases/${encodeURIComponent(caseId)}/timeline-events`,
-    {
-      method: 'POST',
-      headers: { ...h, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    },
-  );
+  const res = await adminApiFetch(`/v1/admin/cases/${encodeURIComponent(caseId)}/timeline-events`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
   revalidatePath(`/admin/cases/${caseId}`);
   revalidatePath(`/cases/${caseId}`);
   revalidatePath('/');
@@ -191,13 +158,6 @@ export async function updateCaseAnalysis(caseId: string, formData: FormData) {
   if (!UUID_RE.test(caseId)) {
     redirect('/admin/cases?err=invalid_case');
   }
-  let h: HeadersInit;
-  try {
-    h = adminHeaders();
-  } catch {
-    redirect(`/admin/cases/${caseId}?err=config`);
-  }
-
   const body = {
     primaryFailureReasonKey: pickStr(formData, 'primaryFailureReasonKey'),
     keyLessons: pickStr(formData, 'keyLessons'),
@@ -206,9 +166,9 @@ export async function updateCaseAnalysis(caseId: string, formData: FormData) {
     redirect(`/admin/cases/${caseId}?err=analysis_fields`);
   }
 
-  const res = await fetch(`${API_BASE_URL}/v1/admin/cases/${encodeURIComponent(caseId)}/analysis`, {
+  const res = await adminApiFetch(`/v1/admin/cases/${encodeURIComponent(caseId)}/analysis`, {
     method: 'PATCH',
-    headers: { ...h, 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   revalidatePath(`/admin/cases/${caseId}`);

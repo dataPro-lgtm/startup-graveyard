@@ -7,11 +7,7 @@ import {
   apiMe,
   apiRefresh,
   apiRegister,
-  clearTokens,
-  getAccessToken,
-  getRefreshToken,
   isApiError,
-  saveTokens,
   type UserProfile,
 } from '@/lib/authApi';
 
@@ -32,27 +28,18 @@ const AuthContext = createContext<(AuthState & AuthActions) | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AuthState>({ user: null, loading: true });
 
-  // On mount, try to restore session from stored tokens
+  // Restore the server-managed HttpOnly cookie session without exposing credentials to JavaScript.
   useEffect(() => {
     async function restore() {
-      const access = getAccessToken();
-      if (access) {
-        const me = await apiMe(access);
-        if (!isApiError(me)) {
-          setState({ user: me, loading: false });
-          return;
-        }
-        // Access token expired — try refresh
-        const refresh = getRefreshToken();
-        if (refresh) {
-          const res = await apiRefresh(refresh);
-          if (!isApiError(res)) {
-            saveTokens(res.accessToken, res.refreshToken);
-            setState({ user: res.user, loading: false });
-            return;
-          }
-        }
-        clearTokens();
+      const me = await apiMe();
+      if (!isApiError(me)) {
+        setState({ user: me, loading: false });
+        return;
+      }
+      const refreshed = await apiRefresh();
+      if (!isApiError(refreshed)) {
+        setState({ user: refreshed.user, loading: false });
+        return;
       }
       setState({ user: null, loading: false });
     }
@@ -64,7 +51,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (isApiError(res)) {
       return res.error === 'invalid_credentials' ? '邮箱或密码错误' : `登录失败：${res.error}`;
     }
-    saveTokens(res.accessToken, res.refreshToken);
     setState({ user: res.user, loading: false });
     return null;
   }, []);
@@ -76,7 +62,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (res.error === 'email_already_registered') return '该邮箱已注册';
         return `注册失败：${res.error}`;
       }
-      saveTokens(res.accessToken, res.refreshToken);
       setState({ user: res.user, loading: false });
       return null;
     },
@@ -84,22 +69,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const logout = useCallback(async () => {
-    const token = getAccessToken();
-    if (token) await apiLogout(token).catch(() => undefined);
-    clearTokens();
+    await apiLogout().catch(() => undefined);
     setState({ user: null, loading: false });
   }, []);
 
   const refresh = useCallback(async (): Promise<boolean> => {
-    const token = getRefreshToken();
-    if (!token) return false;
-    const res = await apiRefresh(token);
+    const res = await apiRefresh();
     if (isApiError(res)) {
-      clearTokens();
       setState({ user: null, loading: false });
       return false;
     }
-    saveTokens(res.accessToken, res.refreshToken);
     setState({ user: res.user, loading: false });
     return true;
   }, []);

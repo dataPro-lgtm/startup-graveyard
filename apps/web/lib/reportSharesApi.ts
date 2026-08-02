@@ -1,4 +1,4 @@
-import { API_BASE_URL } from './api';
+import { apiFetch } from './api';
 import {
   createReportShareResponseSchema,
   deleteReportShareResponseSchema,
@@ -8,20 +8,12 @@ import {
 
 type ApiError = { error: string; details?: unknown };
 
-function authHeaders(token: string): Record<string, string> {
-  return {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${token}`,
-  };
-}
-
 export function isApiError(value: unknown): value is ApiError {
   return typeof value === 'object' && value !== null && 'error' in value;
 }
 
-export async function fetchMyReportShares(token: string) {
-  const res = await fetch(`${API_BASE_URL}/v1/reports/shares/me`, {
-    headers: { Authorization: `Bearer ${token}` },
+export async function fetchMyReportShares() {
+  const res = await apiFetch('/v1/reports/shares/me', {
     cache: 'no-store',
   });
   const json: unknown = await res.json();
@@ -29,10 +21,10 @@ export async function fetchMyReportShares(token: string) {
   return reportShareListResponseSchema.parse(json);
 }
 
-export async function createReportShare(token: string, savedViewId: string) {
-  const res = await fetch(`${API_BASE_URL}/v1/reports/shares`, {
+export async function createReportShare(savedViewId: string) {
+  const res = await apiFetch('/v1/reports/shares', {
     method: 'POST',
-    headers: authHeaders(token),
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ savedViewId }),
   });
   const json: unknown = await res.json();
@@ -40,10 +32,9 @@ export async function createReportShare(token: string, savedViewId: string) {
   return createReportShareResponseSchema.parse(json);
 }
 
-export async function deleteReportShare(token: string, shareId: string) {
-  const res = await fetch(`${API_BASE_URL}/v1/reports/shares/${encodeURIComponent(shareId)}`, {
+export async function deleteReportShare(shareId: string) {
+  const res = await apiFetch(`/v1/reports/shares/${encodeURIComponent(shareId)}`, {
     method: 'DELETE',
-    headers: { Authorization: `Bearer ${token}` },
   });
   const json: unknown = await res.json();
   if (!res.ok) return json as ApiError;
@@ -51,12 +42,9 @@ export async function deleteReportShare(token: string, shareId: string) {
 }
 
 export async function fetchPublicReportShare(shareToken: string) {
-  const res = await fetch(
-    `${API_BASE_URL}/v1/reports/shares/public/${encodeURIComponent(shareToken)}`,
-    {
-      cache: 'no-store',
-    },
-  );
+  const res = await apiFetch(`/v1/reports/shares/public/${encodeURIComponent(shareToken)}`, {
+    cache: 'no-store',
+  });
   const json: unknown = await res.json();
   if (!res.ok) return json as ApiError;
   return publicReportShareResponseSchema.parse(json);

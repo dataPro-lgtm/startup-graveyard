@@ -4,7 +4,6 @@ import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from './AuthProvider';
-import { getAccessToken } from '@/lib/authApi';
 import { caseListHref, casesListPath, type CasesSearchParams } from '@/lib/casesApi';
 import {
   createBillingPortalSession,
@@ -40,7 +39,6 @@ function apiErrorMessage(error: { error: string }) {
   if (error.error === 'workspace_plan_inactive') {
     return '当前 Team 工作区账单未处于可用状态，邀请功能已暂停。';
   }
-  if (error.error === 'email_mismatch') return '邀请邮箱和当前登录账户不一致。';
   if (error.error === 'workspace_not_found') return '当前还没有可操作的团队工作区。';
   if (error.error === 'forbidden') return '当前角色没有成员管理权限。';
   if (error.error === 'invite_not_found') return '邀请不存在，或已经被处理。';
@@ -143,10 +141,8 @@ export function TeamWorkspacePanel() {
         setContext(null);
         return;
       }
-      const token = getAccessToken();
-      if (!token) return;
       setFetching(true);
-      const res = await fetchTeamWorkspaceContext(token);
+      const res = await fetchTeamWorkspaceContext();
       if (cancelled) return;
       if (isApiError(res)) {
         setError(apiErrorMessage(res));
@@ -178,12 +174,10 @@ export function TeamWorkspacePanel() {
   }
 
   async function handleCreateWorkspace() {
-    const token = getAccessToken();
-    if (!token) return;
     setSaving(true);
     setError(null);
     setMessage(null);
-    const res = await createTeamWorkspace(token, {
+    const res = await createTeamWorkspace({
       name: workspaceName.trim() || defaultWorkspaceName,
     });
     setSaving(false);
@@ -202,12 +196,11 @@ export function TeamWorkspacePanel() {
   }
 
   async function handleInviteMember() {
-    const token = getAccessToken();
-    if (!token || !inviteEmail.trim()) return;
+    if (!inviteEmail.trim()) return;
     setSaving(true);
     setError(null);
     setMessage(null);
-    const res = await inviteTeamWorkspaceMember(token, {
+    const res = await inviteTeamWorkspaceMember({
       email: inviteEmail.trim().toLowerCase(),
       role: inviteRole,
     });
@@ -237,12 +230,10 @@ export function TeamWorkspacePanel() {
   }
 
   async function handleAcceptInvite(inviteId: string) {
-    const token = getAccessToken();
-    if (!token) return;
     setAcceptingInviteId(inviteId);
     setError(null);
     setMessage(null);
-    const res = await acceptTeamWorkspaceInvite(token, inviteId);
+    const res = await acceptTeamWorkspaceInvite(inviteId);
     setAcceptingInviteId(null);
     if (isApiError(res)) {
       setError(apiErrorMessage(res));
@@ -260,9 +251,8 @@ export function TeamWorkspacePanel() {
   }
 
   async function handleRecoveryAction(action: TeamWorkspaceBilling['recommendedActions'][number]) {
-    const token = getAccessToken();
     const workspace = context?.workspace;
-    if (!token || !workspace || !user) return;
+    if (!workspace || !user) return;
 
     setError(null);
     setMessage(null);
@@ -287,7 +277,7 @@ export function TeamWorkspacePanel() {
     setRecoveryActionLoading(action.code);
     try {
       if (action.surface === 'checkout') {
-        const result = await createCheckoutSession(token, user.id, 'team', 'team_workspace');
+        const result = await createCheckoutSession(user.id, 'team', 'team_workspace');
         if (!isPaymentUrlResponse(result.data)) {
           setError(paymentErrorMessage({ context: 'checkout', response: result.data }));
           return;
@@ -296,7 +286,7 @@ export function TeamWorkspacePanel() {
         return;
       }
 
-      const result = await createBillingPortalSession(token, 'team_workspace');
+      const result = await createBillingPortalSession('team_workspace');
       if (!isPaymentUrlResponse(result.data)) {
         setError(paymentErrorMessage({ context: 'portal', response: result.data }));
         return;

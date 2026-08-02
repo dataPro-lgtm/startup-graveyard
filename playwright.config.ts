@@ -4,8 +4,6 @@ const apiPort = Number(process.env.E2E_API_PORT ?? 18180);
 const webPort = Number(process.env.E2E_WEB_PORT ?? 3200);
 const apiBaseUrl = process.env.E2E_API_BASE_URL ?? `http://127.0.0.1:${apiPort}`;
 const webBaseUrl = process.env.E2E_WEB_BASE_URL ?? `http://127.0.0.1:${webPort}`;
-const adminUsername = process.env.ADMIN_UI_USERNAME ?? 'release-admin';
-const adminPassword = process.env.ADMIN_UI_PASSWORD ?? 'release-admin-password';
 
 export default defineConfig({
   testDir: './e2e',
@@ -26,10 +24,6 @@ export default defineConfig({
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
-    httpCredentials: {
-      username: adminUsername,
-      password: adminPassword,
-    },
   },
   webServer: [
     {

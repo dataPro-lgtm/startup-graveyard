@@ -1,4 +1,4 @@
-import { API_BASE_URL } from './api';
+import { adminApiFetch } from './adminApiServer';
 import {
   adminStatsResponseSchema,
   type AdminStatsResponse as AdminStats,
@@ -6,11 +6,9 @@ import {
 
 export type { AdminStats };
 
-export async function fetchAdminStats(adminKey: string): Promise<AdminStats | null> {
-  const url = `${API_BASE_URL}/v1/admin/stats`;
+export async function fetchAdminStats(): Promise<AdminStats | null> {
   try {
-    const res = await fetch(url, {
-      headers: { 'X-Admin-Key': adminKey },
+    const res = await adminApiFetch('/v1/admin/stats', {
       cache: 'no-store',
     });
     if (!res.ok) return null;

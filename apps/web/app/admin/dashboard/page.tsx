@@ -2,7 +2,6 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { headers } from 'next/headers';
 import { type AdminStats, fetchAdminStats, formatUsd } from '@/lib/statsApi';
-import { ADMIN_API_KEY } from '@/lib/api';
 import { pickSearchParam } from '@/lib/searchParams';
 
 export const metadata: Metadata = { title: '运营 Dashboard' };
@@ -15,7 +14,6 @@ export default async function DashboardPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const adminKey = ADMIN_API_KEY ?? '';
   const raw = await searchParams;
   const recoveryPlaybook = pickSearchParam(raw.recoveryPlaybook);
   const recoveryPlaybookError = pickSearchParam(raw.recoveryPlaybookError);
@@ -35,8 +33,8 @@ export default async function DashboardPage({
   const reclaimStaleError = pickSearchParam(raw.reclaimStaleError);
   const platformSnapshot = pickSearchParam(raw.platformSnapshot);
   const platformSnapshotError = pickSearchParam(raw.platformSnapshotError);
-  const stats = await fetchAdminStats(adminKey);
-  void headers(); // ensure dynamic rendering when no admin key
+  const stats = await fetchAdminStats();
+  void headers();
 
   return (
     <main style={{ maxWidth: 1200, margin: '0 auto', padding: '40px 24px 80px' }}>
@@ -1179,6 +1177,67 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
                   </div>
                 ))
               )}
+            </div>
+            <div
+              style={{
+                border: '1px solid #24314f',
+                borderRadius: 12,
+                background: '#0d1426',
+                padding: '12px 14px',
+                display: 'grid',
+                gap: 10,
+              }}
+            >
+              <div style={{ fontWeight: 700, fontSize: 13 }}>Stripe Webhook Reliability</div>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))',
+                  gap: 8,
+                }}
+              >
+                {[
+                  ['Processed', platformStats.stripeWebhooks.processed, '#22c55e'],
+                  ['Processing', platformStats.stripeWebhooks.processing, '#38bdf8'],
+                  ['Failed', platformStats.stripeWebhooks.failed, '#fb7185'],
+                  ['Retried', platformStats.stripeWebhooks.retried, '#f59e0b'],
+                  ['Stale leases', platformStats.stripeWebhooks.staleProcessing, '#f97316'],
+                ].map(([label, value, color]) => (
+                  <div
+                    key={String(label)}
+                    style={{
+                      border: '1px solid #24314f',
+                      borderRadius: 10,
+                      background: '#10192e',
+                      padding: '9px 10px',
+                    }}
+                  >
+                    <div style={{ color: '#8a96b0', fontSize: 11 }}>{label}</div>
+                    <div style={{ color: String(color), fontWeight: 800, fontSize: 18 }}>
+                      {value}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ color: '#8a96b0', fontSize: 12 }}>
+                Total {platformStats.stripeWebhooks.total} · last received{' '}
+                {formatDateTime(platformStats.stripeWebhooks.lastReceivedAt)}
+              </div>
+              {platformStats.stripeWebhooks.recentFailures.map((failure) => (
+                <div
+                  key={failure.eventId}
+                  style={{
+                    border: '1px solid #4b2430',
+                    borderRadius: 10,
+                    background: '#23131a',
+                    padding: '9px 11px',
+                    color: '#fecdd3',
+                    fontSize: 12,
+                  }}
+                >
+                  {failure.eventType} · attempt {failure.attemptCount} · {failure.lastError}
+                </div>
+              ))}
             </div>
           </div>
         </ChartCard>

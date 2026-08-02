@@ -88,7 +88,7 @@ export default async function AdminCaseAttachmentsPage({
         <p style={{ color: '#7dffb3', marginBottom: 16 }}>已更新失败主因 / key lessons。</p>
       ) : null}
       {err === 'config' ? (
-        <p style={{ color: '#ff8a8a', marginBottom: 16 }}>Web 未配置 ADMIN_API_KEY。</p>
+        <p style={{ color: '#ff8a8a', marginBottom: 16 }}>管理会话不可用，请重新登录。</p>
       ) : null}
       {err === 'notfound' ? (
         <p style={{ color: '#ff8a8a', marginBottom: 16 }}>案例不存在（UUID 无效或未入库）。</p>

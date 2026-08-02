@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { API_BASE_URL, ADMIN_API_KEY } from '@/lib/api';
+import { adminApiFetch } from '@/lib/adminApiServer';
 
 function redirectTarget(request: Request) {
   const url = new URL(request.headers.get('referer') ?? '/admin/dashboard', request.url);
@@ -9,11 +9,6 @@ function redirectTarget(request: Request) {
 
 export async function POST(request: Request) {
   const target = redirectTarget(request);
-  if (!ADMIN_API_KEY) {
-    target.searchParams.set('recoveryPlaybookRerunError', 'admin_key_unavailable');
-    return NextResponse.redirect(target, { status: 303 });
-  }
-
   const formData = await request.formData();
   const runId = String(formData.get('runId') ?? '').trim();
   if (!runId) {
@@ -21,12 +16,9 @@ export async function POST(request: Request) {
     return NextResponse.redirect(target, { status: 303 });
   }
 
-  const res = await fetch(`${API_BASE_URL}/v1/admin/stats/recovery-playbook/rerun-failed`, {
+  const res = await adminApiFetch('/v1/admin/stats/recovery-playbook/rerun-failed', {
     method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-admin-key': ADMIN_API_KEY,
-    },
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ runId, force: true }),
     cache: 'no-store',
   });

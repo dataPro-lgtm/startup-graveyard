@@ -1,9 +1,10 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { routeRateLimit } from '../../security/requestSecurity.js';
 import Stripe from 'stripe';
 import type { BillingInterval, BillingStatus, SubscriptionTier } from '@sg/shared/billing';
 import type { BillingFunnelEventSource } from '@sg/shared/schemas/adminStats';
 import { config } from '../../config/index.js';
-import { verifyAccessToken } from '../../auth/tokens.js';
+import { requireAccessPayload } from './authedUser.js';
 
 type CheckoutPlan = Extract<SubscriptionTier, 'pro' | 'team'>;
 type BillingFlowSource = BillingFunnelEventSource;
@@ -18,12 +19,6 @@ type StripeSubscriptionLike = {
     }>;
   };
 };
-
-function extractBearer(authHeader: string | undefined): string | null {
-  if (!authHeader) return null;
-  const match = /^Bearer\s+(.+)$/i.exec(authHeader.trim());
-  return match?.[1] ?? null;
-}
 
 function getStripe(): Stripe {
   return new Stripe(config.stripe.secretKey);
@@ -82,17 +77,8 @@ async function requireAuthedUser(
   request: FastifyRequest,
   reply: FastifyReply,
 ) {
-  const token = extractBearer(request.headers.authorization);
-  if (!token) {
-    reply.code(401).send({ error: 'unauthorized' });
-    return null;
-  }
-
-  const payload = verifyAccessToken(token);
-  if (!payload) {
-    reply.code(401).send({ error: 'invalid_token' });
-    return null;
-  }
+  const payload = await requireAccessPayload(app, request, reply);
+  if (!payload) return null;
 
   const user = await app.usersRepo.getBillingAccount(payload.sub);
   if (!user) {
@@ -135,6 +121,144 @@ async function findUserIdFromStripeContext(
   return account?.id ?? null;
 }
 
+export async function processStripeEvent(
+  app: FastifyInstance,
+  stripe: Stripe,
+  event: Stripe.Event,
+): Promise<void> {
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object as Stripe.Checkout.Session;
+    const userId = session.client_reference_id ?? session.metadata?.userId ?? null;
+    const customerId =
+      typeof session.customer === 'string' ? session.customer : (session.customer?.id ?? null);
+    if (userId && customerId) {
+      await app.usersRepo.updateBillingAccount(userId, { stripeCustomerId: customerId });
+    }
+    if (userId && typeof session.subscription === 'string') {
+      const subscription = await stripe.subscriptions.retrieve(session.subscription);
+      const completedPlan = subscriptionFromStripeSubscription(subscription);
+      await applyStripeSubscriptionToUser(app, userId, subscription, customerId);
+      await app.billingFunnelRepo.record({
+        userId,
+        type: 'checkout_completed',
+        source: getBillingFlowSource(session.metadata?.source) ?? 'account_page',
+        plan: completedPlan === 'free' ? null : completedPlan,
+        detail:
+          completedPlan === 'team'
+            ? 'Stripe checkout 已完成，Team 订阅已开通。'
+            : 'Stripe checkout 已完成，Pro 订阅已开通。',
+        sourceEventId: event.id,
+      });
+    }
+  }
+
+  if (
+    event.type === 'customer.subscription.created' ||
+    event.type === 'customer.subscription.updated'
+  ) {
+    const subscription = event.data.object as Stripe.Subscription;
+    const userId = await findUserIdFromStripeContext(
+      app,
+      subscription.customer,
+      subscription.metadata,
+    );
+    const customerId =
+      typeof subscription.customer === 'string'
+        ? subscription.customer
+        : (subscription.customer?.id ?? null);
+    if (userId) {
+      const previousAccount = await app.usersRepo.getBillingAccount(userId);
+      await applyStripeSubscriptionToUser(app, userId, subscription, customerId);
+      const nextBillingStatus = stripeStatusToBillingStatus(subscription.status);
+      const nextPlan = subscriptionFromStripeSubscription(subscription);
+      const recoveredFromRisk =
+        previousAccount &&
+        previousAccount.subscription !== 'free' &&
+        (previousAccount.billingStatus === 'past_due' ||
+          previousAccount.billingStatus === 'canceled' ||
+          previousAccount.cancelAtPeriodEnd) &&
+        (nextBillingStatus === 'active' || nextBillingStatus === 'trialing') &&
+        !subscription.cancel_at_period_end;
+
+      if (recoveredFromRisk) {
+        await app.billingFunnelRepo.record({
+          userId,
+          type: 'subscription_recovered',
+          source: getBillingFlowSource(subscription.metadata?.source) ?? 'account_page',
+          plan: nextPlan === 'free' ? null : nextPlan,
+          detail:
+            nextPlan === 'team' ? 'Team 订阅已恢复到健康状态。' : 'Pro 订阅已恢复到健康状态。',
+          sourceEventId: event.id,
+        });
+      }
+    } else {
+      app.log.warn({ eventId: event.id }, 'subscription event missing identifiable user');
+    }
+  }
+
+  if (event.type === 'customer.subscription.deleted') {
+    const subscription = event.data.object as Stripe.Subscription;
+    const userId = await findUserIdFromStripeContext(
+      app,
+      subscription.customer,
+      subscription.metadata,
+    );
+    const customerId =
+      typeof subscription.customer === 'string'
+        ? subscription.customer
+        : (subscription.customer?.id ?? null);
+    if (userId) {
+      await app.usersRepo.updateBillingAccount(userId, {
+        subscription: 'free',
+        billingStatus: 'canceled',
+        billingInterval: null,
+        stripeCustomerId: customerId,
+        stripeSubscriptionId: null,
+        currentPeriodEnd: null,
+        cancelAtPeriodEnd: false,
+      });
+      await app.teamWorkspacesRepo.reconcileBillingForUser(userId);
+    }
+  }
+}
+
+export type StripeWebhookHandlingResult =
+  | { outcome: 'processed'; attemptCount: number }
+  | { outcome: 'duplicate'; attemptCount: number }
+  | { outcome: 'in_progress'; attemptCount: number };
+
+export async function handleStripeWebhookEvent(
+  app: FastifyInstance,
+  stripe: Stripe,
+  event: Stripe.Event,
+): Promise<StripeWebhookHandlingResult> {
+  const eventObject = event.data.object as { id?: unknown };
+  const claimed = await app.stripeWebhookEventsRepo.claim({
+    eventId: event.id,
+    eventType: event.type,
+    objectId: typeof eventObject.id === 'string' ? eventObject.id : null,
+    livemode: event.livemode,
+  });
+  if (!claimed.acquired) {
+    return {
+      outcome: claimed.reason === 'processed' ? 'duplicate' : 'in_progress',
+      attemptCount: claimed.record.attemptCount,
+    };
+  }
+
+  try {
+    await processStripeEvent(app, stripe, event);
+    if (!(await app.stripeWebhookEventsRepo.markProcessed(event.id, claimed.record.claimToken))) {
+      throw new Error(`stripe event processing lease lost: ${event.id}`);
+    }
+    return { outcome: 'processed', attemptCount: claimed.record.attemptCount };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await app.stripeWebhookEventsRepo.markFailed(event.id, claimed.record.claimToken, message);
+    throw error;
+  }
+}
+
 export async function paymentsRoutes(app: FastifyInstance) {
   app.addContentTypeParser(
     'application/json',
@@ -144,264 +268,199 @@ export async function paymentsRoutes(app: FastifyInstance) {
     },
   );
 
-  app.post('/checkout', async (request: FastifyRequest, reply: FastifyReply) => {
-    if (!config.hasStripe) {
-      return reply.code(503).send({ error: 'stripe_not_configured' });
-    }
-
-    const user = await requireAuthedUser(app, request, reply);
-    if (!user) return reply;
-
-    const rawBody = request.body as Buffer;
-    let userId: string;
-    let plan: CheckoutPlan = 'pro';
-    let source: BillingFlowSource = 'account_page';
-    try {
-      const parsed = JSON.parse(rawBody.toString()) as {
-        userId?: unknown;
-        plan?: unknown;
-        source?: unknown;
-      };
-      if (typeof parsed.userId !== 'string' || !parsed.userId) {
-        return reply.code(400).send({ error: 'invalid_body', details: 'userId is required' });
+  app.post(
+    '/checkout',
+    { config: { rateLimit: routeRateLimit('billing') } },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      if (!config.hasStripe) {
+        return reply.code(503).send({ error: 'stripe_not_configured' });
       }
-      userId = parsed.userId;
-      if (parsed.plan !== undefined) {
-        const parsedPlan = getCheckoutPlan(parsed.plan);
-        if (!parsedPlan) {
-          return reply
-            .code(400)
-            .send({ error: 'invalid_body', details: 'plan must be pro or team' });
+
+      const user = await requireAuthedUser(app, request, reply);
+      if (!user) return reply;
+
+      const rawBody = request.body as Buffer;
+      let userId: string;
+      let plan: CheckoutPlan = 'pro';
+      let source: BillingFlowSource = 'account_page';
+      try {
+        const parsed = JSON.parse(rawBody.toString()) as {
+          userId?: unknown;
+          plan?: unknown;
+          source?: unknown;
+        };
+        if (typeof parsed.userId !== 'string' || !parsed.userId) {
+          return reply.code(400).send({ error: 'invalid_body', details: 'userId is required' });
         }
-        plan = parsedPlan;
-      }
-      if (parsed.source !== undefined) {
-        const parsedSource = getBillingFlowSource(parsed.source);
-        if (!parsedSource) {
-          return reply.code(400).send({
-            error: 'invalid_body',
-            details: 'source must be account_page or team_workspace',
-          });
+        userId = parsed.userId;
+        if (parsed.plan !== undefined) {
+          const parsedPlan = getCheckoutPlan(parsed.plan);
+          if (!parsedPlan) {
+            return reply
+              .code(400)
+              .send({ error: 'invalid_body', details: 'plan must be pro or team' });
+          }
+          plan = parsedPlan;
         }
-        source = parsedSource;
+        if (parsed.source !== undefined) {
+          const parsedSource = getBillingFlowSource(parsed.source);
+          if (!parsedSource) {
+            return reply.code(400).send({
+              error: 'invalid_body',
+              details: 'source must be account_page or team_workspace',
+            });
+          }
+          source = parsedSource;
+        }
+      } catch {
+        return reply.code(400).send({ error: 'invalid_body' });
       }
-    } catch {
-      return reply.code(400).send({ error: 'invalid_body' });
-    }
 
-    if (user.id !== userId) {
-      return reply.code(403).send({ error: 'forbidden' });
-    }
+      if (user.id !== userId) {
+        return reply.code(403).send({ error: 'forbidden' });
+      }
 
-    const priceId = getCheckoutPriceId(plan);
-    if (!priceId) {
-      return reply.code(503).send({ error: 'stripe_price_not_configured', plan });
-    }
+      const priceId = getCheckoutPriceId(plan);
+      if (!priceId) {
+        return reply.code(503).send({ error: 'stripe_price_not_configured', plan });
+      }
 
-    const stripe = getStripe();
-    let customerId = user.stripeCustomerId;
-    if (!customerId) {
-      const customer = await stripe.customers.create({
-        email: user.email,
-        name: user.displayName ?? undefined,
-        metadata: { userId: user.id },
-      });
-      customerId = customer.id;
-      await app.usersRepo.updateBillingAccount(user.id, {
-        stripeCustomerId: customerId,
-      });
-    }
+      const stripe = getStripe();
+      let customerId = user.stripeCustomerId;
+      if (!customerId) {
+        const customer = await stripe.customers.create({
+          email: user.email,
+          name: user.displayName ?? undefined,
+          metadata: { userId: user.id },
+        });
+        customerId = customer.id;
+        await app.usersRepo.updateBillingAccount(user.id, {
+          stripeCustomerId: customerId,
+        });
+      }
 
-    const session = await stripe.checkout.sessions.create({
-      mode: 'subscription',
-      customer: customerId,
-      payment_method_types: ['card'],
-      line_items: [{ price: priceId, quantity: 1 }],
-      client_reference_id: user.id,
-      metadata: { userId: user.id, plan, source },
-      subscription_data: {
+      const session = await stripe.checkout.sessions.create({
+        mode: 'subscription',
+        customer: customerId,
+        payment_method_types: ['card'],
+        line_items: [{ price: priceId, quantity: 1 }],
+        client_reference_id: user.id,
         metadata: { userId: user.id, plan, source },
-      },
-      success_url: `${config.web.baseUrl}/auth/account?upgraded=${plan}`,
-      cancel_url: `${config.web.baseUrl}/auth/account`,
-    });
+        subscription_data: {
+          metadata: { userId: user.id, plan, source },
+        },
+        success_url: `${config.web.baseUrl}/auth/account?upgraded=${plan}`,
+        cancel_url: `${config.web.baseUrl}/auth/account`,
+      });
 
-    await app.billingFunnelRepo.record({
-      userId: user.id,
-      type: 'checkout_started',
-      source,
-      plan,
-      detail: plan === 'team' ? '发起 Team 订阅结账。' : '发起 Pro 订阅结账。',
-    });
+      await app.billingFunnelRepo.record({
+        userId: user.id,
+        type: 'checkout_started',
+        source,
+        plan,
+        detail: plan === 'team' ? '发起 Team 订阅结账。' : '发起 Pro 订阅结账。',
+      });
 
-    return reply.send({ url: session.url });
-  });
+      return reply.send({ url: session.url });
+    },
+  );
 
-  app.post('/portal', async (request: FastifyRequest, reply: FastifyReply) => {
-    if (!config.hasStripe) {
-      return reply.code(503).send({ error: 'stripe_not_configured' });
-    }
+  app.post(
+    '/portal',
+    { config: { rateLimit: routeRateLimit('billing') } },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      if (!config.hasStripe) {
+        return reply.code(503).send({ error: 'stripe_not_configured' });
+      }
 
-    const user = await requireAuthedUser(app, request, reply);
-    if (!user) return reply;
+      const user = await requireAuthedUser(app, request, reply);
+      if (!user) return reply;
 
-    let source: BillingFlowSource = 'account_page';
-    try {
-      const parsed = JSON.parse((request.body as Buffer).toString()) as { source?: unknown };
-      if (parsed.source !== undefined) {
-        const parsedSource = getBillingFlowSource(parsed.source);
-        if (!parsedSource) {
-          return reply.code(400).send({
-            error: 'invalid_body',
-            details: 'source must be account_page or team_workspace',
+      let source: BillingFlowSource = 'account_page';
+      try {
+        const parsed = JSON.parse((request.body as Buffer).toString()) as { source?: unknown };
+        if (parsed.source !== undefined) {
+          const parsedSource = getBillingFlowSource(parsed.source);
+          if (!parsedSource) {
+            return reply.code(400).send({
+              error: 'invalid_body',
+              details: 'source must be account_page or team_workspace',
+            });
+          }
+          source = parsedSource;
+        }
+      } catch {
+        return reply.code(400).send({ error: 'invalid_body' });
+      }
+
+      if (!user.stripeCustomerId) {
+        return reply.code(409).send({ error: 'billing_portal_unavailable' });
+      }
+
+      const stripe = getStripe();
+      const session = await stripe.billingPortal.sessions.create({
+        customer: user.stripeCustomerId,
+        return_url: `${config.web.baseUrl}/auth/account`,
+      });
+
+      await app.billingFunnelRepo.record({
+        userId: user.id,
+        type: 'portal_started',
+        source,
+        plan: user.subscription === 'free' ? null : user.subscription,
+        detail:
+          source === 'team_workspace'
+            ? '从 Team Workspace 恢复动作打开 billing portal。'
+            : '从账户页打开 billing portal。',
+      });
+
+      return reply.send({ url: session.url });
+    },
+  );
+
+  app.post(
+    '/webhook',
+    { config: { rateLimit: routeRateLimit('webhook') } },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      if (!config.hasStripe) {
+        return reply.code(503).send({ error: 'stripe_not_configured' });
+      }
+
+      const sig = request.headers['stripe-signature'];
+      if (!sig || typeof sig !== 'string') {
+        return reply.code(400).send({ error: 'missing_stripe_signature' });
+      }
+
+      const rawBody = request.body as Buffer;
+      const stripe = getStripe();
+
+      let event: Stripe.Event;
+      try {
+        event = stripe.webhooks.constructEvent(rawBody, sig, config.stripe.webhookSecret);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'webhook_verification_failed';
+        return reply.code(400).send({ error: 'webhook_verification_failed', details: message });
+      }
+
+      try {
+        const handled = await handleStripeWebhookEvent(app, stripe, event);
+        if (handled.outcome === 'in_progress') {
+          return reply.code(409).send({
+            received: false,
+            retry: true,
+            reason: 'event_in_progress',
+            attemptCount: handled.attemptCount,
           });
         }
-        source = parsedSource;
-      }
-    } catch {
-      return reply.code(400).send({ error: 'invalid_body' });
-    }
-
-    if (!user.stripeCustomerId) {
-      return reply.code(409).send({ error: 'billing_portal_unavailable' });
-    }
-
-    const stripe = getStripe();
-    const session = await stripe.billingPortal.sessions.create({
-      customer: user.stripeCustomerId,
-      return_url: `${config.web.baseUrl}/auth/account`,
-    });
-
-    await app.billingFunnelRepo.record({
-      userId: user.id,
-      type: 'portal_started',
-      source,
-      plan: user.subscription === 'free' ? null : user.subscription,
-      detail:
-        source === 'team_workspace'
-          ? '从 Team Workspace 恢复动作打开 billing portal。'
-          : '从账户页打开 billing portal。',
-    });
-
-    return reply.send({ url: session.url });
-  });
-
-  app.post('/webhook', async (request: FastifyRequest, reply: FastifyReply) => {
-    if (!config.hasStripe) {
-      return reply.code(503).send({ error: 'stripe_not_configured' });
-    }
-
-    const sig = request.headers['stripe-signature'];
-    if (!sig || typeof sig !== 'string') {
-      return reply.code(400).send({ error: 'missing_stripe_signature' });
-    }
-
-    const rawBody = request.body as Buffer;
-    const stripe = getStripe();
-
-    let event: Stripe.Event;
-    try {
-      event = stripe.webhooks.constructEvent(rawBody, sig, config.stripe.webhookSecret);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'webhook_verification_failed';
-      return reply.code(400).send({ error: 'webhook_verification_failed', details: message });
-    }
-
-    if (event.type === 'checkout.session.completed') {
-      const session = event.data.object as Stripe.Checkout.Session;
-      const userId = session.client_reference_id ?? session.metadata?.userId ?? null;
-      const customerId =
-        typeof session.customer === 'string' ? session.customer : (session.customer?.id ?? null);
-      if (userId && customerId) {
-        await app.usersRepo.updateBillingAccount(userId, {
-          stripeCustomerId: customerId,
+        return reply.send({
+          received: true,
+          duplicate: handled.outcome === 'duplicate',
+          attemptCount: handled.attemptCount,
         });
+      } catch (error) {
+        app.log.error({ err: error, eventId: event.id }, 'Stripe webhook processing failed');
+        return reply.code(500).send({ error: 'webhook_processing_failed', retry: true });
       }
-      if (userId && typeof session.subscription === 'string') {
-        const subscription = await stripe.subscriptions.retrieve(session.subscription);
-        const completedPlan = subscriptionFromStripeSubscription(subscription);
-        await applyStripeSubscriptionToUser(app, userId, subscription, customerId);
-        await app.billingFunnelRepo.record({
-          userId,
-          type: 'checkout_completed',
-          source: getBillingFlowSource(session.metadata?.source) ?? 'account_page',
-          plan: completedPlan === 'free' ? null : completedPlan,
-          detail:
-            completedPlan === 'team'
-              ? 'Stripe checkout 已完成，Team 订阅已开通。'
-              : 'Stripe checkout 已完成，Pro 订阅已开通。',
-        });
-      }
-    }
-
-    if (
-      event.type === 'customer.subscription.created' ||
-      event.type === 'customer.subscription.updated'
-    ) {
-      const subscription = event.data.object as Stripe.Subscription;
-      const userId = await findUserIdFromStripeContext(
-        app,
-        subscription.customer,
-        subscription.metadata,
-      );
-      const customerId =
-        typeof subscription.customer === 'string'
-          ? subscription.customer
-          : (subscription.customer?.id ?? null);
-      if (userId) {
-        const previousAccount = await app.usersRepo.getBillingAccount(userId);
-        await applyStripeSubscriptionToUser(app, userId, subscription, customerId);
-        const nextBillingStatus = stripeStatusToBillingStatus(subscription.status);
-        const nextPlan = subscriptionFromStripeSubscription(subscription);
-        const recoveredFromRisk =
-          previousAccount &&
-          previousAccount.subscription !== 'free' &&
-          (previousAccount.billingStatus === 'past_due' ||
-            previousAccount.billingStatus === 'canceled' ||
-            previousAccount.cancelAtPeriodEnd) &&
-          (nextBillingStatus === 'active' || nextBillingStatus === 'trialing') &&
-          !subscription.cancel_at_period_end;
-
-        if (recoveredFromRisk) {
-          await app.billingFunnelRepo.record({
-            userId,
-            type: 'subscription_recovered',
-            source: getBillingFlowSource(subscription.metadata?.source) ?? 'account_page',
-            plan: nextPlan === 'free' ? null : nextPlan,
-            detail:
-              nextPlan === 'team' ? 'Team 订阅已恢复到健康状态。' : 'Pro 订阅已恢复到健康状态。',
-          });
-        }
-      } else {
-        app.log.warn({ eventId: event.id }, 'subscription event missing identifiable user');
-      }
-    }
-
-    if (event.type === 'customer.subscription.deleted') {
-      const subscription = event.data.object as Stripe.Subscription;
-      const userId = await findUserIdFromStripeContext(
-        app,
-        subscription.customer,
-        subscription.metadata,
-      );
-      const customerId =
-        typeof subscription.customer === 'string'
-          ? subscription.customer
-          : (subscription.customer?.id ?? null);
-      if (userId) {
-        await app.usersRepo.updateBillingAccount(userId, {
-          subscription: 'free',
-          billingStatus: 'canceled',
-          billingInterval: null,
-          stripeCustomerId: customerId,
-          stripeSubscriptionId: null,
-          currentPeriodEnd: null,
-          cancelAtPeriodEnd: false,
-        });
-        await app.teamWorkspacesRepo.reconcileBillingForUser(userId);
-      }
-    }
-
-    return reply.send({ received: true });
-  });
+    },
+  );
 }

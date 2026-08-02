@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { randomUUID } from 'node:crypto';
 import type { Pool } from 'pg';
-import type { UserProfile } from '@sg/shared/schemas/auth';
+import type { AdminRole, UserProfile } from '@sg/shared/schemas/auth';
 import {
   type BillingInterval,
   type BillingStatus,
@@ -11,6 +11,7 @@ import {
 import type { SubscriptionAdminMetrics } from '@sg/shared/schemas/adminStats';
 import {
   generateRefreshToken,
+  hashRefreshToken,
   refreshTokenExpiresAt,
   signAccessToken,
   ACCESS_TOKEN_TTL_SECONDS,
@@ -19,6 +20,7 @@ import {
 export interface AuthResult {
   ok: true;
   user: UserProfile;
+  sessionId: string;
   accessToken: string;
   refreshToken: string;
   expiresIn: number;
@@ -31,6 +33,21 @@ export interface AuthError {
 export type RegisterResult = AuthResult | AuthError;
 export type LoginResult = AuthResult | AuthError;
 export type RefreshResult = AuthResult | AuthError;
+
+export type SessionContext = {
+  ipAddress?: string | null;
+  userAgent?: string | null;
+};
+
+export type UserSessionRecord = {
+  id: string;
+  userId: string;
+  ipAddress: string | null;
+  userAgent: string | null;
+  createdAt: string;
+  lastSeenAt: string;
+  expiresAt: string;
+};
 
 export type UserBillingAccount = UserProfile & {
   stripeCustomerId: string | null;
@@ -48,11 +65,22 @@ export type UpdateBillingAccountInput = {
 };
 
 export interface UsersRepository {
-  register(email: string, password: string, displayName?: string): Promise<RegisterResult>;
-  login(email: string, password: string): Promise<LoginResult>;
-  refresh(token: string): Promise<RefreshResult>;
-  logout(userId: string): Promise<void>;
+  register(
+    email: string,
+    password: string,
+    displayName?: string,
+    sessionContext?: SessionContext,
+  ): Promise<RegisterResult>;
+  login(email: string, password: string, sessionContext?: SessionContext): Promise<LoginResult>;
+  refresh(token: string, sessionContext?: SessionContext): Promise<RefreshResult>;
+  logout(userId: string, sessionId?: string): Promise<void>;
+  logoutByRefreshToken(token: string): Promise<void>;
+  isSessionActive(userId: string, sessionId: string): Promise<boolean>;
+  listSessions(userId: string): Promise<UserSessionRecord[]>;
+  revokeSession(userId: string, sessionId: string): Promise<boolean>;
+  revokeOtherSessions(userId: string, currentSessionId: string): Promise<number>;
   getById(id: string): Promise<UserProfile | null>;
+  setAdminRole(userId: string, adminRole: AdminRole | null): Promise<boolean>;
   getBillingAccount(userId: string): Promise<UserBillingAccount | null>;
   getBillingAccountByStripeCustomerId(customerId: string): Promise<UserBillingAccount | null>;
   getAdminMetrics(): Promise<SubscriptionAdminMetrics>;
@@ -73,6 +101,7 @@ interface UserRow {
   current_period_end: string | null;
   cancel_at_period_end: boolean;
   role: 'user' | 'admin';
+  admin_role: AdminRole | null;
   created_at: string;
 }
 
@@ -81,6 +110,7 @@ type MockUserRecord = UserBillingAccount & {
 };
 
 const SALT_ROUNDS = 12;
+const MAX_ACTIVE_SESSIONS = 10;
 const USER_SELECT_COLUMNS = `
   id,
   email,
@@ -94,6 +124,7 @@ const USER_SELECT_COLUMNS = `
   current_period_end,
   cancel_at_period_end,
   role,
+  admin_role,
   created_at
 `;
 
@@ -131,6 +162,7 @@ function rowToProfile(row: UserRow): UserProfile {
       warningCodes: [],
     },
     role: row.role,
+    adminRole: row.admin_role,
     createdAt: row.created_at,
   };
 }
@@ -143,15 +175,23 @@ function rowToBillingAccount(row: UserRow): UserBillingAccount {
   };
 }
 
-function buildAuthResult(user: UserProfile): AuthResult {
+function buildAuthResult(user: UserProfile, sessionId: string): AuthResult {
   const accessToken = signAccessToken({
     sub: user.id,
+    sid: sessionId,
     email: user.email,
     role: user.role,
     subscription: user.subscription,
   });
   const refreshToken = generateRefreshToken();
-  return { ok: true, user, accessToken, refreshToken, expiresIn: ACCESS_TOKEN_TTL_SECONDS };
+  return {
+    ok: true,
+    user,
+    sessionId,
+    accessToken,
+    refreshToken,
+    expiresIn: ACCESS_TOKEN_TTL_SECONDS,
+  };
 }
 
 function createMockUserRecord(input: {
@@ -160,6 +200,7 @@ function createMockUserRecord(input: {
   passwordHash: string;
   displayName: string | null;
   role?: 'user' | 'admin';
+  adminRole?: AdminRole | null;
   subscription?: SubscriptionTier;
   billingStatus?: BillingStatus;
   billingInterval?: BillingInterval | null;
@@ -189,6 +230,7 @@ function createMockUserRecord(input: {
     current_period_end: currentPeriodEnd,
     cancel_at_period_end: cancelAtPeriodEnd,
     role: input.role ?? 'user',
+    admin_role: input.adminRole ?? (input.role === 'admin' ? 'owner' : null),
     created_at: createdAt,
   };
 
@@ -201,7 +243,10 @@ function createMockUserRecord(input: {
 export class MockUsersRepository implements UsersRepository {
   private readonly users = new Map<string, MockUserRecord>();
   private readonly userIdByEmail = new Map<string, string>();
-  private readonly refreshSessions = new Map<string, { userId: string; expiresAt: string }>();
+  private readonly refreshSessions = new Map<
+    string,
+    UserSessionRecord & { refreshTokenHash: string }
+  >();
 
   constructor() {
     const adminId = randomUUID();
@@ -216,7 +261,12 @@ export class MockUsersRepository implements UsersRepository {
     this.userIdByEmail.set(admin.email, adminId);
   }
 
-  async register(email: string, password: string, displayName?: string): Promise<RegisterResult> {
+  async register(
+    email: string,
+    password: string,
+    displayName?: string,
+    sessionContext?: SessionContext,
+  ): Promise<RegisterResult> {
     const normalized = email.trim().toLowerCase();
     if (this.userIdByEmail.has(normalized)) {
       return { ok: false, code: 'email_taken' };
@@ -233,15 +283,14 @@ export class MockUsersRepository implements UsersRepository {
     this.users.set(id, user);
     this.userIdByEmail.set(normalized, id);
 
-    const result = buildAuthResult(this.toUserProfile(user));
-    this.refreshSessions.set(result.refreshToken, {
-      userId: user.id,
-      expiresAt: refreshTokenExpiresAt().toISOString(),
-    });
-    return result;
+    return this.createSession(this.toUserProfile(user), sessionContext);
   }
 
-  async login(email: string, password: string): Promise<LoginResult> {
+  async login(
+    email: string,
+    password: string,
+    sessionContext?: SessionContext,
+  ): Promise<LoginResult> {
     const normalized = email.trim().toLowerCase();
     const userId = this.userIdByEmail.get(normalized);
     if (!userId) return { ok: false, code: 'invalid_credentials' };
@@ -251,47 +300,111 @@ export class MockUsersRepository implements UsersRepository {
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) return { ok: false, code: 'invalid_credentials' };
 
-    for (const [token, session] of this.refreshSessions.entries()) {
-      if (session.userId === user.id) this.refreshSessions.delete(token);
-    }
-
-    const result = buildAuthResult(this.toUserProfile(user));
-    this.refreshSessions.set(result.refreshToken, {
-      userId: user.id,
-      expiresAt: refreshTokenExpiresAt().toISOString(),
-    });
-    return result;
+    return this.createSession(this.toUserProfile(user), sessionContext);
   }
 
-  async refresh(token: string): Promise<RefreshResult> {
-    const session = this.refreshSessions.get(token);
+  async refresh(token: string, sessionContext?: SessionContext): Promise<RefreshResult> {
+    const tokenHash = hashRefreshToken(token);
+    const session = this.refreshSessions.get(tokenHash);
     if (!session) return { ok: false, code: 'not_found' };
     if (new Date(session.expiresAt) < new Date()) {
-      this.refreshSessions.delete(token);
+      this.refreshSessions.delete(tokenHash);
       return { ok: false, code: 'token_expired' };
     }
 
     const user = this.users.get(session.userId);
     if (!user) return { ok: false, code: 'not_found' };
 
-    this.refreshSessions.delete(token);
-    const result = buildAuthResult(this.toUserProfile(user));
-    this.refreshSessions.set(result.refreshToken, {
-      userId: user.id,
+    this.refreshSessions.delete(tokenHash);
+    const result = buildAuthResult(this.toUserProfile(user), session.id);
+    const now = new Date().toISOString();
+    const nextHash = hashRefreshToken(result.refreshToken);
+    this.refreshSessions.set(nextHash, {
+      ...session,
+      refreshTokenHash: nextHash,
+      ipAddress: sessionContext?.ipAddress ?? session.ipAddress,
+      userAgent: sessionContext?.userAgent ?? session.userAgent,
+      lastSeenAt: now,
       expiresAt: refreshTokenExpiresAt().toISOString(),
     });
     return result;
   }
 
-  async logout(userId: string): Promise<void> {
-    for (const [token, session] of this.refreshSessions.entries()) {
-      if (session.userId === userId) this.refreshSessions.delete(token);
+  async logout(userId: string, sessionId?: string): Promise<void> {
+    for (const [tokenHash, session] of this.refreshSessions.entries()) {
+      if (session.userId === userId && (!sessionId || session.id === sessionId)) {
+        this.refreshSessions.delete(tokenHash);
+      }
     }
+  }
+
+  async logoutByRefreshToken(token: string): Promise<void> {
+    this.refreshSessions.delete(hashRefreshToken(token));
+  }
+
+  async isSessionActive(userId: string, sessionId: string): Promise<boolean> {
+    return [...this.refreshSessions.values()].some(
+      (session) =>
+        session.userId === userId &&
+        session.id === sessionId &&
+        new Date(session.expiresAt) > new Date(),
+    );
+  }
+
+  async listSessions(userId: string): Promise<UserSessionRecord[]> {
+    return [...this.refreshSessions.values()]
+      .filter((session) => session.userId === userId && new Date(session.expiresAt) > new Date())
+      .sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt))
+      .map(({ refreshTokenHash: _refreshTokenHash, ...session }) => session);
+  }
+
+  async revokeSession(userId: string, sessionId: string): Promise<boolean> {
+    for (const [tokenHash, session] of this.refreshSessions.entries()) {
+      if (session.userId === userId && session.id === sessionId) {
+        this.refreshSessions.delete(tokenHash);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  async revokeOtherSessions(userId: string, currentSessionId: string): Promise<number> {
+    let revokedCount = 0;
+    for (const [tokenHash, session] of this.refreshSessions.entries()) {
+      if (session.userId === userId && session.id !== currentSessionId) {
+        this.refreshSessions.delete(tokenHash);
+        revokedCount += 1;
+      }
+    }
+    return revokedCount;
   }
 
   async getById(id: string): Promise<UserProfile | null> {
     const user = this.users.get(id);
     return user ? this.toUserProfile(user) : null;
+  }
+
+  async setAdminRole(userId: string, adminRole: AdminRole | null): Promise<boolean> {
+    const current = this.users.get(userId);
+    if (!current) return false;
+    const next = createMockUserRecord({
+      id: current.id,
+      email: current.email,
+      displayName: current.displayName,
+      passwordHash: current.passwordHash,
+      role: adminRole ? 'admin' : 'user',
+      adminRole,
+      subscription: current.subscription,
+      billingStatus: current.billingStatus,
+      billingInterval: current.billingInterval,
+      stripeCustomerId: current.stripeCustomerId,
+      stripeSubscriptionId: current.stripeSubscriptionId,
+      currentPeriodEnd: current.currentPeriodEnd,
+      cancelAtPeriodEnd: current.cancelAtPeriodEnd,
+      createdAt: current.createdAt,
+    });
+    this.users.set(userId, next);
+    return true;
   }
 
   async getBillingAccount(userId: string): Promise<UserBillingAccount | null> {
@@ -347,6 +460,7 @@ export class MockUsersRepository implements UsersRepository {
       displayName: current.displayName,
       passwordHash: current.passwordHash,
       role: current.role,
+      adminRole: current.adminRole,
       subscription: patch.subscription ?? current.subscription,
       billingStatus: patch.billingStatus ?? current.billingStatus,
       billingInterval:
@@ -378,6 +492,31 @@ export class MockUsersRepository implements UsersRepository {
     });
   }
 
+  private createSession(user: UserProfile, context?: SessionContext): AuthResult {
+    const sessionId = randomUUID();
+    const result = buildAuthResult(user, sessionId);
+    const now = new Date().toISOString();
+    const refreshTokenHash = hashRefreshToken(result.refreshToken);
+    this.refreshSessions.set(refreshTokenHash, {
+      id: sessionId,
+      userId: user.id,
+      refreshTokenHash,
+      ipAddress: context?.ipAddress ?? null,
+      userAgent: context?.userAgent ?? null,
+      createdAt: now,
+      lastSeenAt: now,
+      expiresAt: refreshTokenExpiresAt().toISOString(),
+    });
+
+    const sessions = [...this.refreshSessions.entries()]
+      .filter(([, session]) => session.userId === user.id)
+      .sort(([, a], [, b]) => b.lastSeenAt.localeCompare(a.lastSeenAt));
+    for (const [tokenHash] of sessions.slice(MAX_ACTIVE_SESSIONS)) {
+      this.refreshSessions.delete(tokenHash);
+    }
+    return result;
+  }
+
   private toUserProfile(user: MockUserRecord): UserProfile {
     return {
       id: user.id,
@@ -406,6 +545,7 @@ export class MockUsersRepository implements UsersRepository {
         warningCodes: [],
       },
       role: user.role,
+      adminRole: user.adminRole,
       createdAt: user.createdAt,
     };
   }
@@ -414,7 +554,12 @@ export class MockUsersRepository implements UsersRepository {
 export class PgUsersRepository implements UsersRepository {
   constructor(private readonly pool: Pool) {}
 
-  async register(email: string, password: string, displayName?: string): Promise<RegisterResult> {
+  async register(
+    email: string,
+    password: string,
+    displayName?: string,
+    sessionContext?: SessionContext,
+  ): Promise<RegisterResult> {
     const hash = await bcrypt.hash(password, SALT_ROUNDS);
     const client = await this.pool.connect();
     try {
@@ -433,12 +578,21 @@ export class PgUsersRepository implements UsersRepository {
         [email, hash, displayName ?? null],
       );
       const user = rowToProfile(rows[0]);
-      const result = buildAuthResult(user);
+      const sessionId = randomUUID();
+      const result = buildAuthResult(user, sessionId);
 
       await client.query(
-        `INSERT INTO user_sessions (user_id, refresh_token, expires_at)
-         VALUES ($1, $2, $3)`,
-        [user.id, result.refreshToken, refreshTokenExpiresAt()],
+        `INSERT INTO user_sessions
+           (id, user_id, refresh_token_hash, expires_at, ip_address, user_agent)
+         VALUES ($1, $2, $3, $4, $5::inet, $6)`,
+        [
+          sessionId,
+          user.id,
+          hashRefreshToken(result.refreshToken),
+          refreshTokenExpiresAt(),
+          sessionContext?.ipAddress ?? null,
+          sessionContext?.userAgent ?? null,
+        ],
       );
 
       await client.query('COMMIT');
@@ -451,7 +605,11 @@ export class PgUsersRepository implements UsersRepository {
     }
   }
 
-  async login(email: string, password: string): Promise<LoginResult> {
+  async login(
+    email: string,
+    password: string,
+    sessionContext?: SessionContext,
+  ): Promise<LoginResult> {
     const { rows } = await this.pool.query<UserRow>(
       `SELECT ${USER_SELECT_COLUMNS}
        FROM users WHERE email = $1`,
@@ -463,16 +621,37 @@ export class PgUsersRepository implements UsersRepository {
     if (!valid) return { ok: false, code: 'invalid_credentials' };
 
     const user = rowToProfile(rows[0]);
-    const result = buildAuthResult(user);
+    const sessionId = randomUUID();
+    const result = buildAuthResult(user, sessionId);
 
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      await client.query('DELETE FROM user_sessions WHERE user_id = $1', [user.id]);
+      // Serialize concurrent logins for one account so the device cap remains strict.
+      await client.query('SELECT id FROM users WHERE id = $1 FOR UPDATE', [user.id]);
       await client.query(
-        `INSERT INTO user_sessions (user_id, refresh_token, expires_at)
-         VALUES ($1, $2, $3)`,
-        [user.id, result.refreshToken, refreshTokenExpiresAt()],
+        `INSERT INTO user_sessions
+           (id, user_id, refresh_token_hash, expires_at, ip_address, user_agent)
+         VALUES ($1, $2, $3, $4, $5::inet, $6)`,
+        [
+          sessionId,
+          user.id,
+          hashRefreshToken(result.refreshToken),
+          refreshTokenExpiresAt(),
+          sessionContext?.ipAddress ?? null,
+          sessionContext?.userAgent ?? null,
+        ],
+      );
+      await client.query(
+        `DELETE FROM user_sessions
+         WHERE id IN (
+           SELECT id
+           FROM user_sessions
+           WHERE user_id = $1
+           ORDER BY last_seen_at DESC, created_at DESC
+           OFFSET $2
+         )`,
+        [user.id, MAX_ACTIVE_SESSIONS],
       );
       await client.query('COMMIT');
     } catch (error) {
@@ -485,13 +664,23 @@ export class PgUsersRepository implements UsersRepository {
     return result;
   }
 
-  async refresh(token: string): Promise<RefreshResult> {
-    const { rows } = await this.pool.query<{ user_id: string; expires_at: string }>(
-      `SELECT user_id, expires_at FROM user_sessions WHERE refresh_token = $1`,
-      [token],
+  async refresh(token: string, sessionContext?: SessionContext): Promise<RefreshResult> {
+    const tokenHash = hashRefreshToken(token);
+    const { rows } = await this.pool.query<{
+      id: string;
+      user_id: string;
+      expires_at: string;
+    }>(
+      `SELECT id, user_id, expires_at
+       FROM user_sessions
+       WHERE refresh_token_hash = $1`,
+      [tokenHash],
     );
     if (rows.length === 0) return { ok: false, code: 'not_found' };
-    if (new Date(rows[0].expires_at) < new Date()) return { ok: false, code: 'token_expired' };
+    if (new Date(rows[0].expires_at) < new Date()) {
+      await this.pool.query('DELETE FROM user_sessions WHERE id = $1', [rows[0].id]);
+      return { ok: false, code: 'token_expired' };
+    }
 
     const { rows: userRows } = await this.pool.query<UserRow>(
       `SELECT ${USER_SELECT_COLUMNS} FROM users WHERE id = $1`,
@@ -500,19 +689,103 @@ export class PgUsersRepository implements UsersRepository {
     if (userRows.length === 0) return { ok: false, code: 'not_found' };
 
     const user = rowToProfile(userRows[0]);
-    const result = buildAuthResult(user);
-    await this.pool.query(
+    const result = buildAuthResult(user, rows[0].id);
+    const rotated = await this.pool.query(
       `UPDATE user_sessions
-       SET refresh_token = $1, expires_at = $2, created_at = NOW()
-       WHERE user_id = $3`,
-      [result.refreshToken, refreshTokenExpiresAt(), user.id],
+       SET refresh_token_hash = $1,
+           expires_at = $2,
+           last_seen_at = NOW(),
+           ip_address = COALESCE($3::inet, ip_address),
+           user_agent = COALESCE($4, user_agent)
+       WHERE id = $5
+         AND refresh_token_hash = $6`,
+      [
+        hashRefreshToken(result.refreshToken),
+        refreshTokenExpiresAt(),
+        sessionContext?.ipAddress ?? null,
+        sessionContext?.userAgent ?? null,
+        rows[0].id,
+        tokenHash,
+      ],
     );
+    if ((rotated.rowCount ?? 0) === 0) return { ok: false, code: 'not_found' };
 
     return result;
   }
 
-  async logout(userId: string): Promise<void> {
+  async logout(userId: string, sessionId?: string): Promise<void> {
+    if (sessionId) {
+      await this.pool.query('DELETE FROM user_sessions WHERE user_id = $1 AND id = $2', [
+        userId,
+        sessionId,
+      ]);
+      return;
+    }
     await this.pool.query('DELETE FROM user_sessions WHERE user_id = $1', [userId]);
+  }
+
+  async logoutByRefreshToken(token: string): Promise<void> {
+    await this.pool.query('DELETE FROM user_sessions WHERE refresh_token_hash = $1', [
+      hashRefreshToken(token),
+    ]);
+  }
+
+  async isSessionActive(userId: string, sessionId: string): Promise<boolean> {
+    const { rowCount } = await this.pool.query(
+      `SELECT 1
+       FROM user_sessions
+       WHERE user_id = $1
+         AND id = $2
+         AND expires_at > NOW()
+       LIMIT 1`,
+      [userId, sessionId],
+    );
+    return (rowCount ?? 0) > 0;
+  }
+
+  async listSessions(userId: string): Promise<UserSessionRecord[]> {
+    const { rows } = await this.pool.query<{
+      id: string;
+      user_id: string;
+      ip_address: string | null;
+      user_agent: string | null;
+      created_at: Date | string;
+      last_seen_at: Date | string;
+      expires_at: Date | string;
+    }>(
+      `SELECT id, user_id, host(ip_address) AS ip_address, user_agent,
+              created_at, last_seen_at, expires_at
+       FROM user_sessions
+       WHERE user_id = $1
+         AND expires_at > NOW()
+       ORDER BY last_seen_at DESC, created_at DESC`,
+      [userId],
+    );
+    return rows.map((row) => ({
+      id: row.id,
+      userId: row.user_id,
+      ipAddress: row.ip_address,
+      userAgent: row.user_agent,
+      createdAt: toIsoString(row.created_at)!,
+      lastSeenAt: toIsoString(row.last_seen_at)!,
+      expiresAt: toIsoString(row.expires_at)!,
+    }));
+  }
+
+  async revokeSession(userId: string, sessionId: string): Promise<boolean> {
+    const { rowCount } = await this.pool.query(
+      'DELETE FROM user_sessions WHERE user_id = $1 AND id = $2',
+      [userId, sessionId],
+    );
+    return (rowCount ?? 0) > 0;
+  }
+
+  async revokeOtherSessions(userId: string, currentSessionId: string): Promise<number> {
+    const { rowCount } = await this.pool.query(
+      'DELETE FROM user_sessions WHERE user_id = $1 AND id <> $2',
+      [userId, currentSessionId],
+    );
+    return rowCount ?? 0;
   }
 
   async getById(id: string): Promise<UserProfile | null> {
@@ -521,6 +794,18 @@ export class PgUsersRepository implements UsersRepository {
       [id],
     );
     return rows.length > 0 ? rowToProfile(rows[0]) : null;
+  }
+
+  async setAdminRole(userId: string, adminRole: AdminRole | null): Promise<boolean> {
+    const { rowCount } = await this.pool.query(
+      `UPDATE users
+       SET role = $2,
+           admin_role = $3,
+           updated_at = NOW()
+       WHERE id = $1`,
+      [userId, adminRole ? 'admin' : 'user', adminRole],
+    );
+    return (rowCount ?? 0) > 0;
   }
 
   async getBillingAccount(userId: string): Promise<UserBillingAccount | null> {

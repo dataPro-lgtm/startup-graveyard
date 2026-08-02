@@ -975,6 +975,7 @@ async function fetchPlatformStats(
     oldestQueuedJobs,
     recentSucceededJobs,
     recentSnapshotAuditItems,
+    stripeWebhookMetrics,
   ] = await Promise.all([
     app.ingestionJobsRepo.listRecent({
       limit: 25,
@@ -998,6 +999,7 @@ async function fetchPlatformStats(
       status: 'succeeded',
     }),
     app.auditRepo.listRecentByAction('platform.snapshot_captured', 72),
+    app.stripeWebhookEventsRepo.getMetrics(),
   ]);
   const snapshotSamples = recentSnapshotAuditItems
     .map((item) => parsePlatformSnapshotMetadata(item.metadata))
@@ -1083,6 +1085,19 @@ async function fetchPlatformStats(
       title: 'Stripe 未配置',
       detail: '商业化 checkout / portal 入口会被关闭，付费恢复链无法在本环境完整验证。',
       href: null,
+    });
+  }
+
+  if (stripeWebhookMetrics.failed > 0 || stripeWebhookMetrics.staleProcessing > 0) {
+    alerts.push({
+      severity:
+        stripeWebhookMetrics.failed >= 3 || stripeWebhookMetrics.staleProcessing > 0
+          ? 'critical'
+          : 'warning',
+      code: 'stripe_webhook_failures',
+      title: 'Stripe webhook 处理存在失败或过期租约',
+      detail: `失败 ${stripeWebhookMetrics.failed} 条，过期 processing ${stripeWebhookMetrics.staleProcessing} 条，已重试事件 ${stripeWebhookMetrics.retried} 条。`,
+      href: '/admin/dashboard',
     });
   }
 
@@ -1205,6 +1220,7 @@ async function fetchPlatformStats(
           'ingestion_worker_erroring',
           'snapshot_cadence_overdue',
           'snapshot_cadence_adherence_low',
+          'stripe_webhook_failures',
         ].includes(alert.code),
       );
     snapshotRegression.suppressed =
@@ -1314,6 +1330,7 @@ async function fetchPlatformStats(
           : snapshotSuppression.lastSuppressedBucketStart,
     },
     snapshotMetrics,
+    stripeWebhooks: stripeWebhookMetrics,
     ingestion: {
       queuedCount,
       oldestQueuedAgeMinutes,

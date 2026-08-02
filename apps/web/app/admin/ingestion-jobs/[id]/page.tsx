@@ -26,9 +26,9 @@ export default async function AdminIngestionJobDetailPage({
         </Link>
         <p style={{ color: '#ff8a8a', marginTop: 24 }}>
           {res.reason === 'no_key'
-            ? '未配置 ADMIN_API_KEY'
+            ? '管理会话不可用'
             : res.reason === 'unauthorized'
-              ? '401 密钥不一致'
+              ? '管理会话已失效或权限不足'
               : '无法加载任务'}
         </p>
       </main>

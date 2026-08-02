@@ -59,6 +59,191 @@ suite('postgres integration', () => {
     else process.env.OPENAI_API_KEY = previousEnv.openAiApiKey;
   });
 
+  it('stores hashed multi-device sessions and enforces selective revocation against postgres', async () => {
+    const db = pool;
+    if (!db) throw new Error('postgres integration test pool not initialized');
+    const email = `pg-sessions-${Date.now()}@example.com`;
+
+    const registeredRes = await app!.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      headers: { 'user-agent': 'PG Device A' },
+      payload: { email, password: 'secure-password-123' },
+    });
+    expect(registeredRes.statusCode).toBe(201);
+    const deviceA = registeredRes.json() as {
+      user: { id: string };
+      sessionId: string;
+      accessToken: string;
+      refreshToken: string;
+    };
+
+    const loginRes = await app!.inject({
+      method: 'POST',
+      url: '/v1/auth/login',
+      headers: { 'user-agent': 'PG Device B' },
+      payload: { email, password: 'secure-password-123' },
+    });
+    expect(loginRes.statusCode).toBe(200);
+    const deviceB = loginRes.json() as { accessToken: string };
+
+    const stored = await db.query<{ refresh_token_hash: string; user_agent: string | null }>(
+      `SELECT refresh_token_hash, user_agent
+       FROM user_sessions
+       WHERE user_id = $1
+       ORDER BY created_at`,
+      [deviceA.user.id],
+    );
+    expect(stored.rows).toHaveLength(2);
+    expect(stored.rows.map((row) => row.user_agent)).toEqual(['PG Device A', 'PG Device B']);
+    expect(stored.rows.every((row) => /^[a-f0-9]{64}$/.test(row.refresh_token_hash))).toBe(true);
+    expect(stored.rows.some((row) => row.refresh_token_hash === deviceA.refreshToken)).toBe(false);
+
+    const revokeRes = await app!.inject({
+      method: 'DELETE',
+      url: `/v1/auth/sessions/${deviceA.sessionId}`,
+      headers: { authorization: `Bearer ${deviceB.accessToken}` },
+    });
+    expect(revokeRes.statusCode).toBe(200);
+
+    const revokedAccessRes = await app!.inject({
+      method: 'GET',
+      url: '/v1/auth/me',
+      headers: { authorization: `Bearer ${deviceA.accessToken}` },
+    });
+    expect(revokedAccessRes.statusCode).toBe(401);
+    expect(revokedAccessRes.json()).toEqual({ error: 'session_revoked' });
+  });
+
+  it('enforces named admin roles and persists attributable audit records in postgres', async () => {
+    const db = pool;
+    if (!db) throw new Error('postgres integration test pool not initialized');
+    const email = `pg-admin-rbac-${Date.now()}@example.com`;
+    const registeredRes = await app!.inject({
+      method: 'POST',
+      url: '/v1/auth/register',
+      payload: { email, password: 'secure-password-123', displayName: 'PG Admin' },
+    });
+    expect(registeredRes.statusCode).toBe(201);
+    const registered = registeredRes.json() as {
+      user: { id: string };
+      accessToken: string;
+    };
+    expect(await app!.usersRepo.setAdminRole(registered.user.id, 'editor')).toBe(true);
+
+    const adminHeaders = {
+      authorization: `Bearer ${registered.accessToken}`,
+      'content-type': 'application/json',
+    };
+    const createRes = await app!.inject({
+      method: 'POST',
+      url: '/v1/admin/cases',
+      headers: adminHeaders,
+      payload: {
+        slug: `pg-rbac-${Date.now()}`,
+        companyName: 'PG RBAC Case',
+        summary: 'PostgreSQL role and audit boundary',
+        industryKey: 'saas',
+      },
+    });
+    expect(createRes.statusCode).toBe(200);
+
+    const deniedOps = await app!.inject({
+      method: 'POST',
+      url: '/v1/admin/ingestion-jobs',
+      headers: adminHeaders,
+      payload: { sourceName: 'pg-rbac-job', triggerType: 'test' },
+    });
+    expect(deniedOps.statusCode).toBe(403);
+    expect(deniedOps.json()).toMatchObject({
+      error: 'admin_role_forbidden',
+      requiredCapability: 'operations_write',
+    });
+
+    const audit = await db.query<{
+      action: string;
+      actor_user_id: string | null;
+      actor_email: string | null;
+      actor_admin_role: string | null;
+      actor_auth_type: string | null;
+    }>(
+      `SELECT action, actor_user_id, actor_email, actor_admin_role, actor_auth_type
+       FROM admin_audit_events
+       WHERE actor_user_id = $1
+       ORDER BY created_at`,
+      [registered.user.id],
+    );
+    expect(audit.rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: 'admin.request',
+          actor_user_id: registered.user.id,
+          actor_email: email,
+          actor_admin_role: 'editor',
+          actor_auth_type: 'user_session',
+        }),
+        expect.objectContaining({
+          action: 'admin.authorization_denied',
+          actor_user_id: registered.user.id,
+          actor_admin_role: 'editor',
+          actor_auth_type: 'user_session',
+        }),
+      ]),
+    );
+
+    await expect(
+      db.query('UPDATE users SET admin_role = $2 WHERE id = $1', [
+        registered.user.id,
+        'superadmin',
+      ]),
+    ).rejects.toThrow();
+  });
+
+  it('allows one concurrent Stripe event claim and safely reclaims a failed attempt', async () => {
+    const eventId = `evt_pg_claim_${Date.now()}`;
+    const claims = await Promise.all(
+      Array.from({ length: 6 }, () =>
+        app!.stripeWebhookEventsRepo.claim({
+          eventId,
+          eventType: 'customer.subscription.updated',
+          objectId: 'sub_pg_claim',
+          livemode: false,
+        }),
+      ),
+    );
+    expect(claims.filter((claim) => claim.acquired)).toHaveLength(1);
+    expect(
+      claims.filter((claim) => !claim.acquired && claim.reason === 'in_progress'),
+    ).toHaveLength(5);
+
+    const acquired = claims.find((claim) => claim.acquired);
+    if (!acquired?.acquired) throw new Error('expected one acquired Stripe event claim');
+    expect(
+      await app!.stripeWebhookEventsRepo.markFailed(
+        eventId,
+        acquired.record.claimToken,
+        'temporary pg failure',
+      ),
+    ).toBe(true);
+    const retry = await app!.stripeWebhookEventsRepo.claim({
+      eventId,
+      eventType: 'customer.subscription.updated',
+      objectId: 'sub_pg_claim',
+      livemode: false,
+    });
+    expect(retry).toMatchObject({ acquired: true, record: { attemptCount: 2 } });
+    if (!retry.acquired) throw new Error('expected retry Stripe event claim');
+    expect(await app!.stripeWebhookEventsRepo.markProcessed(eventId, retry.record.claimToken)).toBe(
+      true,
+    );
+    expect(await app!.stripeWebhookEventsRepo.getMetrics()).toMatchObject({
+      total: 1,
+      processed: 1,
+      failed: 0,
+      retried: 1,
+    });
+  });
+
   it('persists copilot run stats and exposes them via session detail against postgres', async () => {
     const db = pool;
     if (!db) throw new Error('postgres integration test pool not initialized');

@@ -5,6 +5,7 @@ import pg from 'pg';
 const { Pool } = pg;
 const databaseUrl = process.env.DATABASE_URL;
 const webBaseUrl = process.env.E2E_WEB_BASE_URL;
+const apiBaseUrl = process.env.E2E_API_BASE_URL;
 
 async function activateSubscription(email: string, subscription: 'pro' | 'team') {
   if (!databaseUrl) throw new Error('DATABASE_URL is required for browser release tests');
@@ -22,6 +23,30 @@ async function activateSubscription(email: string, subscription: 'pro' | 'team')
       [email, subscription],
     );
     expect(result.rowCount).toBe(1);
+  } finally {
+    await pool.end();
+  }
+}
+
+async function registerAdmin(email: string, password: string) {
+  if (!apiBaseUrl) throw new Error('E2E_API_BASE_URL is required for browser release tests');
+  if (!databaseUrl) throw new Error('DATABASE_URL is required for browser release tests');
+  const response = await fetch(`${apiBaseUrl}/v1/auth/register`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email, password, displayName: 'Release Admin' }),
+  });
+  expect(response.status).toBe(201);
+
+  const pool = new Pool({ connectionString: databaseUrl });
+  try {
+    const promoted = await pool.query(
+      `UPDATE users
+       SET role = 'admin', admin_role = 'owner'
+       WHERE email = $1`,
+      [email],
+    );
+    expect(promoted.rowCount).toBe(1);
   } finally {
     await pool.end();
   }
@@ -82,6 +107,17 @@ test('pro research flow saves, exports, and publishes a public brief', async ({ 
   await page.getByRole('textbox', { name: '密码（至少 8 位）' }).fill('ReleaseGate123!');
   await page.getByRole('button', { name: '创建账号' }).click();
   await expect(page.getByRole('link', { name: displayName })).toBeVisible();
+  expect(
+    await page.evaluate(() => ({
+      access: window.localStorage.getItem('sg_access'),
+      refresh: window.localStorage.getItem('sg_refresh'),
+    })),
+  ).toEqual({ access: null, refresh: null });
+  const authCookies = (await page.context().cookies()).filter((cookie) =>
+    ['sg_access', 'sg_refresh'].includes(cookie.name),
+  );
+  expect(authCookies).toHaveLength(2);
+  expect(authCookies.every((cookie) => cookie.httpOnly)).toBe(true);
 
   await activateSubscription(email, 'pro');
   await page.reload();
@@ -96,6 +132,9 @@ test('pro research flow saves, exports, and publishes a public brief', async ({ 
   await expect(page.getByText('Current research view saved.')).toBeVisible();
 
   await page.goto('/auth/account#saved-views');
+  await expect(page.getByRole('heading', { name: '登录设备与会话' })).toBeVisible();
+  await expect(page.getByText('当前设备', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '退出当前设备' })).toBeVisible();
   await expect(page.getByRole('link', { name: viewName, exact: true })).toBeVisible();
 
   const downloadPromise = page.waitForEvent('download');
@@ -219,17 +258,25 @@ test('admin boundary blocks anonymous access and publishes a review-ready case',
   test.setTimeout(60_000);
   expect(webBaseUrl).toBeTruthy();
   const anonymous = await fetch(`${webBaseUrl}/admin/dashboard`, { redirect: 'manual' });
-  expect(anonymous.status).toBe(401);
-  expect(anonymous.headers.get('www-authenticate')).toContain('Basic');
+  expect(anonymous.status).toBeGreaterThanOrEqual(300);
+  expect(anonymous.status).toBeLessThan(400);
+  expect(anonymous.headers.get('location')).toContain('/admin/login?reason=session_required');
 
   const unique = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const adminEmail = `release-admin-${unique}@example.test`;
+  const adminPassword = 'ReleaseAdmin123!';
+  await registerAdmin(adminEmail, adminPassword);
   const slug = `release-gate-${unique
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .slice(-20)}`;
   const companyName = `Release Gate ${unique.slice(-6)}`;
 
-  await page.goto('/admin/reviews');
+  await page.goto('/admin/login');
+  await page.getByRole('textbox', { name: '管理员邮箱' }).fill(adminEmail);
+  await page.getByLabel('密码').fill(adminPassword);
+  await page.getByRole('button', { name: '进入运营控制台' }).click();
+  await expect(page).toHaveURL(/\/admin\/reviews/);
   await expect(page.getByRole('heading', { name: '审核队列' })).toBeVisible();
   await page.getByRole('textbox', { name: 'slug（唯一，小写）' }).fill(slug);
   await page.getByRole('textbox', { name: '公司名' }).fill(companyName);
@@ -298,4 +345,9 @@ test('admin boundary blocks anonymous access and publishes a review-ready case',
   await page.goto(`/cases/s/${slug}`);
   await expect(page.getByRole('heading', { name: companyName })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Release evidence' }).first()).toBeVisible();
+
+  const logout = await page.request.post('/admin/logout', { maxRedirects: 0 });
+  expect(logout.status()).toBe(303);
+  await page.goto('/admin/dashboard');
+  await expect(page).toHaveURL(/\/admin\/login\?reason=session_required/);
 });
