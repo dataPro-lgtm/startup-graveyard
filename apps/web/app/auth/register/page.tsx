@@ -66,6 +66,8 @@ export default function RegisterPage() {
             <span style={{ color: '#9fb3ff' }}>昵称（可选）</span>
             <input
               type="text"
+              name="name"
+              autoComplete="name"
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
               placeholder="你的名字"
@@ -78,6 +80,8 @@ export default function RegisterPage() {
             <span style={{ color: '#9fb3ff' }}>邮箱</span>
             <input
               type="email"
+              name="email"
+              autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
@@ -90,6 +94,8 @@ export default function RegisterPage() {
             <span style={{ color: '#9fb3ff' }}>密码（至少 8 位）</span>
             <input
               type="password"
+              name="password"
+              autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required

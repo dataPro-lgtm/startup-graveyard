@@ -127,6 +127,9 @@ What is true today:
 - The diagnostics layer now also flags `snapshot_trend_regressing` when the latest rollup window is measurably worse than the previous one, so operators get an actionable warning instead of just raw history
 - The platform layer now also tracks snapshot cadence, missed intervals, regression streak/severity, and alert suppression, so operators can tell whether a trend warning is new, severe, or already covered by more specific runtime alerts
 - The platform diagnostics now also expose a 24h snapshot metrics surface, including scheduled coverage, cadence adherence, regression-window count, and recent peak queue/alert/worker-error pressure
+- The platform diagnostics now also expose a suppression surface, so operators can see which regression windows were muted by stronger runtime alerts and which suppression reasons dominate recent history
+- Operators can now also export a platform snapshot ops report CSV directly from the dashboard, so the current cadence / regression / rollup state can be handed off outside the app
+- Operators can now also export a Markdown platform incident brief, so the same snapshot state can be handed to humans without reformatting dashboard content
 
 What is not true today:
 
@@ -164,6 +167,7 @@ PORT=18080
 DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5433/sg
 WEB_BASE_URL=http://127.0.0.1:3000
 API_BASE_URL=http://127.0.0.1:18080
+NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:18080
 ADMIN_API_KEY=dev-admin-key
 JWT_SECRET=change-me-in-production
 ```
@@ -206,6 +210,8 @@ pnpm build
 pnpm --filter @sg/api start
 pnpm --filter @sg/web start
 ```
+
+Production images and the single-host deployment baseline are documented in [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md).
 
 ## Local URLs
 
@@ -267,7 +273,10 @@ pnpm typecheck
 pnpm --filter @sg/api test
 pnpm --filter @sg/api test:pg
 pnpm build
+make ci-full
 ```
+
+`make ci-full` is the local release gate. GitHub Actions runs the same layers and provisions a real `pgvector/PostgreSQL` service for migration and integration coverage.
 
 ## Product maturity roadmap
 
@@ -279,7 +288,7 @@ The current roadmap is staged around four layers:
 - `M4`: platform hardening and operational maturity
   - runtime diagnostics, failed-job visibility, alerting, tracing, runbooks, and production safety rails
 
-See the detailed plan in [`docs/PRODUCT_MATURITY_PLAN.md`](./docs/PRODUCT_MATURITY_PLAN.md).
+See the current execution plan in [`docs/PRODUCT_EXECUTION_PLAN.md`](./docs/PRODUCT_EXECUTION_PLAN.md). The detailed implementation history remains in [`docs/PRODUCT_MATURITY_PLAN.md`](./docs/PRODUCT_MATURITY_PLAN.md).
 
 ## Repository highlights
 

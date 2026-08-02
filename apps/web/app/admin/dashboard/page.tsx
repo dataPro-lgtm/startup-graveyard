@@ -54,6 +54,18 @@ export default async function DashboardPage({
         >
           导出 Recovery Queue CSV
         </Link>
+        <Link
+          href="/admin/platform-snapshot-report.csv"
+          style={{ color: '#9fb3ff', textDecoration: 'none' }}
+        >
+          导出 Platform Snapshot CSV
+        </Link>
+        <Link
+          href="/admin/platform-snapshot-brief.md"
+          style={{ color: '#9fb3ff', textDecoration: 'none' }}
+        >
+          导出 Platform Snapshot Brief
+        </Link>
         <form action="/admin/recovery-handoffs.csv" method="post" style={{ margin: 0 }}>
           <button
             type="submit"
@@ -1537,6 +1549,125 @@ function DashboardContent({ stats }: { stats: AdminStats }) {
               </div>
             ))}
           </div>
+        </div>
+      </ChartCard>
+
+      <ChartCard title="Regression Alert Suppression">
+        <div style={{ display: 'grid', gap: 12 }}>
+          <div
+            style={{
+              border: `1px solid ${
+                platformStats.snapshotSuppression.suppressedRegressionCount > 0
+                  ? '#24314f'
+                  : '#4b2430'
+              }`,
+              borderRadius: 12,
+              background:
+                platformStats.snapshotSuppression.suppressedRegressionCount > 0
+                  ? '#0d1426'
+                  : '#23131a',
+              color:
+                platformStats.snapshotSuppression.suppressedRegressionCount > 0
+                  ? '#cbd5e1'
+                  : '#fecdd3',
+              padding: '12px 14px',
+              display: 'grid',
+              gap: 6,
+            }}
+          >
+            <div style={{ fontWeight: 700, fontSize: 13 }}>
+              {platformStats.snapshotSuppression.suppressedRegressionCount > 0
+                ? `最近 ${platformStats.snapshotSuppression.windowHours}h 内已有 ${platformStats.snapshotSuppression.suppressedRegressionCount} 个 regression window 被更具体告警覆盖`
+                : `最近 ${platformStats.snapshotSuppression.windowHours}h 内没有被抑制的 regression windows`}
+            </div>
+            <div style={{ fontSize: 12 }}>
+              {platformStats.snapshotSuppression.activeSuppressionReason
+                ? `当前最新被抑制的 reason 是 ${platformStats.snapshotSuppression.activeSuppressionReason}。`
+                : '当前没有正在被抑制的最新 regression 信号。'}
+            </div>
+            <div style={{ fontSize: 12, color: '#8a96b0' }}>
+              suppressed {platformStats.snapshotSuppression.suppressedRegressionCount} ·
+              unsuppressed {platformStats.snapshotSuppression.unsuppressedRegressionCount}
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+              gap: 10,
+            }}
+          >
+            {[
+              [
+                'Suppressed windows',
+                String(platformStats.snapshotSuppression.suppressedRegressionCount),
+                platformStats.snapshotSuppression.suppressedRegressionCount > 0
+                  ? '#22c55e'
+                  : '#cbd5e1',
+              ],
+              [
+                'Unsuppressed windows',
+                String(platformStats.snapshotSuppression.unsuppressedRegressionCount),
+                platformStats.snapshotSuppression.unsuppressedRegressionCount > 0
+                  ? '#fb7185'
+                  : '#22c55e',
+              ],
+              [
+                'Active reason',
+                platformStats.snapshotSuppression.activeSuppressionReason ?? 'N/A',
+                '#38bdf8',
+              ],
+              [
+                'Last suppressed bucket',
+                formatDateTime(platformStats.snapshotSuppression.lastSuppressedBucketStart),
+                '#f59e0b',
+              ],
+            ].map(([label, value, color]) => (
+              <div
+                key={label}
+                style={{
+                  border: '1px solid #24314f',
+                  borderRadius: 10,
+                  background: '#10192e',
+                  padding: '10px 12px',
+                  display: 'grid',
+                  gap: 4,
+                }}
+              >
+                <div style={{ color: '#8a96b0', fontSize: 12 }}>{label}</div>
+                <div style={{ color, fontWeight: 700, fontSize: 13 }}>{value}</div>
+              </div>
+            ))}
+          </div>
+
+          {platformStats.snapshotSuppression.topReasons.length > 0 ? (
+            <div style={{ display: 'grid', gap: 10 }}>
+              {platformStats.snapshotSuppression.topReasons.map((item) => (
+                <div
+                  key={item.reason}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    border: '1px solid #24314f',
+                    borderRadius: 12,
+                    background: '#0d1426',
+                    padding: '10px 14px',
+                    fontSize: 13,
+                  }}
+                >
+                  <span style={{ color: '#8a96b0' }}>{item.reason}</span>
+                  <span style={{ color: '#eef2ff', fontWeight: 700 }}>{item.count}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              text="当前还没有可统计的 suppression reasons。再累计几轮 regressing windows 后，这里会显示最常被更具体告警覆盖的原因。"
+              compact
+            />
+          )}
         </div>
       </ChartCard>
 

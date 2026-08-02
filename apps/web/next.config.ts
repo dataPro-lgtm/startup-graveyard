@@ -6,6 +6,8 @@ import type { NextConfig } from 'next';
 loadEnv({ path: path.resolve(__dirname, '..', '..', '.env') });
 
 const nextConfig: NextConfig = {
+  output: 'standalone',
+  outputFileTracingRoot: path.resolve(__dirname, '..', '..'),
   reactStrictMode: true,
 };
 

@@ -1,6 +1,6 @@
 # Startup Graveyard — Developer Commands
 # Usage: make <target>
-.PHONY: help dev build test test-pg typecheck lint format db-up db-down db-migrate db-seed db-reset embed clean
+.PHONY: help dev build test test-pg typecheck lint format validate-migrations containers-build db-up db-down db-migrate db-seed db-reset embed clean ci ci-full
 
 SHELL := /bin/bash
 
@@ -53,7 +53,15 @@ format: ## Prettier write
 format-check: ## Prettier check (CI mode)
 	pnpm format:check
 
-ci: format-check lint typecheck test build ## Full CI pipeline (local)
+validate-migrations: ## Validate migration filenames and sequence ownership
+	pnpm validate:migrations
+
+ci: format-check validate-migrations lint typecheck test build ## Full CI pipeline (local)
+
+ci-full: ci test-pg ## Full release gate including PostgreSQL integration tests
+
+containers-build: ## Build production migration, API, and Web images
+	pnpm containers:build
 
 # ── Database ──────────────────────────────────────────────────────────────────
 db-up: ## Start Postgres via docker-compose

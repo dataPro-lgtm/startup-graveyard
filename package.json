@@ -10,9 +10,11 @@
     "lint:fix": "eslint . --fix",
     "test": "turbo run test",
     "test:pg": "pnpm --filter @sg/api test:pg",
+    "validate:migrations": "node scripts/validate_migrations.mjs",
     "typecheck": "turbo run typecheck",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "containers:build": "docker build -f ops/docker/Dockerfile.migrate -t startup-graveyard-migrate:local . && docker build -f ops/docker/Dockerfile.api -t startup-graveyard-api:local . && docker build -f ops/docker/Dockerfile.web -t startup-graveyard-web:local .",
     "prepare": "husky"
   },
   "lint-staged": {

@@ -10,6 +10,7 @@ import type {
   PlatformSnapshot,
   PlatformSnapshotRegression,
   PlatformSnapshotRollup,
+  PlatformSnapshotSuppressionSurface,
   PlatformSnapshotTrend,
 } from '@sg/shared/schemas/adminStats';
 import type {
@@ -122,6 +123,38 @@ export async function adminStatsRoutes(app: FastifyInstance) {
     } catch (err) {
       app.log.error(err, 'Failed to capture platform snapshot');
       return reply.code(500).send({ error: 'platform_snapshot_unavailable' });
+    }
+  });
+
+  app.get('/platform-snapshot-report.csv', async (_request, reply) => {
+    try {
+      const statsPayload = await fetchAdminStatsPayload(app);
+      const csv = renderPlatformSnapshotReportCsv(statsPayload.platform);
+      reply.header('content-type', 'text/csv; charset=utf-8');
+      reply.header(
+        'content-disposition',
+        `attachment; filename="platform-snapshot-report-${new Date().toISOString().slice(0, 10)}.csv"`,
+      );
+      return reply.send(csv);
+    } catch (err) {
+      app.log.error(err, 'Failed to export platform snapshot report');
+      return reply.code(500).send({ error: 'platform_snapshot_report_unavailable' });
+    }
+  });
+
+  app.get('/platform-snapshot-brief.md', async (_request, reply) => {
+    try {
+      const statsPayload = await fetchAdminStatsPayload(app);
+      const markdown = renderPlatformSnapshotBriefMarkdown(statsPayload.platform);
+      reply.header('content-type', 'text/markdown; charset=utf-8');
+      reply.header(
+        'content-disposition',
+        `attachment; filename="platform-snapshot-brief-${new Date().toISOString().slice(0, 10)}.md"`,
+      );
+      return reply.send(markdown);
+    } catch (err) {
+      app.log.error(err, 'Failed to export platform snapshot brief');
+      return reply.code(500).send({ error: 'platform_snapshot_brief_unavailable' });
     }
   });
 
@@ -604,30 +637,10 @@ function platformSnapshotBucketHasRegression(
   );
 }
 
-function summarizePlatformSnapshotRegression(
-  snapshotRollup: PlatformSnapshotRollup,
-): PlatformSnapshotRegression {
-  if (snapshotRollup.buckets.length < 2) {
-    return {
-      hasRegression: false,
-      severity: 'info',
-      regressionStreak: 0,
-      suppressed: false,
-      suppressionReason: null,
-      latestBucketStart: null,
-      previousBucketStart: null,
-      queuedDelta: null,
-      oldestQueuedAgeDelta: null,
-      alertCountDelta: null,
-      failedCountDelta: null,
-      workerConsecutiveErrorsDelta: null,
-      reasons: [],
-      recommendedActions: [],
-    };
-  }
-
-  const latest = snapshotRollup.buckets[snapshotRollup.buckets.length - 1]!;
-  const previous = snapshotRollup.buckets[snapshotRollup.buckets.length - 2]!;
+function summarizePlatformSnapshotRegressionPair(
+  latest: PlatformSnapshotRollup['buckets'][number],
+  previous: PlatformSnapshotRollup['buckets'][number],
+) {
   const queuedDelta = latest.maxQueuedCount - previous.maxQueuedCount;
   const oldestQueuedAgeDelta =
     latest.maxOldestQueuedAgeMinutes == null || previous.maxOldestQueuedAgeMinutes == null
@@ -666,16 +679,8 @@ function summarizePlatformSnapshotRegression(
       : null,
   ].filter((item): item is string => item != null);
 
-  let regressionStreak = 0;
-  for (let index = snapshotRollup.buckets.length - 1; index > 0; index--) {
-    const current = snapshotRollup.buckets[index]!;
-    const previousBucket = snapshotRollup.buckets[index - 1]!;
-    if (!platformSnapshotBucketHasRegression(current, previousBucket)) break;
-    regressionStreak += 1;
-  }
-
   const severity: PlatformSnapshotRegression['severity'] =
-    failedCountDelta > 0 || workerConsecutiveErrorsDelta >= 2 || regressionStreak >= 3
+    failedCountDelta > 0 || workerConsecutiveErrorsDelta >= 2
       ? 'critical'
       : reasons.length > 0
         ? 'warning'
@@ -684,11 +689,6 @@ function summarizePlatformSnapshotRegression(
   return {
     hasRegression: reasons.length > 0,
     severity,
-    regressionStreak,
-    suppressed: false,
-    suppressionReason: null,
-    latestBucketStart: latest.bucketStart,
-    previousBucketStart: previous.bucketStart,
     queuedDelta,
     oldestQueuedAgeDelta,
     alertCountDelta,
@@ -696,6 +696,85 @@ function summarizePlatformSnapshotRegression(
     workerConsecutiveErrorsDelta,
     reasons,
     recommendedActions,
+  };
+}
+
+function inferPlatformSnapshotSuppressionReason(
+  regression: Pick<
+    PlatformSnapshotRegression,
+    | 'hasRegression'
+    | 'severity'
+    | 'queuedDelta'
+    | 'oldestQueuedAgeDelta'
+    | 'alertCountDelta'
+    | 'failedCountDelta'
+    | 'workerConsecutiveErrorsDelta'
+  >,
+): string | null {
+  if (!regression.hasRegression || regression.severity === 'critical') {
+    return null;
+  }
+
+  const queueSignal =
+    (regression.queuedDelta ?? 0) > 0 || (regression.oldestQueuedAgeDelta ?? 0) > 0;
+  const failedSignal = (regression.failedCountDelta ?? 0) > 0;
+  const workerSignal = (regression.workerConsecutiveErrorsDelta ?? 0) > 0;
+  const alertSignal = (regression.alertCountDelta ?? 0) > 0;
+
+  if (queueSignal && !failedSignal && !workerSignal) {
+    return 'covered_by_queue_backlog_alert';
+  }
+  if (failedSignal && !queueSignal && !workerSignal && !alertSignal) {
+    return 'covered_by_failed_ingestion_alert';
+  }
+  if (workerSignal && !queueSignal && !failedSignal && !alertSignal) {
+    return 'covered_by_worker_error_alert';
+  }
+
+  return 'covered_by_mixed_runtime_alerts';
+}
+
+function summarizePlatformSnapshotRegression(
+  snapshotRollup: PlatformSnapshotRollup,
+): PlatformSnapshotRegression {
+  if (snapshotRollup.buckets.length < 2) {
+    return {
+      hasRegression: false,
+      severity: 'info',
+      regressionStreak: 0,
+      suppressed: false,
+      suppressionReason: null,
+      latestBucketStart: null,
+      previousBucketStart: null,
+      queuedDelta: null,
+      oldestQueuedAgeDelta: null,
+      alertCountDelta: null,
+      failedCountDelta: null,
+      workerConsecutiveErrorsDelta: null,
+      reasons: [],
+      recommendedActions: [],
+    };
+  }
+
+  const latest = snapshotRollup.buckets[snapshotRollup.buckets.length - 1]!;
+  const previous = snapshotRollup.buckets[snapshotRollup.buckets.length - 2]!;
+  const pairSummary = summarizePlatformSnapshotRegressionPair(latest, previous);
+
+  let regressionStreak = 0;
+  for (let index = snapshotRollup.buckets.length - 1; index > 0; index--) {
+    const current = snapshotRollup.buckets[index]!;
+    const previousBucket = snapshotRollup.buckets[index - 1]!;
+    if (!platformSnapshotBucketHasRegression(current, previousBucket)) break;
+    regressionStreak += 1;
+  }
+
+  return {
+    ...pairSummary,
+    regressionStreak,
+    suppressed: false,
+    suppressionReason: null,
+    latestBucketStart: latest.bucketStart,
+    previousBucketStart: previous.bucketStart,
   };
 }
 
@@ -781,6 +860,53 @@ function summarizePlatformSnapshotMetricsSurface(
       rollupBucketsInWindow.length === 0
         ? 0
         : Math.max(...rollupBucketsInWindow.map((bucket) => bucket.maxWorkerConsecutiveErrors)),
+  };
+}
+
+function summarizePlatformSnapshotSuppressionSurface(
+  snapshotRollup: PlatformSnapshotRollup,
+  now = Date.now(),
+): PlatformSnapshotSuppressionSurface {
+  const windowStartMs = now - PLATFORM_SNAPSHOT_METRICS_WINDOW_HOURS * 60 * 60_000;
+  const rollupBucketsInWindow = snapshotRollup.buckets.filter(
+    (bucket) => Date.parse(bucket.bucketEnd) >= windowStartMs,
+  );
+  const reasonCounts = new Map<string, number>();
+  let suppressedRegressionCount = 0;
+  let unsuppressedRegressionCount = 0;
+  let activeSuppressionReason: string | null = null;
+  let lastSuppressedBucketStart: string | null = null;
+
+  for (let index = 1; index < rollupBucketsInWindow.length; index++) {
+    const current = rollupBucketsInWindow[index]!;
+    const previous = rollupBucketsInWindow[index - 1]!;
+    const regression = summarizePlatformSnapshotRegressionPair(current, previous);
+    if (!regression.hasRegression) {
+      continue;
+    }
+
+    const suppressionReason = inferPlatformSnapshotSuppressionReason(regression);
+    if (suppressionReason) {
+      suppressedRegressionCount += 1;
+      lastSuppressedBucketStart = current.bucketStart;
+      if (index === rollupBucketsInWindow.length - 1) {
+        activeSuppressionReason = suppressionReason;
+      }
+      reasonCounts.set(suppressionReason, (reasonCounts.get(suppressionReason) ?? 0) + 1);
+    } else {
+      unsuppressedRegressionCount += 1;
+    }
+  }
+
+  return {
+    windowHours: PLATFORM_SNAPSHOT_METRICS_WINDOW_HOURS,
+    suppressedRegressionCount,
+    unsuppressedRegressionCount,
+    activeSuppressionReason,
+    lastSuppressedBucketStart,
+    topReasons: [...reasonCounts.entries()]
+      .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+      .map(([reason, count]) => ({ reason, count })),
   };
 }
 
@@ -886,6 +1012,7 @@ async function fetchPlatformStats(
     snapshotCadence,
     snapshotRollup,
   );
+  const snapshotSuppression = summarizePlatformSnapshotSuppressionSurface(snapshotRollup);
   const oldestQueuedJob = oldestQueuedJobs[0] ?? null;
   const oldestQueuedAgeMinutes = oldestQueuedJob
     ? Math.max(0, Math.floor((Date.now() - new Date(oldestQueuedJob.createdAt).getTime()) / 60_000))
@@ -1087,7 +1214,7 @@ async function fetchPlatformStats(
       workerCovered &&
       alertsCovered;
     snapshotRegression.suppressionReason = snapshotRegression.suppressed
-      ? 'covered_by_current_runtime_alerts'
+      ? inferPlatformSnapshotSuppressionReason(snapshotRegression)
       : null;
   }
 
@@ -1175,6 +1302,17 @@ async function fetchPlatformStats(
     snapshotTrend,
     snapshotRollup,
     snapshotRegression,
+    snapshotSuppression: {
+      ...snapshotSuppression,
+      activeSuppressionReason:
+        snapshotRegression.suppressed && snapshotRegression.suppressionReason
+          ? snapshotRegression.suppressionReason
+          : snapshotSuppression.activeSuppressionReason,
+      lastSuppressedBucketStart:
+        snapshotRegression.suppressed && snapshotRegression.latestBucketStart
+          ? snapshotRegression.latestBucketStart
+          : snapshotSuppression.lastSuppressedBucketStart,
+    },
     snapshotMetrics,
     ingestion: {
       queuedCount,
@@ -1291,6 +1429,241 @@ function csvCell(value: string | number | null): string {
     return `"${raw.replaceAll('"', '""')}"`;
   }
   return raw;
+}
+
+function renderPlatformSnapshotReportCsv(platform: PlatformAdminMetrics): string {
+  const header = [
+    'section',
+    'generated_at',
+    'cadence_status',
+    'expected_interval_minutes',
+    'last_captured_at',
+    'last_scheduled_captured_at',
+    'expected_next_snapshot_at',
+    'missed_intervals',
+    'window_hours',
+    'covered_hours',
+    'snapshot_count',
+    'scheduled_snapshot_count',
+    'expected_scheduled_snapshot_count',
+    'cadence_adherence_rate',
+    'regression_window_count',
+    'peak_queued_count',
+    'peak_oldest_queued_age_minutes',
+    'peak_alert_count',
+    'peak_failed_count',
+    'peak_worker_consecutive_errors',
+    'suppressed_regression_count',
+    'unsuppressed_regression_count',
+    'active_suppression_reason',
+    'last_suppressed_bucket_start',
+    'top_suppression_reasons',
+    'latest_regression_severity',
+    'latest_regression_streak',
+    'latest_regression_suppressed',
+    'latest_regression_reasons',
+    'latest_regression_actions',
+    'bucket_start',
+    'bucket_end',
+    'bucket_sample_count',
+    'bucket_avg_queued_count',
+    'bucket_max_queued_count',
+    'bucket_max_oldest_queued_age_minutes',
+    'bucket_max_alert_count',
+    'bucket_max_failed_count',
+    'bucket_max_worker_consecutive_errors',
+  ];
+  const lines = [header.join(',')];
+
+  lines.push(
+    [
+      'summary',
+      platform.runtime.generatedAt,
+      platform.snapshotCadence.status,
+      platform.snapshotCadence.expectedIntervalMinutes,
+      platform.snapshotCadence.lastCapturedAt,
+      platform.snapshotCadence.lastScheduledCapturedAt,
+      platform.snapshotCadence.expectedNextSnapshotAt,
+      platform.snapshotCadence.missedIntervals,
+      platform.snapshotMetrics.windowHours,
+      platform.snapshotMetrics.coveredHours,
+      platform.snapshotMetrics.snapshotCount,
+      platform.snapshotMetrics.scheduledSnapshotCount,
+      platform.snapshotMetrics.expectedScheduledSnapshotCount,
+      platform.snapshotMetrics.cadenceAdherenceRate == null
+        ? null
+        : platform.snapshotMetrics.cadenceAdherenceRate.toFixed(4),
+      platform.snapshotMetrics.regressionWindowCount,
+      platform.snapshotMetrics.peakQueuedCount,
+      platform.snapshotMetrics.peakOldestQueuedAgeMinutes,
+      platform.snapshotMetrics.peakAlertCount,
+      platform.snapshotMetrics.peakFailedCount,
+      platform.snapshotMetrics.peakWorkerConsecutiveErrors,
+      platform.snapshotSuppression.suppressedRegressionCount,
+      platform.snapshotSuppression.unsuppressedRegressionCount,
+      platform.snapshotSuppression.activeSuppressionReason,
+      platform.snapshotSuppression.lastSuppressedBucketStart,
+      platform.snapshotSuppression.topReasons
+        .map((item) => `${item.reason}:${item.count}`)
+        .join(' | '),
+      platform.snapshotRegression.severity,
+      platform.snapshotRegression.regressionStreak,
+      platform.snapshotRegression.suppressed ? 'true' : 'false',
+      platform.snapshotRegression.reasons.join(' | '),
+      platform.snapshotRegression.recommendedActions.join(' | '),
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+    ]
+      .map(csvCell)
+      .join(','),
+  );
+
+  for (const bucket of platform.snapshotRollup.buckets) {
+    lines.push(
+      [
+        'rollup',
+        platform.runtime.generatedAt,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        bucket.bucketStart,
+        bucket.bucketEnd,
+        bucket.sampleCount,
+        bucket.avgQueuedCount,
+        bucket.maxQueuedCount,
+        bucket.maxOldestQueuedAgeMinutes,
+        bucket.maxAlertCount,
+        bucket.maxFailedCount,
+        bucket.maxWorkerConsecutiveErrors,
+      ]
+        .map(csvCell)
+        .join(','),
+    );
+  }
+
+  return lines.join('\n');
+}
+
+function renderPlatformSnapshotBriefMarkdown(platform: PlatformAdminMetrics): string {
+  const lines = [
+    '# Platform Snapshot Incident Brief',
+    '',
+    `Generated at: ${platform.runtime.generatedAt}`,
+    '',
+    '## Runtime',
+    `- Service: ${platform.runtime.service}`,
+    `- Environment: ${platform.runtime.env}`,
+    `- Node: ${platform.runtime.nodeVersion}`,
+    `- Mock mode: ${platform.runtime.features.mockMode ? 'yes' : 'no'}`,
+    `- Uptime seconds: ${platform.runtime.uptimeSeconds}`,
+    '',
+    '## Queue And Worker',
+    `- Queued count: ${platform.ingestion.queuedCount}`,
+    `- Oldest queued age minutes: ${platform.ingestion.oldestQueuedAgeMinutes ?? 'N/A'}`,
+    `- Completed last hour: ${platform.ingestion.completedLastHour}`,
+    `- Worker status: ${platform.worker.status}`,
+    `- Worker consecutive errors: ${platform.worker.consecutiveErrors}`,
+    `- Worker last processed at: ${platform.worker.lastProcessedAt ?? 'N/A'}`,
+    '',
+    '## Snapshot Cadence',
+    `- Status: ${platform.snapshotCadence.status}`,
+    `- Expected interval minutes: ${platform.snapshotCadence.expectedIntervalMinutes}`,
+    `- Last scheduled snapshot: ${platform.snapshotCadence.lastScheduledCapturedAt ?? 'N/A'}`,
+    `- Expected next snapshot: ${platform.snapshotCadence.expectedNextSnapshotAt ?? 'N/A'}`,
+    `- Missed intervals: ${platform.snapshotCadence.missedIntervals}`,
+    '',
+    '## Snapshot Metrics (24h)',
+    `- Covered hours: ${platform.snapshotMetrics.coveredHours}`,
+    `- Snapshot count: ${platform.snapshotMetrics.snapshotCount}`,
+    `- Scheduled snapshot count: ${platform.snapshotMetrics.scheduledSnapshotCount}/${platform.snapshotMetrics.expectedScheduledSnapshotCount}`,
+    `- Cadence adherence: ${
+      platform.snapshotMetrics.cadenceAdherenceRate == null
+        ? 'N/A'
+        : `${Math.round(platform.snapshotMetrics.cadenceAdherenceRate * 100)}%`
+    }`,
+    `- Regression windows: ${platform.snapshotMetrics.regressionWindowCount}`,
+    `- Peak queued count: ${platform.snapshotMetrics.peakQueuedCount}`,
+    `- Peak queued age minutes: ${platform.snapshotMetrics.peakOldestQueuedAgeMinutes ?? 'N/A'}`,
+    `- Peak alert count: ${platform.snapshotMetrics.peakAlertCount}`,
+    `- Peak failed count: ${platform.snapshotMetrics.peakFailedCount}`,
+    `- Peak worker consecutive errors: ${platform.snapshotMetrics.peakWorkerConsecutiveErrors}`,
+    '',
+    '## Regression Alert Suppression',
+    `- Suppressed regression windows: ${platform.snapshotSuppression.suppressedRegressionCount}`,
+    `- Unsuppressed regression windows: ${platform.snapshotSuppression.unsuppressedRegressionCount}`,
+    `- Active suppression reason: ${platform.snapshotSuppression.activeSuppressionReason ?? 'N/A'}`,
+    `- Last suppressed bucket start: ${platform.snapshotSuppression.lastSuppressedBucketStart ?? 'N/A'}`,
+    ...(platform.snapshotSuppression.topReasons.length > 0
+      ? [
+          `- Top suppression reasons: ${platform.snapshotSuppression.topReasons
+            .map((item) => `${item.reason} (${item.count})`)
+            .join(' | ')}`,
+        ]
+      : ['- Top suppression reasons: none']),
+    '',
+    '## Latest Regression Signal',
+    platform.snapshotRegression.hasRegression
+      ? `- Severity ${platform.snapshotRegression.severity}, streak ${platform.snapshotRegression.regressionStreak}, suppressed ${platform.snapshotRegression.suppressed ? 'yes' : 'no'}`
+      : '- No active regression signal across the latest comparable buckets',
+    platform.snapshotRegression.hasRegression
+      ? `- Reasons: ${platform.snapshotRegression.reasons.join(' | ')}`
+      : null,
+    platform.snapshotRegression.recommendedActions.length > 0
+      ? `- Recommended actions: ${platform.snapshotRegression.recommendedActions.join(' | ')}`
+      : null,
+    '',
+    '## Current Alerts',
+    ...(platform.alerts.length > 0
+      ? platform.alerts.map(
+          (alert) => `- [${alert.severity}] ${alert.code}: ${alert.title} — ${alert.detail}`,
+        )
+      : ['- No active platform alerts']),
+    '',
+    '## Recent Rollup Buckets',
+    '| Window | Samples | Avg queued | Max queued | Max queued age | Max alerts | Max failed | Max worker errors |',
+    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
+    ...platform.snapshotRollup.buckets.map(
+      (bucket) =>
+        `| ${bucket.bucketStart} -> ${bucket.bucketEnd} | ${bucket.sampleCount} | ${bucket.avgQueuedCount} | ${bucket.maxQueuedCount} | ${bucket.maxOldestQueuedAgeMinutes ?? 'N/A'} | ${bucket.maxAlertCount} | ${bucket.maxFailedCount} | ${bucket.maxWorkerConsecutiveErrors} |`,
+    ),
+    '',
+    '## Recent Failed Ingestion Jobs',
+    ...(platform.ingestion.recentFailed.length > 0
+      ? platform.ingestion.recentFailed.map(
+          (job) =>
+            `- ${job.sourceName} / ${job.triggerType} / ${job.createdAt} / ${job.errorMessage ?? 'no error message'}`,
+        )
+      : ['- No recent failed ingestion jobs']),
+  ].filter((line): line is string => line != null);
+
+  return `${lines.join('\n')}\n`;
 }
 
 function renderRecoveryQueueCsv(

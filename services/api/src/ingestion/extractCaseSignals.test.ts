@@ -36,4 +36,19 @@ describe('extractCaseSignals', () => {
     expect(out.keyLessons).toContain('扩张前先验证单位经济模型');
     expect(out.keyLessons).toContain('监管约束要前置');
   });
+
+  it('does not classify rapid expansion as a founding event or duplicate excerpt events', () => {
+    const out = extractCaseSignals({
+      title: 'Acme Collapse | Example News',
+      excerpt: 'Acme founded in 2020 before its collapse.',
+      snapshotText:
+        'Acme founded in 2020. In 2022 Acme raised $50 million and started rapid expansion. In 2024 Acme shut down.',
+    });
+
+    expect(out.timelineEvents.map((event) => event.eventType)).toEqual([
+      'founded',
+      'funding',
+      'shutdown',
+    ]);
+  });
 });
