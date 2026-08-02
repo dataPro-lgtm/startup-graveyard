@@ -35,6 +35,45 @@ export const config = {
     };
   },
 
+  get security() {
+    const positiveInt = (value: string | undefined, fallback: number) => {
+      const parsed = Number(value);
+      return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+    };
+    const trustProxyValue = process.env.TRUST_PROXY?.trim() ?? '';
+    const trustProxy =
+      trustProxyValue === 'true'
+        ? true
+        : trustProxyValue === '' || trustProxyValue === 'false'
+          ? false
+          : trustProxyValue
+              .split(',')
+              .map((item) => item.trim())
+              .filter(Boolean);
+
+    return {
+      additionalCorsOrigins: (process.env.CORS_ALLOWED_ORIGINS ?? '')
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean),
+      trustProxy,
+      rateLimit: {
+        enabled:
+          process.env.RATE_LIMIT_ENABLED === 'true' ||
+          (process.env.RATE_LIMIT_ENABLED !== 'false' && process.env.NODE_ENV !== 'test'),
+        windowMs: positiveInt(process.env.RATE_LIMIT_WINDOW_MS, 60_000),
+        max: {
+          auth: positiveInt(process.env.RATE_LIMIT_AUTH_MAX, 10),
+          authRefresh: positiveInt(process.env.RATE_LIMIT_AUTH_REFRESH_MAX, 30),
+          billing: positiveInt(process.env.RATE_LIMIT_BILLING_MAX, 10),
+          copilot: positiveInt(process.env.RATE_LIMIT_COPILOT_MAX, 20),
+          export: positiveInt(process.env.RATE_LIMIT_EXPORT_MAX, 10),
+          webhook: positiveInt(process.env.RATE_LIMIT_WEBHOOK_MAX, 120),
+        },
+      },
+    };
+  },
+
   get openai() {
     return {
       apiKey: process.env.OPENAI_API_KEY?.trim() ?? '',

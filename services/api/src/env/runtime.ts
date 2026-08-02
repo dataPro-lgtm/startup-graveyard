@@ -14,6 +14,16 @@ function hasValue(v: string | undefined): boolean {
   return (v?.trim() ?? '').length > 0;
 }
 
+function isHttpOrigin(value: string): boolean {
+  const normalized = value.trim().replace(/\/$/, '');
+  try {
+    const parsed = new URL(normalized);
+    return ['http:', 'https:'].includes(parsed.protocol) && parsed.origin === normalized;
+  } catch {
+    return false;
+  }
+}
+
 export function getRuntimeFeatureFlags(): RuntimeFeatureFlags {
   const dbConfigured = hasValue(process.env.DATABASE_URL);
   const adminEnabled = hasValue(process.env.ADMIN_API_KEY);
@@ -48,6 +58,19 @@ export function validateRuntimeEnv(): RuntimeFeatureFlags {
     }
     if (!hasValue(process.env.JWT_SECRET) || process.env.JWT_SECRET === DEFAULT_JWT_SECRET) {
       errors.push('JWT_SECRET must be set to a non-default value in production.');
+    }
+    if (!hasValue(process.env.WEB_BASE_URL) || !isHttpOrigin(process.env.WEB_BASE_URL ?? '')) {
+      errors.push('WEB_BASE_URL must be set to an exact HTTP(S) origin in production.');
+    }
+    const additionalOrigins = (process.env.CORS_ALLOWED_ORIGINS ?? '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (additionalOrigins.some((origin) => !isHttpOrigin(origin))) {
+      errors.push('CORS_ALLOWED_ORIGINS must contain only comma-separated HTTP(S) origins.');
+    }
+    if (process.env.RATE_LIMIT_ENABLED === 'false') {
+      errors.push('RATE_LIMIT_ENABLED cannot be false in production.');
     }
   } else {
     if (!features.dbConfigured) {

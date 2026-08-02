@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import rateLimit from '@fastify/rate-limit';
 import sensible from '@fastify/sensible';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
@@ -92,6 +93,8 @@ import { savedViewsRoutes } from './routes/public/savedViews.js';
 import { teamWorkspaceRoutes } from './routes/public/teamWorkspace.js';
 import { watchlistRoutes } from './routes/public/watchlist.js';
 import { metaRoutes } from './routes/public/meta.js';
+import { config } from './config/index.js';
+import { resolveCorsAllowedOrigins } from './security/requestSecurity.js';
 
 export type BuildAppOptions = {
   /** 默认 true；测试可关日志 */
@@ -100,7 +103,10 @@ export type BuildAppOptions = {
 
 /** 注册路由与仓库，不 listen（供 `inject` 测试与生产启动）。 */
 export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnType<typeof Fastify>> {
-  const server = Fastify({ logger: options.logger ?? true });
+  const server = Fastify({
+    logger: options.logger ?? true,
+    trustProxy: config.security.trustProxy,
+  });
 
   const pgPool = getPool();
 
@@ -210,7 +216,22 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<ReturnTyp
     server.log.warn('DATABASE_URL unset; using in-memory mock cases + reviews');
   }
 
-  await server.register(cors, { origin: true });
+  const corsAllowedOrigins = resolveCorsAllowedOrigins();
+  await server.register(cors, {
+    credentials: true,
+    origin(origin, callback) {
+      callback(null, !origin || corsAllowedOrigins.has(origin));
+    },
+  });
+  await server.register(rateLimit, {
+    global: false,
+    addHeaders: {
+      'x-ratelimit-limit': true,
+      'x-ratelimit-remaining': true,
+      'x-ratelimit-reset': true,
+      'retry-after': true,
+    },
+  });
   await server.register(sensible);
   await server.register(swagger, {
     openapi: {

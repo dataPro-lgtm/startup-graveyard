@@ -149,3 +149,11 @@ Startup Graveyard 已经具备可运行 alpha 的完整骨架，不再缺“功�
 | P1     | Stripe sandbox 全生命周期与外部通道失败注入             | checkout、升降级、past-due、恢复、重放均可自动验收   |
 | P1     | worker/scheduler 进程解耦、OTel 与告警出口              | worker 故障不拖垮 API，关键任务有 trace/metric/alert |
 | P2     | 200+ 证据化案例、Copilot offline eval 与 nightly gate   | 引用命中、幻觉、降级和数据质量指标连续达标           |
+
+## 10. 阶段 C 当前落地
+
+- CORS 已从反射任意来源改为精确来源白名单，生产启动校验拒绝路径、通配符和非 HTTP(S) 来源。
+- 认证注册/登录、token refresh、Copilot answer、报告生成、Stripe checkout/portal/webhook 已启用分层限流。
+- 有效登录用户按用户主体限流，匿名和无效凭据按可信客户端 IP 限流；令牌不会进入限流存储键。
+- 安全负向测试覆盖不受信来源无 CORS 授权、认证超频、refresh 独立预算、Copilot 与导出超频。
+- 下一切片迁移 refresh token 到 `HttpOnly + Secure + SameSite` cookie，并保留短时 access token 的渐进兼容窗口。

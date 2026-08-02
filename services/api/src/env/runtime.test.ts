@@ -36,6 +36,20 @@ describe('runtime environment', () => {
     expect(() => validateRuntimeEnv()).toThrow(/Invalid runtime environment/);
   });
 
+  it('rejects unsafe production request-security configuration', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.DATABASE_URL = 'postgresql://localhost/sg';
+    process.env.ADMIN_API_KEY = 'secret';
+    process.env.JWT_SECRET = 'production-secret';
+    process.env.WEB_BASE_URL = 'https://app.example.com/path';
+    process.env.CORS_ALLOWED_ORIGINS = 'https://research.example.com,not-a-url';
+    process.env.RATE_LIMIT_ENABLED = 'false';
+
+    expect(() => validateRuntimeEnv()).toThrow(/WEB_BASE_URL/);
+    expect(() => validateRuntimeEnv()).toThrow(/CORS_ALLOWED_ORIGINS/);
+    expect(() => validateRuntimeEnv()).toThrow(/RATE_LIMIT_ENABLED/);
+  });
+
   it('emits warnings in development instead of throwing', () => {
     process.env.NODE_ENV = 'development';
     delete process.env.DATABASE_URL;

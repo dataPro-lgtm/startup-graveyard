@@ -16,9 +16,15 @@ JWT_SECRET=<at-least-48-random-bytes>
 NEXT_PUBLIC_API_BASE_URL=https://api.example.com
 NEXT_PUBLIC_SITE_URL=https://app.example.com
 WEB_BASE_URL=https://app.example.com
+CORS_ALLOWED_ORIGINS=https://research.example.com
+TRUST_PROXY=127.0.0.1,10.0.0.0/8
 ```
 
 Add Stripe, AI provider, email, CRM, webhook, and Slack variables only for integrations enabled in that environment.
+
+`WEB_BASE_URL` is always included in the exact CORS allowlist. Add other browser origins through comma-separated `CORS_ALLOWED_ORIGINS`; paths and wildcard origins are rejected. Configure `TRUST_PROXY` only with the trusted ingress addresses that may supply client IP headers.
+
+High-risk API routes are rate-limited by default in production. Defaults use a 60-second window with separate budgets for auth (10), token refresh (30), Copilot (20), report export (10), billing mutations (10), and Stripe webhooks (120). Override the corresponding `RATE_LIMIT_*` variables only after load testing; production startup rejects `RATE_LIMIT_ENABLED=false`.
 
 ## Build and start
 
@@ -50,11 +56,11 @@ curl --fail https://api.example.com/health/ready
 curl --fail https://app.example.com/
 ```
 
-The API refuses to start in production without PostgreSQL, an admin key, and a non-default JWT secret. Database migrations are append-only and execute before the API starts.
+The API refuses to start in production without PostgreSQL, an admin key, a non-default JWT secret, an exact `WEB_BASE_URL`, and enabled request throttling. Database migrations are append-only and execute before the API starts.
 
 ## Operate safely
 
-- Terminate TLS and apply request limits at the ingress.
+- Terminate TLS and apply a second layer of request limits at the ingress. API limits are process-local, so multi-replica deployments must use a shared edge/Redis limiter to enforce a global budget.
 - Keep `/admin/*` behind the configured Admin UI credentials and an ingress allowlist or identity-aware proxy. HTTP Basic is an interim perimeter; it does not replace application-level admin roles.
 - Use different values for `ADMIN_UI_PASSWORD` and `ADMIN_API_KEY`.
 - Keep PostgreSQL private; `compose.production.yml` does not publish its port.

@@ -2,35 +2,40 @@ import type { FastifyInstance } from 'fastify';
 import { loginBodySchema, registerBodySchema, refreshBodySchema } from '@sg/shared/schemas/auth';
 import { verifyAccessToken } from '../../auth/tokens.js';
 import { extractBearer, resolveEffectiveUser } from './authedUser.js';
+import { routeRateLimit } from '../../security/requestSecurity.js';
 
 export async function authRoutes(app: FastifyInstance) {
   // ── POST /v1/auth/register ───────────────────────────────────────────────
-  app.post('/register', async (request, reply) => {
-    const parsed = registerBodySchema.safeParse(request.body ?? {});
-    if (!parsed.success) {
-      return reply.code(400).send({ error: 'invalid_body', details: parsed.error.flatten() });
-    }
-
-    const result = await app.usersRepo.register(
-      parsed.data.email,
-      parsed.data.password,
-      parsed.data.displayName,
-    );
-    if (!result.ok) {
-      if (result.code === 'email_taken') {
-        return reply.code(409).send({ error: 'email_already_registered' });
+  app.post(
+    '/register',
+    { config: { rateLimit: routeRateLimit('auth') } },
+    async (request, reply) => {
+      const parsed = registerBodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
+        return reply.code(400).send({ error: 'invalid_body', details: parsed.error.flatten() });
       }
-      return reply.code(400).send({ error: result.code });
-    }
 
-    return reply.code(201).send({
-      ...result,
-      user: await resolveEffectiveUser(app, result.user),
-    });
-  });
+      const result = await app.usersRepo.register(
+        parsed.data.email,
+        parsed.data.password,
+        parsed.data.displayName,
+      );
+      if (!result.ok) {
+        if (result.code === 'email_taken') {
+          return reply.code(409).send({ error: 'email_already_registered' });
+        }
+        return reply.code(400).send({ error: result.code });
+      }
+
+      return reply.code(201).send({
+        ...result,
+        user: await resolveEffectiveUser(app, result.user),
+      });
+    },
+  );
 
   // ── POST /v1/auth/login ──────────────────────────────────────────────────
-  app.post('/login', async (request, reply) => {
+  app.post('/login', { config: { rateLimit: routeRateLimit('auth') } }, async (request, reply) => {
     const parsed = loginBodySchema.safeParse(request.body ?? {});
     if (!parsed.success) {
       return reply.code(400).send({ error: 'invalid_body' });
@@ -49,20 +54,24 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   // ── POST /v1/auth/refresh ────────────────────────────────────────────────
-  app.post('/refresh', async (request, reply) => {
-    const parsed = refreshBodySchema.safeParse(request.body ?? {});
-    if (!parsed.success) return reply.code(400).send({ error: 'invalid_body' });
+  app.post(
+    '/refresh',
+    { config: { rateLimit: routeRateLimit('authRefresh') } },
+    async (request, reply) => {
+      const parsed = refreshBodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) return reply.code(400).send({ error: 'invalid_body' });
 
-    const result = await app.usersRepo.refresh(parsed.data.refreshToken);
-    if (!result.ok) {
-      return reply.code(401).send({ error: result.code });
-    }
+      const result = await app.usersRepo.refresh(parsed.data.refreshToken);
+      if (!result.ok) {
+        return reply.code(401).send({ error: result.code });
+      }
 
-    return reply.send({
-      ...result,
-      user: await resolveEffectiveUser(app, result.user),
-    });
-  });
+      return reply.send({
+        ...result,
+        user: await resolveEffectiveUser(app, result.user),
+      });
+    },
+  );
 
   // ── POST /v1/auth/logout ─────────────────────────────────────────────────
   app.post('/logout', async (request, reply) => {
