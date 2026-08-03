@@ -2989,6 +2989,66 @@ paths:
           description: Invalid body
         '401':
           description: Token expired or not found
+  /v1/auth/password/forgot:
+    post:
+      summary: Request a password reset email
+      description: >-
+        Always returns ok regardless of whether the email exists, so the
+        endpoint cannot be used to enumerate accounts. When the account exists
+        and transactional email is configured, a single-use reset link is sent.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        '200':
+          description: Request accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok: { type: boolean, enum: [true] }
+        '400':
+          description: Invalid body
+        '429':
+          description: Rate limited
+  /v1/auth/password/reset:
+    post:
+      summary: Reset the account password with a single-use token
+      description: >-
+        Consumes the emailed reset token, updates the password, and revokes
+        every device session for the account.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password]
+              properties:
+                token: { type: string, minLength: 32, maxLength: 256 }
+                password: { type: string, minLength: 8, maxLength: 128 }
+      responses:
+        '200':
+          description: Password updated and sessions revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok: { type: boolean, enum: [true] }
+        '400':
+          description: Invalid body or invalid_or_expired_token
+        '429':
+          description: Rate limited
   /v1/auth/logout:
     post:
       summary: Logout current user session

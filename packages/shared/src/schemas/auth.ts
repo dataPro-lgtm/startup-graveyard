@@ -16,6 +16,23 @@ export const refreshBodySchema = z.object({
   refreshToken: z.string().min(1).optional(),
 });
 
+export const forgotPasswordBodySchema = z.object({
+  email: z.string().email().toLowerCase().trim(),
+});
+
+export const resetPasswordBodySchema = z.object({
+  token: z.string().min(32).max(256),
+  password: z.string().min(8).max(128),
+});
+
+export const forgotPasswordResponseSchema = z.object({
+  ok: z.literal(true),
+});
+
+export const resetPasswordResponseSchema = z.object({
+  ok: z.literal(true),
+});
+
 export const subscriptionTierSchema = z.enum(SUBSCRIPTION_TIERS);
 export const billingStatusSchema = z.enum(BILLING_STATUSES);
 export const billingIntervalSchema = z.enum(BILLING_INTERVALS);
@@ -110,6 +127,8 @@ export const meResponseSchema = userSchema;
 
 export type RegisterBody = z.infer<typeof registerBodySchema>;
 export type LoginBody = z.infer<typeof loginBodySchema>;
+export type ForgotPasswordBody = z.infer<typeof forgotPasswordBodySchema>;
+export type ResetPasswordBody = z.infer<typeof resetPasswordBodySchema>;
 export type AuthResponse = z.infer<typeof authResponseSchema>;
 export type UserProfile = z.infer<typeof userSchema>;
 export type AdminRole = z.infer<typeof adminRoleSchema>;
