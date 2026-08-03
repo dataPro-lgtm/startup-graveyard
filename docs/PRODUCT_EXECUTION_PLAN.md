@@ -1,6 +1,6 @@
 # Startup Graveyard 产品推进执行计划
 
-更新时间：2026-08-02
+更新时间：2026-08-03
 
 ## 1. 当前结论
 
@@ -175,3 +175,26 @@ Startup Graveyard 已经具备可运行 alpha 的完整骨架，不再缺“功�
 - `0038` 持久化每个告警和通道的冷却、失败重试、严重度升级与恢复投递状态，多实例只允许一个投递者领取。
 - Prometheus 配置和 5 条基础告警规则进入本地与 CI `promtool` 校验；操作手册见 `docs/OBSERVABILITY_RUNBOOK.md`。
 - 下一阶段转向商业价值验证：业务 SLO、200+ 治理案例、Copilot nightly eval、Stripe sandbox 生命周期和增长漏斗。
+
+## 12. M5 商业化就绪批次（2026-08-03，分支待合并）
+
+本批按"敢向真实用户收费"的最短路径补齐用户自助闭环与商业门面，四个 feature 分支待评审合并：
+
+| 分支                                     | 内容                                                                                                            | 验收                                        |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| `feature/m5-password-reset`              | 密码找回全链路：`0039` 摘要化一次性令牌、防枚举 forgot/reset 接口、限流+审计+重置后吊销全部设备会话、Web 页面   | 6 个新 mock 测试；typecheck/build 绿        |
+| `feature/m5-pricing-legal-pages`         | 独立 `/pricing`（权益由 shared billing 单一来源推导）、`/legal/terms`、`/legal/privacy`、全站页脚、sitemap      | 生产构建绿；浏览器实测渲染                  |
+| `feature/m5-email-verification`          | `0040` email_verified_at + 验证令牌、注册即发验证邮件、verify/resend 接口、Web 验证页（栈于 password-reset 上） | 5 个新 mock 测试；暂不做功能门控            |
+| `feature/m5-stripe-lifecycle-acceptance` | 订阅全生命周期合成事件验收（升降级/past-due/恢复/挂起取消/删除）+ 真实签名 HTTP webhook 重放与篡改负向          | 5 个新测试；真实 sandbox e2e 仍需运营方凭据 |
+
+合并顺序建议：password-reset -> email-verification（栈式）；pricing-legal 与 stripe-lifecycle 独立可并行。
+
+### M5 之后的优先级（更新）
+
+| 优先级 | 工作                                                      | 验收标准                                    |
+| ------ | --------------------------------------------------------- | ------------------------------------------- |
+| P0     | 拆分 `teamWorkspacesRepository`、admin stats 与 dashboard | 单文件不超过约 1500 行，领域模块有独立测试  |
+| P1     | Stripe sandbox 真实凭据端到端 + 邮箱验证接入功能门控策略  | sandbox checkout/portal 全流程可自动验收    |
+| P1     | 业务 SLO、集中 Collector 与 incident 演练                 | 关键链路有 SLO，告警可定位并按 runbook 恢复 |
+| P2     | 200+ 证据化案例、Copilot offline eval 与 nightly gate     | 引用命中、幻觉、降级和数据质量指标连续达标  |
+| P2     | OpenAPI 契约自动生成或契约测试，替代人工同步              | 契约漂移在 CI 中可检出                      |
