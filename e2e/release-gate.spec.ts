@@ -364,9 +364,19 @@ test('admin boundary blocks anonymous access and publishes a review-ready case',
   await expect(page.getByRole('link', { name: 'Release evidence' }).first()).toBeVisible();
 
   await page.goto('/admin/dashboard');
-  await expect(page.getByText('Ingestion Worker Health', { exact: true })).toBeVisible();
-  await expect(page.getByText('Scheduler Health', { exact: true })).toBeVisible();
-  await expect(page.getByText(/source runtime_heartbeat/)).toHaveCount(2);
+  // Streaming re-renders can briefly duplicate dashboard sections in the DOM,
+  // so anchor on the first match instead of a strict single-element locator.
+  const dashboardMain = page.getByRole('main');
+  await expect(
+    dashboardMain.getByText('Ingestion Worker Health', { exact: true }).first(),
+  ).toBeVisible();
+  await expect(dashboardMain.getByText('Scheduler Health', { exact: true }).first()).toBeVisible();
+  await expect(
+    dashboardMain.getByText(/source runtime_heartbeat · instance worker-/).first(),
+  ).toBeVisible();
+  await expect(
+    dashboardMain.getByText(/source runtime_heartbeat · instance scheduler-/).first(),
+  ).toBeVisible();
 
   const logout = await page.request.post('/admin/logout', { maxRedirects: 0 });
   expect(logout.status()).toBe(303);
