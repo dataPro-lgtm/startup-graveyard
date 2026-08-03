@@ -152,7 +152,9 @@ describe('device session security', () => {
     });
   });
 
-  it('caps active devices and revokes the oldest session', async () => {
+  // 1 register + 10 logins hash bcrypt at 12 rounds each; slow CI runners can
+  // exceed the default 5s test timeout, so give this test a CPU-bound budget.
+  it('caps active devices and revokes the oldest session', { timeout: 30_000 }, async () => {
     const email = `session-cap-${Date.now()}@example.com`;
     const oldest = (
       await app.inject({
