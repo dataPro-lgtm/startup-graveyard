@@ -54,6 +54,21 @@ export type UserBillingAccount = UserProfile & {
   stripeSubscriptionId: string | null;
 };
 
+export type PasswordResetTokenResult =
+  | {
+      ok: true;
+      userId: string;
+      email: string;
+      displayName: string | null;
+      token: string;
+      expiresAt: string;
+    }
+  | { ok: false; code: 'not_found' };
+
+export type PasswordResetResult =
+  | { ok: true; userId: string; email: string }
+  | { ok: false; code: 'invalid_or_expired_token' };
+
 export type UpdateBillingAccountInput = {
   subscription?: SubscriptionTier;
   billingStatus?: BillingStatus;
@@ -79,6 +94,8 @@ export interface UsersRepository {
   listSessions(userId: string): Promise<UserSessionRecord[]>;
   revokeSession(userId: string, sessionId: string): Promise<boolean>;
   revokeOtherSessions(userId: string, currentSessionId: string): Promise<number>;
+  createPasswordResetToken(email: string, ttlMinutes: number): Promise<PasswordResetTokenResult>;
+  resetPasswordWithToken(token: string, newPassword: string): Promise<PasswordResetResult>;
   getById(id: string): Promise<UserProfile | null>;
   setAdminRole(userId: string, adminRole: AdminRole | null): Promise<boolean>;
   getBillingAccount(userId: string): Promise<UserBillingAccount | null>;
@@ -247,6 +264,10 @@ export class MockUsersRepository implements UsersRepository {
     string,
     UserSessionRecord & { refreshTokenHash: string }
   >();
+  private readonly passwordResetTokens = new Map<
+    string,
+    { userId: string; expiresAt: string; usedAt: string | null }
+  >();
 
   constructor() {
     const adminId = randomUUID();
@@ -377,6 +398,55 @@ export class MockUsersRepository implements UsersRepository {
       }
     }
     return revokedCount;
+  }
+
+  async createPasswordResetToken(
+    email: string,
+    ttlMinutes: number,
+  ): Promise<PasswordResetTokenResult> {
+    const normalized = email.trim().toLowerCase();
+    const userId = this.userIdByEmail.get(normalized);
+    const user = userId ? this.users.get(userId) : undefined;
+    if (!userId || !user) return { ok: false, code: 'not_found' };
+
+    for (const [tokenHash, record] of this.passwordResetTokens.entries()) {
+      if (record.userId === userId && record.usedAt == null) {
+        this.passwordResetTokens.delete(tokenHash);
+      }
+    }
+
+    const token = generateRefreshToken();
+    const expiresAt = new Date(Date.now() + ttlMinutes * 60_000).toISOString();
+    this.passwordResetTokens.set(hashRefreshToken(token), {
+      userId,
+      expiresAt,
+      usedAt: null,
+    });
+    return {
+      ok: true,
+      userId,
+      email: user.email,
+      displayName: user.displayName,
+      token,
+      expiresAt,
+    };
+  }
+
+  async resetPasswordWithToken(token: string, newPassword: string): Promise<PasswordResetResult> {
+    const tokenHash = hashRefreshToken(token);
+    const record = this.passwordResetTokens.get(tokenHash);
+    if (!record || record.usedAt != null || new Date(record.expiresAt) <= new Date()) {
+      return { ok: false, code: 'invalid_or_expired_token' };
+    }
+    const user = this.users.get(record.userId);
+    if (!user) return { ok: false, code: 'invalid_or_expired_token' };
+
+    const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+    this.users.set(user.id, { ...user, passwordHash });
+    this.passwordResetTokens.set(tokenHash, { ...record, usedAt: new Date().toISOString() });
+    // A credential reset invalidates every device session for the account.
+    await this.logout(user.id);
+    return { ok: true, userId: user.id, email: user.email };
   }
 
   async getById(id: string): Promise<UserProfile | null> {
@@ -786,6 +856,88 @@ export class PgUsersRepository implements UsersRepository {
       [userId, currentSessionId],
     );
     return rowCount ?? 0;
+  }
+
+  async createPasswordResetToken(
+    email: string,
+    ttlMinutes: number,
+  ): Promise<PasswordResetTokenResult> {
+    const { rows } = await this.pool.query<{
+      id: string;
+      email: string;
+      display_name: string | null;
+    }>(`SELECT id, email, display_name FROM users WHERE email = $1`, [email]);
+    if (rows.length === 0) return { ok: false, code: 'not_found' };
+
+    const token = generateRefreshToken();
+    const expiresAt = new Date(Date.now() + ttlMinutes * 60_000);
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `DELETE FROM password_reset_tokens WHERE user_id = $1 AND used_at IS NULL`,
+        [rows[0].id],
+      );
+      await client.query(
+        `INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
+         VALUES ($1, $2, $3)`,
+        [rows[0].id, hashRefreshToken(token), expiresAt],
+      );
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+
+    return {
+      ok: true,
+      userId: rows[0].id,
+      email: rows[0].email,
+      displayName: rows[0].display_name,
+      token,
+      expiresAt: expiresAt.toISOString(),
+    };
+  }
+
+  async resetPasswordWithToken(token: string, newPassword: string): Promise<PasswordResetResult> {
+    const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const { rows } = await client.query<{ id: string; user_id: string; email: string }>(
+        `SELECT prt.id, prt.user_id, u.email
+         FROM password_reset_tokens prt
+         JOIN users u ON u.id = prt.user_id
+         WHERE prt.token_hash = $1
+           AND prt.used_at IS NULL
+           AND prt.expires_at > NOW()
+         FOR UPDATE OF prt`,
+        [hashRefreshToken(token)],
+      );
+      if (rows.length === 0) {
+        await client.query('ROLLBACK');
+        return { ok: false, code: 'invalid_or_expired_token' };
+      }
+
+      await client.query(`UPDATE users SET password_hash = $2, updated_at = NOW() WHERE id = $1`, [
+        rows[0].user_id,
+        passwordHash,
+      ]);
+      await client.query(`UPDATE password_reset_tokens SET used_at = NOW() WHERE id = $1`, [
+        rows[0].id,
+      ]);
+      // A credential reset invalidates every device session for the account.
+      await client.query(`DELETE FROM user_sessions WHERE user_id = $1`, [rows[0].user_id]);
+      await client.query('COMMIT');
+      return { ok: true, userId: rows[0].user_id, email: rows[0].email };
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async getById(id: string): Promise<UserProfile | null> {
