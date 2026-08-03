@@ -64,6 +64,19 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           .sg-site-brand { margin-right: auto; }
           .sg-primary-nav { display: flex; align-items: center; gap: 20px; }
           .sg-user-nav { min-width: 0; }
+          .sg-site-footer {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px 20px;
+            margin-top: 48px;
+            padding: 20px;
+            border-top: 1px solid #1d2746;
+            font-size: 13px;
+          }
+          .sg-footer-nav { display: flex; flex-wrap: wrap; gap: 16px; }
+          .sg-footer-nav a { color: #9fb3ff; text-decoration: none; }
           @media (max-width: 720px) {
             .sg-site-header { flex-wrap: wrap; gap: 10px 14px; padding: 12px 16px; }
             .sg-site-brand { max-width: 48%; }
@@ -108,12 +121,30 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               >
                 Failure Copilot
               </a>
+              <a href="/pricing" style={{ color: '#9fb3ff', textDecoration: 'none' }}>
+                Pricing
+              </a>
             </nav>
             <div className="sg-user-nav">
               <UserNav />
             </div>
           </header>
           {children}
+          <footer className="sg-site-footer">
+            <span style={{ color: '#6b7ca8' }}>© {new Date().getFullYear()} Startup Graveyard</span>
+            <nav className="sg-footer-nav" aria-label="Footer navigation">
+              <a href="/pricing">定价</a>
+              <a href="/legal/terms">服务条款</a>
+              <a href="/legal/privacy">隐私政策</a>
+              <a
+                href="https://github.com/dataPro-lgtm/startup-graveyard"
+                target="_blank"
+                rel="noreferrer"
+              >
+                GitHub
+              </a>
+            </nav>
+          </footer>
         </AuthProvider>
       </body>
     </html>
