@@ -37,6 +37,27 @@ export async function apiLogout(): Promise<void> {
   await post('/v1/auth/logout', {});
 }
 
+export async function apiForgotPassword(email: string): Promise<{ ok: true } | ApiError> {
+  return post<{ ok: true }>('/v1/auth/password/forgot', { email });
+}
+
+export async function apiResetPassword(
+  token: string,
+  password: string,
+): Promise<{ ok: true } | ApiError> {
+  return post<{ ok: true }>('/v1/auth/password/reset', { token, password });
+}
+
+export async function apiVerifyEmail(token: string): Promise<{ ok: true } | ApiError> {
+  return post<{ ok: true }>('/v1/auth/email/verify', { token });
+}
+
+export async function apiResendVerification(): Promise<
+  { ok: true; alreadyVerified: boolean } | ApiError
+> {
+  return post<{ ok: true; alreadyVerified: boolean }>('/v1/auth/email/resend', {});
+}
+
 export async function apiMe(): Promise<UserProfile | ApiError> {
   const res = await apiFetch('/v1/auth/me');
   return res.json() as Promise<UserProfile | ApiError>;

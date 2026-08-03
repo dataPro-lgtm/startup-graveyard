@@ -1,14 +1,21 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import {
+  forgotPasswordBodySchema,
+  verifyEmailBodySchema,
+  resendVerificationResponseSchema,
   loginBodySchema,
   registerBodySchema,
   refreshBodySchema,
+  resetPasswordBodySchema,
   revokeOtherSessionsResponseSchema,
   revokeSessionResponseSchema,
   userSessionParamsSchema,
   userSessionsResponseSchema,
 } from '@sg/shared/schemas/auth';
+import { config } from '../../config/index.js';
 import { verifyAccessToken } from '../../auth/tokens.js';
+import { sendPasswordResetEmail } from '../../auth/sendPasswordResetEmail.js';
+import { sendVerificationEmail } from '../../auth/sendVerificationEmail.js';
 import { requireAccessPayload, resolveEffectiveUser } from './authedUser.js';
 import { routeRateLimit } from '../../security/requestSecurity.js';
 import {
@@ -24,6 +31,36 @@ function sessionContext(request: FastifyRequest) {
     ipAddress: request.ip,
     userAgent: request.headers['user-agent']?.slice(0, 512) ?? null,
   };
+}
+
+async function issueVerificationEmail(
+  app: FastifyInstance,
+  log: FastifyRequest['log'],
+  userId: string,
+): Promise<void> {
+  const issued = await app.usersRepo.createEmailVerificationToken(
+    userId,
+    config.authEmail.emailVerificationTtlMinutes,
+  );
+  if (!issued.ok) return;
+
+  const verifyUrl = `${config.web.baseUrl}/auth/verify-email?token=${encodeURIComponent(
+    issued.token,
+  )}`;
+  if (config.hasAuthEmail) {
+    try {
+      await sendVerificationEmail({
+        to: issued.email,
+        displayName: issued.displayName,
+        verifyUrl,
+        expiresMinutes: config.authEmail.emailVerificationTtlMinutes,
+      });
+    } catch (error) {
+      log.error({ err: error, userId }, 'verification email delivery failed');
+    }
+  } else {
+    log.warn({ userId }, 'auth email not configured; verification link was not delivered');
+  }
 }
 
 export async function authRoutes(app: FastifyInstance) {
@@ -49,6 +86,8 @@ export async function authRoutes(app: FastifyInstance) {
         }
         return reply.code(400).send({ error: result.code });
       }
+
+      await issueVerificationEmail(app, request.log, result.user.id);
 
       setAuthCookies(reply, result);
       return reply
@@ -101,6 +140,114 @@ export async function authRoutes(app: FastifyInstance) {
       return reply.send(
         authResponseBody(request, result, await resolveEffectiveUser(app, result.user)),
       );
+    },
+  );
+
+  // ── POST /v1/auth/password/forgot ────────────────────────────────────────
+  app.post(
+    '/password/forgot',
+    { config: { rateLimit: routeRateLimit('auth') } },
+    async (request, reply) => {
+      const parsed = forgotPasswordBodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) return reply.code(400).send({ error: 'invalid_body' });
+
+      const result = await app.usersRepo.createPasswordResetToken(
+        parsed.data.email,
+        config.authEmail.passwordResetTokenTtlMinutes,
+      );
+      if (result.ok) {
+        const resetUrl = `${config.web.baseUrl}/auth/reset-password?token=${encodeURIComponent(
+          result.token,
+        )}`;
+        if (config.hasAuthEmail) {
+          try {
+            await sendPasswordResetEmail({
+              to: result.email,
+              displayName: result.displayName,
+              resetUrl,
+              expiresMinutes: config.authEmail.passwordResetTokenTtlMinutes,
+            });
+          } catch (error) {
+            request.log.error({ err: error }, 'password reset email delivery failed');
+          }
+        } else {
+          request.log.warn(
+            { userId: result.userId },
+            'auth email not configured; password reset link was not delivered',
+          );
+        }
+        await app.auditRepo.record({
+          action: 'auth.password_reset_requested',
+          metadata: { userId: result.userId },
+        });
+      }
+
+      // Always report success so the endpoint cannot be used to enumerate accounts.
+      return reply.send({ ok: true });
+    },
+  );
+
+  // ── POST /v1/auth/password/reset ─────────────────────────────────────────
+  app.post(
+    '/password/reset',
+    { config: { rateLimit: routeRateLimit('auth') } },
+    async (request, reply) => {
+      const parsed = resetPasswordBodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
+        return reply.code(400).send({ error: 'invalid_body', details: parsed.error.flatten() });
+      }
+
+      const result = await app.usersRepo.resetPasswordWithToken(
+        parsed.data.token,
+        parsed.data.password,
+      );
+      if (!result.ok) return reply.code(400).send({ error: result.code });
+
+      await app.auditRepo.record({
+        action: 'auth.password_reset_completed',
+        metadata: { userId: result.userId },
+      });
+      clearAuthCookies(reply);
+      return reply.send({ ok: true });
+    },
+  );
+
+  // ── POST /v1/auth/email/verify ───────────────────────────────────────────
+  app.post(
+    '/email/verify',
+    { config: { rateLimit: routeRateLimit('auth') } },
+    async (request, reply) => {
+      const parsed = verifyEmailBodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) return reply.code(400).send({ error: 'invalid_body' });
+
+      const result = await app.usersRepo.verifyEmailWithToken(parsed.data.token);
+      if (!result.ok) return reply.code(400).send({ error: result.code });
+
+      await app.auditRepo.record({
+        action: 'auth.email_verified',
+        metadata: { userId: result.userId },
+      });
+      return reply.send({ ok: true });
+    },
+  );
+
+  // ── POST /v1/auth/email/resend ───────────────────────────────────────────
+  app.post(
+    '/email/resend',
+    { config: { rateLimit: routeRateLimit('auth') } },
+    async (request, reply) => {
+      const payload = await requireAccessPayload(app, request, reply);
+      if (!payload) return reply;
+
+      const user = await app.usersRepo.getById(payload.sub);
+      if (!user) return reply.code(404).send({ error: 'user_not_found' });
+
+      if (user.emailVerifiedAt != null) {
+        return resendVerificationResponseSchema.parse({ ok: true, alreadyVerified: true });
+      }
+
+      await issueVerificationEmail(app, request.log, user.id);
+      return resendVerificationResponseSchema.parse({ ok: true, alreadyVerified: false });
     },
   );
 

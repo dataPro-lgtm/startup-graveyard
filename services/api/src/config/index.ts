@@ -199,6 +199,37 @@ export const config = {
   get hasStripe(): boolean {
     return (process.env.STRIPE_SECRET_KEY?.trim() ?? '').startsWith('sk_');
   },
+  // Transactional auth email (password reset). Falls back to the recovery
+  // outreach SMTP settings so single-mailbox deployments configure SMTP once.
+  get authEmail() {
+    const fallback = this.recoveryOutreach;
+    return {
+      smtpHost: process.env.AUTH_EMAIL_SMTP_HOST?.trim() || fallback.emailSmtpHost,
+      smtpPort:
+        Math.max(1, Math.trunc(Number(process.env.AUTH_EMAIL_SMTP_PORT ?? 0)) || 0) ||
+        fallback.emailSmtpPort,
+      smtpSecure:
+        process.env.AUTH_EMAIL_SMTP_SECURE != null
+          ? process.env.AUTH_EMAIL_SMTP_SECURE === 'true'
+          : fallback.emailSmtpSecure,
+      smtpUser: process.env.AUTH_EMAIL_SMTP_USER?.trim() || fallback.emailSmtpUser,
+      smtpPass: process.env.AUTH_EMAIL_SMTP_PASS ?? fallback.emailSmtpPass,
+      from: process.env.AUTH_EMAIL_FROM?.trim() || fallback.emailFrom,
+      replyTo: process.env.AUTH_EMAIL_REPLY_TO?.trim() || fallback.emailReplyTo,
+      timeoutMs: Number(process.env.AUTH_EMAIL_TIMEOUT_MS ?? fallback.emailTimeoutMs),
+      passwordResetTokenTtlMinutes: Math.max(
+        5,
+        Math.trunc(Number(process.env.AUTH_PASSWORD_RESET_TTL_MINUTES ?? 30)) || 30,
+      ),
+      emailVerificationTtlMinutes: Math.max(
+        30,
+        Math.trunc(Number(process.env.AUTH_EMAIL_VERIFICATION_TTL_MINUTES ?? 1440)) || 1440,
+      ),
+    };
+  },
+  get hasAuthEmail(): boolean {
+    return this.authEmail.smtpHost.length > 0 && this.authEmail.from.length > 0;
+  },
   get hasRecoveryOutreachWebhook(): boolean {
     return (process.env.TEAM_WORKSPACE_RECOVERY_WEBHOOK_URL?.trim() ?? '').length > 0;
   },
