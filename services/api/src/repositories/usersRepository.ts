@@ -69,6 +69,21 @@ export type PasswordResetResult =
   | { ok: true; userId: string; email: string }
   | { ok: false; code: 'invalid_or_expired_token' };
 
+export type EmailVerificationTokenResult =
+  | {
+      ok: true;
+      userId: string;
+      email: string;
+      displayName: string | null;
+      token: string;
+      expiresAt: string;
+    }
+  | { ok: false; code: 'not_found' | 'already_verified' };
+
+export type EmailVerificationResult =
+  | { ok: true; userId: string; email: string }
+  | { ok: false; code: 'invalid_or_expired_token' };
+
 export type UpdateBillingAccountInput = {
   subscription?: SubscriptionTier;
   billingStatus?: BillingStatus;
@@ -96,6 +111,11 @@ export interface UsersRepository {
   revokeOtherSessions(userId: string, currentSessionId: string): Promise<number>;
   createPasswordResetToken(email: string, ttlMinutes: number): Promise<PasswordResetTokenResult>;
   resetPasswordWithToken(token: string, newPassword: string): Promise<PasswordResetResult>;
+  createEmailVerificationToken(
+    userId: string,
+    ttlMinutes: number,
+  ): Promise<EmailVerificationTokenResult>;
+  verifyEmailWithToken(token: string): Promise<EmailVerificationResult>;
   getById(id: string): Promise<UserProfile | null>;
   setAdminRole(userId: string, adminRole: AdminRole | null): Promise<boolean>;
   getBillingAccount(userId: string): Promise<UserBillingAccount | null>;
@@ -108,6 +128,7 @@ export interface UsersRepository {
 interface UserRow {
   id: string;
   email: string;
+  email_verified_at: string | null;
   password_hash: string;
   display_name: string | null;
   subscription: SubscriptionTier;
@@ -131,6 +152,7 @@ const MAX_ACTIVE_SESSIONS = 10;
 const USER_SELECT_COLUMNS = `
   id,
   email,
+  email_verified_at,
   password_hash,
   display_name,
   subscription,
@@ -155,6 +177,7 @@ function rowToProfile(row: UserRow): UserProfile {
   return {
     id: row.id,
     email: row.email,
+    emailVerifiedAt: toIsoString(row.email_verified_at) ?? null,
     displayName: row.display_name,
     subscription: row.subscription,
     billingStatus: row.billing_status,
@@ -237,6 +260,7 @@ function createMockUserRecord(input: {
   const row: UserRow = {
     id: input.id,
     email: input.email,
+    email_verified_at: null,
     password_hash: input.passwordHash,
     display_name: input.displayName,
     subscription,
@@ -265,6 +289,10 @@ export class MockUsersRepository implements UsersRepository {
     UserSessionRecord & { refreshTokenHash: string }
   >();
   private readonly passwordResetTokens = new Map<
+    string,
+    { userId: string; expiresAt: string; usedAt: string | null }
+  >();
+  private readonly emailVerificationTokens = new Map<
     string,
     { userId: string; expiresAt: string; usedAt: string | null }
   >();
@@ -449,6 +477,51 @@ export class MockUsersRepository implements UsersRepository {
     return { ok: true, userId: user.id, email: user.email };
   }
 
+  async createEmailVerificationToken(
+    userId: string,
+    ttlMinutes: number,
+  ): Promise<EmailVerificationTokenResult> {
+    const user = this.users.get(userId);
+    if (!user) return { ok: false, code: 'not_found' };
+    if (user.emailVerifiedAt != null) return { ok: false, code: 'already_verified' };
+
+    for (const [tokenHash, record] of this.emailVerificationTokens.entries()) {
+      if (record.userId === userId && record.usedAt == null) {
+        this.emailVerificationTokens.delete(tokenHash);
+      }
+    }
+
+    const token = generateRefreshToken();
+    const expiresAt = new Date(Date.now() + ttlMinutes * 60_000).toISOString();
+    this.emailVerificationTokens.set(hashRefreshToken(token), {
+      userId,
+      expiresAt,
+      usedAt: null,
+    });
+    return {
+      ok: true,
+      userId,
+      email: user.email,
+      displayName: user.displayName,
+      token,
+      expiresAt,
+    };
+  }
+
+  async verifyEmailWithToken(token: string): Promise<EmailVerificationResult> {
+    const tokenHash = hashRefreshToken(token);
+    const record = this.emailVerificationTokens.get(tokenHash);
+    if (!record || record.usedAt != null || new Date(record.expiresAt) <= new Date()) {
+      return { ok: false, code: 'invalid_or_expired_token' };
+    }
+    const user = this.users.get(record.userId);
+    if (!user) return { ok: false, code: 'invalid_or_expired_token' };
+
+    this.users.set(user.id, { ...user, emailVerifiedAt: new Date().toISOString() });
+    this.emailVerificationTokens.set(tokenHash, { ...record, usedAt: new Date().toISOString() });
+    return { ok: true, userId: user.id, email: user.email };
+  }
+
   async getById(id: string): Promise<UserProfile | null> {
     const user = this.users.get(id);
     return user ? this.toUserProfile(user) : null;
@@ -591,6 +664,7 @@ export class MockUsersRepository implements UsersRepository {
     return {
       id: user.id,
       email: user.email,
+      emailVerifiedAt: user.emailVerifiedAt,
       displayName: user.displayName,
       subscription: user.subscription,
       billingStatus: user.billingStatus,
@@ -930,6 +1004,90 @@ export class PgUsersRepository implements UsersRepository {
       ]);
       // A credential reset invalidates every device session for the account.
       await client.query(`DELETE FROM user_sessions WHERE user_id = $1`, [rows[0].user_id]);
+      await client.query('COMMIT');
+      return { ok: true, userId: rows[0].user_id, email: rows[0].email };
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async createEmailVerificationToken(
+    userId: string,
+    ttlMinutes: number,
+  ): Promise<EmailVerificationTokenResult> {
+    const { rows } = await this.pool.query<{
+      id: string;
+      email: string;
+      email_verified_at: string | null;
+      display_name: string | null;
+    }>(`SELECT id, email, email_verified_at, display_name FROM users WHERE id = $1`, [userId]);
+    if (rows.length === 0) return { ok: false, code: 'not_found' };
+    if (rows[0].email_verified_at != null) return { ok: false, code: 'already_verified' };
+
+    const token = generateRefreshToken();
+    const expiresAt = new Date(Date.now() + ttlMinutes * 60_000);
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        `DELETE FROM email_verification_tokens WHERE user_id = $1 AND used_at IS NULL`,
+        [userId],
+      );
+      await client.query(
+        `INSERT INTO email_verification_tokens (user_id, token_hash, expires_at)
+         VALUES ($1, $2, $3)`,
+        [userId, hashRefreshToken(token), expiresAt],
+      );
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+
+    return {
+      ok: true,
+      userId,
+      email: rows[0].email,
+      displayName: rows[0].display_name,
+      token,
+      expiresAt: expiresAt.toISOString(),
+    };
+  }
+
+  async verifyEmailWithToken(token: string): Promise<EmailVerificationResult> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const { rows } = await client.query<{ id: string; user_id: string; email: string }>(
+        `SELECT evt.id, evt.user_id, u.email
+         FROM email_verification_tokens evt
+         JOIN users u ON u.id = evt.user_id
+         WHERE evt.token_hash = $1
+           AND evt.used_at IS NULL
+           AND evt.expires_at > NOW()
+         FOR UPDATE OF evt`,
+        [hashRefreshToken(token)],
+      );
+      if (rows.length === 0) {
+        await client.query('ROLLBACK');
+        return { ok: false, code: 'invalid_or_expired_token' };
+      }
+
+      await client.query(
+        `UPDATE users
+         SET email_verified_at = COALESCE(email_verified_at, NOW()),
+             updated_at = NOW()
+         WHERE id = $1`,
+        [rows[0].user_id],
+      );
+      await client.query(`UPDATE email_verification_tokens SET used_at = NOW() WHERE id = $1`, [
+        rows[0].id,
+      ]);
       await client.query('COMMIT');
       return { ok: true, userId: rows[0].user_id, email: rows[0].email };
     } catch (error) {
