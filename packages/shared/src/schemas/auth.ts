@@ -33,6 +33,19 @@ export const resetPasswordResponseSchema = z.object({
   ok: z.literal(true),
 });
 
+export const verifyEmailBodySchema = z.object({
+  token: z.string().min(32).max(256),
+});
+
+export const verifyEmailResponseSchema = z.object({
+  ok: z.literal(true),
+});
+
+export const resendVerificationResponseSchema = z.object({
+  ok: z.literal(true),
+  alreadyVerified: z.boolean(),
+});
+
 export const subscriptionTierSchema = z.enum(SUBSCRIPTION_TIERS);
 export const billingStatusSchema = z.enum(BILLING_STATUSES);
 export const billingIntervalSchema = z.enum(BILLING_INTERVALS);
@@ -72,6 +85,7 @@ export const workspaceAccessSchema = z.object({
 export const userSchema = z.object({
   id: z.string().uuid(),
   email: z.string().email(),
+  emailVerifiedAt: z.string().nullable(),
   displayName: z.string().nullable(),
   subscription: subscriptionTierSchema,
   billingStatus: billingStatusSchema,

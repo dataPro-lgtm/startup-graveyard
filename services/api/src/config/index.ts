@@ -221,6 +221,10 @@ export const config = {
         5,
         Math.trunc(Number(process.env.AUTH_PASSWORD_RESET_TTL_MINUTES ?? 30)) || 30,
       ),
+      emailVerificationTtlMinutes: Math.max(
+        30,
+        Math.trunc(Number(process.env.AUTH_EMAIL_VERIFICATION_TTL_MINUTES ?? 1440)) || 1440,
+      ),
     };
   },
   get hasAuthEmail(): boolean {

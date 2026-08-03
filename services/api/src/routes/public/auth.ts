@@ -1,6 +1,8 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import {
   forgotPasswordBodySchema,
+  verifyEmailBodySchema,
+  resendVerificationResponseSchema,
   loginBodySchema,
   registerBodySchema,
   refreshBodySchema,
@@ -13,6 +15,7 @@ import {
 import { config } from '../../config/index.js';
 import { verifyAccessToken } from '../../auth/tokens.js';
 import { sendPasswordResetEmail } from '../../auth/sendPasswordResetEmail.js';
+import { sendVerificationEmail } from '../../auth/sendVerificationEmail.js';
 import { requireAccessPayload, resolveEffectiveUser } from './authedUser.js';
 import { routeRateLimit } from '../../security/requestSecurity.js';
 import {
@@ -28,6 +31,36 @@ function sessionContext(request: FastifyRequest) {
     ipAddress: request.ip,
     userAgent: request.headers['user-agent']?.slice(0, 512) ?? null,
   };
+}
+
+async function issueVerificationEmail(
+  app: FastifyInstance,
+  log: FastifyRequest['log'],
+  userId: string,
+): Promise<void> {
+  const issued = await app.usersRepo.createEmailVerificationToken(
+    userId,
+    config.authEmail.emailVerificationTtlMinutes,
+  );
+  if (!issued.ok) return;
+
+  const verifyUrl = `${config.web.baseUrl}/auth/verify-email?token=${encodeURIComponent(
+    issued.token,
+  )}`;
+  if (config.hasAuthEmail) {
+    try {
+      await sendVerificationEmail({
+        to: issued.email,
+        displayName: issued.displayName,
+        verifyUrl,
+        expiresMinutes: config.authEmail.emailVerificationTtlMinutes,
+      });
+    } catch (error) {
+      log.error({ err: error, userId }, 'verification email delivery failed');
+    }
+  } else {
+    log.warn({ userId }, 'auth email not configured; verification link was not delivered');
+  }
 }
 
 export async function authRoutes(app: FastifyInstance) {
@@ -53,6 +86,8 @@ export async function authRoutes(app: FastifyInstance) {
         }
         return reply.code(400).send({ error: result.code });
       }
+
+      await issueVerificationEmail(app, request.log, result.user.id);
 
       setAuthCookies(reply, result);
       return reply
@@ -174,6 +209,45 @@ export async function authRoutes(app: FastifyInstance) {
       });
       clearAuthCookies(reply);
       return reply.send({ ok: true });
+    },
+  );
+
+  // ── POST /v1/auth/email/verify ───────────────────────────────────────────
+  app.post(
+    '/email/verify',
+    { config: { rateLimit: routeRateLimit('auth') } },
+    async (request, reply) => {
+      const parsed = verifyEmailBodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) return reply.code(400).send({ error: 'invalid_body' });
+
+      const result = await app.usersRepo.verifyEmailWithToken(parsed.data.token);
+      if (!result.ok) return reply.code(400).send({ error: result.code });
+
+      await app.auditRepo.record({
+        action: 'auth.email_verified',
+        metadata: { userId: result.userId },
+      });
+      return reply.send({ ok: true });
+    },
+  );
+
+  // ── POST /v1/auth/email/resend ───────────────────────────────────────────
+  app.post(
+    '/email/resend',
+    { config: { rateLimit: routeRateLimit('auth') } },
+    async (request, reply) => {
+      const payload = await requireAccessPayload(app, request, reply);
+      if (!payload) return reply;
+
+      const user = await app.usersRepo.getById(payload.sub);
+      if (!user) return reply.code(404).send({ error: 'user_not_found' });
+
+      if (user.emailVerifiedAt != null) {
+        return resendVerificationResponseSchema.parse({ ok: true, alreadyVerified: true });
+      }
+
+      await issueVerificationEmail(app, request.log, user.id);
+      return resendVerificationResponseSchema.parse({ ok: true, alreadyVerified: false });
     },
   );
 

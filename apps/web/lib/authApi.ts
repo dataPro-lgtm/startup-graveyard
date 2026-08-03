@@ -48,6 +48,16 @@ export async function apiResetPassword(
   return post<{ ok: true }>('/v1/auth/password/reset', { token, password });
 }
 
+export async function apiVerifyEmail(token: string): Promise<{ ok: true } | ApiError> {
+  return post<{ ok: true }>('/v1/auth/email/verify', { token });
+}
+
+export async function apiResendVerification(): Promise<
+  { ok: true; alreadyVerified: boolean } | ApiError
+> {
+  return post<{ ok: true; alreadyVerified: boolean }>('/v1/auth/email/resend', {});
+}
+
 export async function apiMe(): Promise<UserProfile | ApiError> {
   const res = await apiFetch('/v1/auth/me');
   return res.json() as Promise<UserProfile | ApiError>;

@@ -3049,6 +3049,53 @@ paths:
           description: Invalid body or invalid_or_expired_token
         '429':
           description: Rate limited
+  /v1/auth/email/verify:
+    post:
+      summary: Verify the account email with a single-use token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string, minLength: 32, maxLength: 256 }
+      responses:
+        '200':
+          description: Email verified
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok]
+                properties:
+                  ok: { type: boolean, enum: [true] }
+        '400':
+          description: Invalid body or invalid_or_expired_token
+        '429':
+          description: Rate limited
+  /v1/auth/email/resend:
+    post:
+      summary: Resend the verification email for the authenticated account
+      security:
+        - BearerAuth: []
+        - CookieAuth: []
+      responses:
+        '200':
+          description: Request accepted; alreadyVerified reports current state
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, alreadyVerified]
+                properties:
+                  ok: { type: boolean, enum: [true] }
+                  alreadyVerified: { type: boolean }
+        '401':
+          description: Unauthorized
+        '429':
+          description: Rate limited
   /v1/auth/logout:
     post:
       summary: Logout current user session
