@@ -54,6 +54,10 @@ export default function LoginPage() {
           <Link href="/auth/register" style={{ color: '#5b7cff' }}>
             免费注册
           </Link>
+          {' · '}
+          <Link href="/auth/forgot-password" style={{ color: '#5b7cff' }}>
+            忘记密码？
+          </Link>
         </p>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>

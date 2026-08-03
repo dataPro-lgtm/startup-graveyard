@@ -1,14 +1,18 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import {
+  forgotPasswordBodySchema,
   loginBodySchema,
   registerBodySchema,
   refreshBodySchema,
+  resetPasswordBodySchema,
   revokeOtherSessionsResponseSchema,
   revokeSessionResponseSchema,
   userSessionParamsSchema,
   userSessionsResponseSchema,
 } from '@sg/shared/schemas/auth';
+import { config } from '../../config/index.js';
 import { verifyAccessToken } from '../../auth/tokens.js';
+import { sendPasswordResetEmail } from '../../auth/sendPasswordResetEmail.js';
 import { requireAccessPayload, resolveEffectiveUser } from './authedUser.js';
 import { routeRateLimit } from '../../security/requestSecurity.js';
 import {
@@ -101,6 +105,75 @@ export async function authRoutes(app: FastifyInstance) {
       return reply.send(
         authResponseBody(request, result, await resolveEffectiveUser(app, result.user)),
       );
+    },
+  );
+
+  // ── POST /v1/auth/password/forgot ────────────────────────────────────────
+  app.post(
+    '/password/forgot',
+    { config: { rateLimit: routeRateLimit('auth') } },
+    async (request, reply) => {
+      const parsed = forgotPasswordBodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) return reply.code(400).send({ error: 'invalid_body' });
+
+      const result = await app.usersRepo.createPasswordResetToken(
+        parsed.data.email,
+        config.authEmail.passwordResetTokenTtlMinutes,
+      );
+      if (result.ok) {
+        const resetUrl = `${config.web.baseUrl}/auth/reset-password?token=${encodeURIComponent(
+          result.token,
+        )}`;
+        if (config.hasAuthEmail) {
+          try {
+            await sendPasswordResetEmail({
+              to: result.email,
+              displayName: result.displayName,
+              resetUrl,
+              expiresMinutes: config.authEmail.passwordResetTokenTtlMinutes,
+            });
+          } catch (error) {
+            request.log.error({ err: error }, 'password reset email delivery failed');
+          }
+        } else {
+          request.log.warn(
+            { userId: result.userId },
+            'auth email not configured; password reset link was not delivered',
+          );
+        }
+        await app.auditRepo.record({
+          action: 'auth.password_reset_requested',
+          metadata: { userId: result.userId },
+        });
+      }
+
+      // Always report success so the endpoint cannot be used to enumerate accounts.
+      return reply.send({ ok: true });
+    },
+  );
+
+  // ── POST /v1/auth/password/reset ─────────────────────────────────────────
+  app.post(
+    '/password/reset',
+    { config: { rateLimit: routeRateLimit('auth') } },
+    async (request, reply) => {
+      const parsed = resetPasswordBodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
+        return reply.code(400).send({ error: 'invalid_body', details: parsed.error.flatten() });
+      }
+
+      const result = await app.usersRepo.resetPasswordWithToken(
+        parsed.data.token,
+        parsed.data.password,
+      );
+      if (!result.ok) return reply.code(400).send({ error: result.code });
+
+      await app.auditRepo.record({
+        action: 'auth.password_reset_completed',
+        metadata: { userId: result.userId },
+      });
+      clearAuthCookies(reply);
+      return reply.send({ ok: true });
     },
   );
 
